@@ -206,15 +206,27 @@ key_echo = true
         s = await st()
         check(s["cur"] is not None and s["cur"].startswith(("Populares", "Nuevos", "Top")), f"bajando varias filas hace scroll: {s['cur']!r}")
         check(not busy_texts(await log_since(n_nav)), "las acciones rápidas (flechas, paginado) no muestran el indicador")
+        hid = await ctl.cdp.evaluate("(() => { const f = document.querySelector('.nfx-focused'); "
+                                     "f.style.visibility = 'hidden'; f.dataset.nfxTest = '1'; return f.getAttribute('aria-label'); })()")
+        await asyncio.sleep(0.5)
+        s = await st()
+        check(s["cur"] != hid, f"si el elemento resaltado se oculta, el marco no queda colgado (sin tocar teclas): {hid} -> {s['cur']!r}")
+        await ctl.cdp.evaluate("document.querySelector('[data-nfx-test]').style.visibility = ''")
+        await asyncio.sleep(0.3)  # con reduce_effects hasta visibility tiene una transición (1 ms) que avanza por cuadros
+        await press("LEFT")
+        s = await st()
+        name, _, num = hid.rpartition(" ")
+        check(s["cur"] == f"{name} {int(num) - 1}",
+              f"y la próxima tecla sigue desde donde estaba (◀ desde {hid}): {s['cur']!r}")
 
         print("Modal")
         await press("SELECT", pause=0.8)
         s = await st()
         check(any(x.startswith("card:") and x.endswith(":trusted") for x in s["log"]), "OK abre la ficha con clic real")
         focused_before = [x for x in s["log"] if x.startswith("card:")][-1].split(":")[1]
-        await press("DOWN")
-        s = await st()
-        check(s["cur"] is not None and "Reproducir" in s["cur"], f"el foco entra al modal por «Reproducir»: {s['cur']!r}")
+        in_modal = await ctl.cdp.evaluate("!!(document.querySelector('.nfx-focused') || document.body).closest('[role=dialog]')")
+        check(s["cur"] is not None and "Reproducir" in s["cur"] and in_modal,
+              f"al abrirse la ficha, el marco pasa solo a su «Reproducir» (no queda sobre la tarjeta tapada): {s['cur']!r}")
         await press("DOWN")
         s = await st()
         check(s["cur"] is not None and ("Episodio" in s["cur"] or "Mi lista" in s["cur"]), f"y navega dentro del modal: {s['cur']!r}")

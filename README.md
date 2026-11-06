@@ -87,6 +87,8 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 | Canal + | — | Siguiente episodio |
 | 0 | — | Modo navegación (flechas para moverse por los controles) |
 
+Al abrirse una ficha, el resaltado pasa solo a su botón **Reproducir/Reanudar** (OK dos veces = abrir y reproducir), y al cerrarla vuelve a la tarjeta.
+
 Otros contextos:
 - **"¿Quién está viendo?"** (`profiles`): los números **1–5** eligen el perfil; también funcionan las flechas + OK.
 - **Menú sobre el reproductor** (`player_menu`): se detecta solo (selector de audio/subtítulos, episodios, pantalla final…) y las flechas navegan. Con **0** se fuerza este modo.

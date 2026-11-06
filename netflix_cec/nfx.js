@@ -15,7 +15,7 @@
     cur: null, lastRect: null, beforeModal: null, path: location.pathname,
     raf: 0, ringKey: '', toastTimer: 0, seekT: null, seekAt: 0,
     pagingRow: null, pagingIndex: -1, navMode: false, navModePath: '',
-    busyTimer: 0, echoTimer: 0,
+    busyTimer: 0, echoTimer: 0, staleAt: 0,
   };
 
   // ------------------------------------------------------------ utilidades
@@ -166,9 +166,35 @@
     return true;
   }
 
+  // El marco puede quedar "colgado" sin que se apriete ninguna tecla: se abrió una ficha encima del
+  // elemento resaltado, o el elemento se ocultó sin salir de la página. Se revisa unas veces por segundo
+  // mientras el marco está visible.
+  function staleCheck() {
+    const now = performance.now();
+    if (!S.cur || !S.cur.isConnected || now - S.staleAt < 150) return;
+    S.staleAt = now;
+    const modal = modalRoot();
+    if (modal && !modal.contains(S.cur)) {
+      // Ficha abierta encima: el resaltado pasa a su botón principal (al cerrarla vuelve a la tarjeta).
+      if (!S.beforeModal) S.beforeModal = S.cur;
+      S.lastRect = null;
+      setCur(initial(modal) || null, false);
+      return;
+    }
+    const r = S.cur.getBoundingClientRect();
+    const hidden = r.width < 4 || r.height < 4 || !cssVisible(S.cur)
+      || (C.respect_aria_hidden && !!closest(S.cur, '[aria-hidden="true"], [inert]'));
+    if (hidden) {
+      const rec = recover(modal || document);
+      setCur(rec.el && rec.near && rec.el !== S.cur ? rec.el : null, false);
+    }
+  }
+
   function ringLoop() {
     S.raf = 0;
     if (document.hidden) return;
+    staleCheck();          // puede mover el resaltado (y eso ya agenda el próximo cuadro)
+    if (S.raf) return;
     if (positionRing()) S.raf = requestAnimationFrame(ringLoop);
   }
 
