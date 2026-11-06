@@ -22,6 +22,7 @@ log = logging.getLogger("netflix")
 REPEATABLE = {"nav", "seek", "volume", "key", "type"}
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
 LONG = {"continue_watching", "profiles", "profile", "home", "launch", "macro", "wait", "reload"}
+PLAY_ACTIONS = {"play", "play_pause"}
 # Acciones que no necesitan el navegador.
 OFFLINE_OK = {"launch", "wait", "none", "macro"}
 
@@ -261,7 +262,8 @@ class Controller:
             log.info("Acción en curso cancelada por otra tecla")
 
         log.info("Tecla %s [%s] -> %s", label, self._ctx, action if isinstance(action, str) else " + ".join(map(str, action)))
-        if isinstance(action, list) or name in LONG:
+        # En la lista, PLAY abre la ficha y espera su botón: también va en segundo plano.
+        if isinstance(action, list) or name in LONG or (name in PLAY_ACTIONS and self._ctx == "browse"):
             self._macro_task = asyncio.create_task(self._run_bg(action))
         else:
             await self.run_action(action)
@@ -487,10 +489,50 @@ class Controller:
             await self.toast("Siguiente episodio", 1200)
 
     async def a_play_pause(self, arg: str) -> None:
+        if self._ctx == "browse":
+            await self.play_selected()
+            return
         await self._fallback(await self.js("playPause"))
 
     async def a_play(self, arg: str) -> None:
+        if self._ctx == "browse":
+            await self.play_selected()
+            return
         await self._fallback(await self.js("play"))
+
+    async def play_selected(self) -> bool:
+        """En la lista o en una ficha: reproducir el título resaltado (o el de la ficha)."""
+        r = await self.js("playSelected")
+        if r.get("none"):
+            await self.toast("No encontré «Reproducir» en la ficha" if r.get("modal")
+                             else "Elegí un título con las flechas")
+            return False
+        title = r.get("title") or r.get("label") or ""
+        log.info("Reproducir: %s", title or "?")
+        if r.get("href"):
+            await self.navigate(r["href"])
+            return True
+        if r.get("opened"):
+            return await self.open_and_play(r)
+        await self.apply_click(r)
+        return True
+
+    async def open_and_play(self, r: dict, timeout: float = 5.0) -> bool:
+        """Abre la ficha de una tarjeta y aprieta su botón «Reproducir» apenas aparece."""
+        await self.apply_click(r)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.3)
+            pb = await self.js("playButton")
+            if not pb.get("none"):
+                await asyncio.sleep(0.2)  # que termine la animación de apertura
+                pb = await self.js("playButton")
+                if not pb.get("none"):
+                    await self.apply_click(pb)
+                    return True
+        log.warning("La ficha no mostró el botón «Reproducir»")
+        await self.toast("No encontré «Reproducir» en la ficha")
+        return False
 
     async def a_pause(self, arg: str) -> None:
         await self._fallback(await self.js("pause"))
@@ -643,12 +685,8 @@ class Controller:
                 await self.navigate(r["href"])
                 return
             if r.get("opened"):
-                await self.apply_click(r)
-                await asyncio.sleep(1.5)
-                pb = await self.js("playButton")
-                if not pb.get("none"):
-                    await self.apply_click(pb)
-                    log.info("Seguir viendo: %s", r.get("title", "?"))
+                log.info("Seguir viendo: %s", r.get("title", "?"))
+                if await self.open_and_play(r):
                     return
             attempt += 1
             await asyncio.sleep(0.8)

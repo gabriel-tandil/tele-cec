@@ -82,7 +82,7 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 | 🟢 Verde | Seguir viendo | Seguir viendo |
 | 🔴 Rojo | Cambiar de perfil | Ciclar audio |
 | 🔵 Azul | Ir al inicio | Ciclar subtítulos |
-| Play / Pause | Play / pausa | Play / pausa |
+| ▶ Play / ⏯ Play-Pausa | Reproducir el título resaltado o el de la ficha abierta | Play / pausa |
 | ⏪ ⏩ · ⏮ Backward | — | −/+10 s · −10 s |
 | Canal + | — | Siguiente episodio |
 | 0 | — | Modo navegación (flechas para moverse por los controles) |
@@ -212,7 +212,7 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `continue_watching` | Retomar lo último de "Seguir viendo" |
 | `profiles` · `profile:N` | Abrir "¿Quién está viendo?" · elegir el perfil N |
 | `home` | Ir al inicio |
-| `play_pause` `play` `pause` | Reproducción |
+| `play_pause` `play` `pause` | Reproducción. En `browse`, `play` y `play_pause` reproducen el título resaltado (abren su ficha y aprietan «Reproducir») o el de la ficha abierta |
 | `seek:+10` `seek:-30` | Saltar segundos |
 | `volume:+` `volume:-` `mute` | Volumen del reproductor |
 | `subtitles` · `audio` | Ciclar subtítulos (incluye "desactivados") · ciclar idioma de audio |

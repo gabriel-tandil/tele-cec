@@ -87,7 +87,7 @@ F2_RED = "profiles"
 F3_GREEN = "continue_watching"
 F4_YELLOW = "smart_skip"
 FORWARD = "smart_skip"
-PLAY = "play"
+PLAY = "play"                 # en la lista o en una ficha: reproduce el título resaltado
 PAUSE = "pause"
 PAUSE_PLAY_FUNCTION = "play_pause"
 

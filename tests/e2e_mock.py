@@ -204,6 +204,36 @@ page_delay_ms = 650
         check(s["cur"] is not None and s["cur"] != focused_before and s["cur"].split()[0] == focused_before.split()[0],
               f"el foco vuelve a la fila de la tarjeta ({focused_before} -> {s['cur']!r})")
 
+        print("Tecla PLAY en la lista y en la ficha")
+        focused_href = "(document.querySelector('.nfx-focused') || document.body).getAttribute('href') || ''"
+        href = await ctl.cdp.evaluate(focused_href)
+        wid = href.split("=")[-1].split("/")[-1]
+        await press("PLAY", pause=1.5)
+        s = await st()
+        check(bool(wid) and s["path"] == f"/watch/{wid}", f"PLAY sobre una tarjeta reproduce ese título: {href} -> {s['path']}")
+        if new:
+            check(any(x.startswith("card:") for x in s["log"][-4:]), "(abriendo la ficha y apretando «Reproducir»)")
+        await ctl.navigate(f"{HOST}/browse")
+        await press("DOWN")
+        s = await st()
+        check(s["cur"] is not None and "Reproducir" in s["cur"], f"el primer foco es «Reproducir» de la portada: {s['cur']!r}")
+        await press("PLAY", pause=1.2)
+        s = await st()
+        check(s["path"].startswith("/watch/9"), f"PLAY sobre la portada la reproduce: {s['path']}")
+        await ctl.navigate(f"{HOST}/browse")
+        await press("DOWN", "DOWN")
+        href = await ctl.cdp.evaluate(focused_href)
+        wid = href.split("=")[-1].split("/")[-1]
+        await press("SELECT", pause=0.8)
+        check("modal-open" in " ".join((await st())["log"][-2:]), "OK abre la ficha")
+        await press("PAUSE_PLAY_FUNCTION", pause=1.2)
+        s = await st()
+        check(bool(wid) and s["path"] == f"/watch/{wid}", f"Play/Pausa con la ficha abierta reproduce ese título: {s['path']}")
+        await ctl.navigate(f"{HOST}/browse")
+        await press("PLAY", pause=0.6)
+        s = await st()
+        check(s["path"] == "/browse", "PLAY sin nada resaltado no hace nada (solo avisa)")
+
         print("Seguir viendo + reproductor")
         await press("F3_GREEN", pause=1.5)
         s = await st()

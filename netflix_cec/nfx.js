@@ -581,6 +581,28 @@
     return Object.assign(target(el), { label: textOf(el) });
   }
 
+  // Tecla PLAY fuera del reproductor: reproducir el título resaltado (o el de la ficha abierta).
+  const PLAY_SEL = '[data-uia="play-button"], [data-uia="play-video-button"], button[data-uia*="play"]';
+  function playSelected() {
+    if (inPlayer()) return { none: true };
+    const { modal } = current();
+    if (modal) {
+      const pb = playButton();
+      return pb.none ? { none: true, modal: true } : pb;
+    }
+    const el = S.cur;
+    if (!el || !el.isConnected) return { none: true };
+    const play = matches(el, PLAY_SEL) ? el : closest(el, PLAY_SEL);
+    if (play) return Object.assign(target(play), { label: textOf(play) });
+    const card = matches(el, C.card) ? el : closest(el, C.card) || $$(C.card, el)[0];
+    if (!card) return { none: true };
+    const href = card.getAttribute('href') || '';
+    const title = textOf(card);
+    if (/\/watch\//.test(href)) return { href: new URL(href, location.href).href, title };
+    scrollToShow(card);
+    return Object.assign(target(card), { opened: true, title });
+  }
+
   function navMode() {
     if (!inPlayer()) return { navMode: false };
     S.navMode = !S.navMode; S.navModePath = location.pathname;
@@ -641,7 +663,7 @@
 
   // ------------------------------------------------------------ API
   const API = {
-    ctx, nav, afterPage, activate, back, restore, smart, cw, profile, playButton, nextEpisode, navMode, toast, dump,
+    ctx, nav, afterPage, activate, back, restore, smart, cw, profile, playButton, playSelected, nextEpisode, navMode, toast, dump,
     profiles: () => ({ names: profileLinks().map(textOf) }),
     playPause: () => playPause(),
     play: () => playPause('play'),
