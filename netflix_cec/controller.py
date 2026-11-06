@@ -447,6 +447,10 @@ class Controller:
             log.info("Clic en: %s", r["label"])
 
     async def a_back(self, arg: str) -> None:
+        if self._ctx in ("player", "player_menu"):
+            # El botón "volver" del reproductor solo existe mientras se ven los controles; sin él,
+            # back() recurre a history.back(), que puede llevar al episodio anterior.
+            await self.wake_controls()
         r = await self.js("back")
         if r.get("key"):
             await self.key(r["key"])

@@ -635,7 +635,8 @@
     subtitles: () => cycleTrack('text'),
     audio: () => cycleTrack('audio'),
     hide: () => { setCur(null); return {}; },
-    controlsShown: () => ({ shown: !inPlayer() || candidates(current().root).length > 0 }),
+    // Con los controles ocultos puede quedar visible un solo botón suelto (p. ej. "Saltar intro").
+    controlsShown: () => ({ shown: !inPlayer() || anyShown(C.player_back) || candidates(current().root).length > 1 }),
     viewport: () => ({ w: vw(), h: vh() }),
   };
 

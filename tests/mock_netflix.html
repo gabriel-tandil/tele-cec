@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Netflix (simulado)</title>
+<!--
+  Imita la web de Netflix lo justo para probar netflix-cec sin cuenta ni DRM.
+
+  Dos diseños:
+    - "nuevo" (por defecto): el sitio actual (2026). Perfiles con data-uia="profile-selector+tile-…",
+      barra superior <nav data-uia="navigation"> sticky, portada con varios botones play-video-button
+      (uno solo visible), filas <section class="carousel-row"> con tarjetas <a data-uia="standard-card">
+      / "progress-card" sin texto (solo aria-label) que abren la ficha en /browse?jbv=ID, flechas
+      carousel-hawkins-* invisibles (opacity 0, ancho 0 si no hay más títulos), filas virtualizadas y un
+      reproductor que saca sus controles del DOM cuando se ocultan. Subtítulos sin pista "none": la opción
+      "Desactivados" es una pista forced narrative.
+    - "viejo": el sitio anterior (.lolomoRow, .title-card, .profile-link, .handleNext…).
+
+  El diseño se elige con ?layout=nuevo|viejo en cualquier URL y queda guardado en sessionStorage.
+-->
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #141414; color: #fff; font: 16px Helvetica, Arial, sans-serif; }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; }
+  footer { padding: 40px 4%; color: #888; } footer a { margin-right: 20px; }
+  .detail-modal { position: fixed; inset: 6vh 20vw; background: #181818; border-radius: 8px; z-index: 50; padding: 30px; overflow-y: auto; box-shadow: 0 0 60px #000; }
+  .detail-modal .episodes > * { display: block; width: 100%; margin: 8px 0; padding: 18px; background: #2a2a2a; color: #fff; border: 0; text-align: left; }
+  .skip { position: absolute; right: 4%; bottom: 18%; font-size: 20px; padding: 12px 24px; background: #fffc; color: #000; border: 0; border-radius: 4px; z-index: 3; }
+
+  /* ---------- diseño viejo ---------- */
+  .pinning-header { position: fixed; top: 0; left: 0; right: 0; height: 68px; z-index: 10; background: linear-gradient(#000c, #0000); }
+  .main-header { display: flex; gap: 24px; align-items: center; height: 68px; padding: 0 4%; }
+  .logo { color: #e50914; font-weight: 800; font-size: 26px; margin-right: 20px; }
+  .billboard { height: 420px; padding: 160px 4% 0; background: linear-gradient(90deg, #333, #141414); }
+  .billboard button { font-size: 20px; padding: 10px 26px; margin-right: 10px; border-radius: 4px; border: 0; }
+  .lolomoRow { margin: 2vw 0 3vw; }
+  .rowHeader { margin: 0 4% 8px; font-size: 1.4vw; }
+  .rowContainer { position: relative; }
+  .sliderMask { overflow: hidden; padding: 0 4%; }
+  .sliderContent { display: flex; transition: transform .45s ease; }
+  .slider-item { flex: 0 0 calc(100% / 6); padding: 0 .2vw; }
+  .title-card a { display: block; aspect-ratio: 16/9; border-radius: 4px; background: #2a2a2a; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  .handle { position: absolute; top: 0; bottom: 0; width: 4%; background: #0008; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; }
+  .handlePrev { left: 0; } .handleNext { right: 0; }
+  .list-profiles { padding-top: 25vh; text-align: center; }
+  .choose-profile { display: flex; gap: 2vw; justify-content: center; list-style: none; padding: 0; }
+  .profile-link { display: block; width: 10vw; } .avatar { width: 10vw; height: 10vw; border-radius: 6px; background: #3a6; }
+  .player { position: fixed; inset: 0; background: #000; }
+  .player video { width: 100%; height: 100%; }
+  .controls { position: absolute; left: 0; right: 0; bottom: 0; padding: 20px 3%; display: flex; gap: 16px; transition: opacity .3s; background: linear-gradient(#0000, #000c); }
+  .controls.hidden { opacity: 0; }
+  .controls button, .topbar button { font-size: 18px; padding: 8px 14px; }
+  .topbar { position: absolute; top: 20px; left: 3%; transition: opacity .3s; }
+  .topbar.hidden { opacity: 0; }
+
+  /* ---------- diseño nuevo ---------- */
+  .gate { min-height: 100vh; }
+  .gate nav { height: 68px; padding: 20px 4%; }
+  .gate h1 { text-align: center; margin-top: 18vh; font-weight: 400; font-size: 3.2vw; }
+  .gate .tiles { display: flex; gap: 8px; justify-content: center; margin-top: 30px; }
+  .gate .tiles button { width: 160px; height: 206px; background: none; border: 0; color: #aaa; display: flex; flex-direction: column; align-items: center; gap: 12px; cursor: pointer; }
+  .gate .tiles .av { width: 150px; height: 150px; border-radius: 6px; background: #2a7; }
+  .gate .tiles .av.add { background: #333; }
+  .gate .manage { display: block; margin: 36px auto; padding: 10px 24px; background: none; color: #aaa; border: 1px solid #aaa; }
+  nav.top { position: sticky; top: 0; z-index: 10; height: 68px; display: flex; align-items: center; gap: 20px; padding: 0 4%; background: #141414; }
+  nav.top .logo-n { color: #e50914; font-weight: 800; font-size: 26px; margin-right: 16px; }
+  nav.top .actions { margin-left: auto; display: flex; gap: 14px; }
+  nav.top .actions button { background: none; border: 0; color: #fff; }
+  section.bb { height: 460px; padding: 150px 4% 0; background: linear-gradient(90deg, #353535, #141414); }
+  section.bb .slide { display: none; } section.bb .slide.on { display: block; }
+  section.bb .slide button { font-size: 20px; padding: 10px 26px; margin-right: 10px; border-radius: 4px; border: 0; }
+  section.carousel-row { margin: 1.5vw 0 2.5vw; }
+  section.carousel-row h2 { margin: 0 4% 8px; font-size: 1.4vw; }
+  .scroller { position: relative; overflow: clip; }
+  .track { display: flex; padding: 0 4%; transition: transform .45s ease; }
+  .slot { flex: 0 0 calc(92vw / 6); padding: 0 .2vw; }
+  .slot a { position: relative; display: block; aspect-ratio: 16/9; border-radius: 4px; background: #2a2a2a; }
+  .slot a::after { content: attr(aria-label); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  .slot .progress-bar { display: block; height: 3px; margin: 4px 10%; background: #555; }
+  .slot .progress-completed { display: block; height: 100%; width: 40%; background: #e50914; }
+  .hk { position: absolute; top: 0; bottom: 0; width: 4%; z-index: 2; display: flex; align-items: center; justify-content: center;
+        background: #0008; color: #fff; border: 0; opacity: 0; cursor: pointer; }
+  .scroller:hover .hk { opacity: 1; }
+  .hk.off { width: 0; padding: 0; overflow: hidden; }
+  .hk-left { left: 0; } .hk-right { right: 0; }
+  [data-uia="watch-video"] { position: fixed; inset: 0; background: #000; }
+  [data-uia="player"] { position: absolute; inset: 0; }
+  [data-uia="player"] video { width: 100%; height: 100%; }
+  .ctrl-top { position: absolute; top: 30px; left: 30px; right: 30px; display: flex; justify-content: space-between; }
+  .ctrl-bottom { position: absolute; left: 20px; right: 20px; bottom: 30px; display: flex; gap: 38px; }
+  .ctrl-bottom .sp { flex: 1; }
+  .ctrl-top button, .ctrl-bottom button { width: 44px; height: 44px; background: none; border: 0; color: #fff; font-size: 22px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(() => {
+  const LOG = JSON.parse(sessionStorage.getItem('mocklog') || '[]');
+  window.__log = LOG;
+  const log = (m) => { LOG.push(m); sessionStorage.setItem('mocklog', JSON.stringify(LOG)); };
+  const app = document.getElementById('app');
+  const path = location.pathname;
+  const params = new URLSearchParams(location.search);
+  const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+
+  if (params.get('layout')) sessionStorage.setItem('layout', params.get('layout'));
+  const NEW = (sessionStorage.getItem('layout') || 'nuevo') !== 'viejo';
+  document.documentElement.dataset.layout = NEW ? 'nuevo' : 'viejo';
+
+  const PROFILES = ['Gaby', 'Chicos', 'Invitado'];
+  const choose = (name, e) => {
+    e.preventDefault();
+    log('profile:' + name + (e.isTrusted ? ':trusted' : ''));
+    sessionStorage.setItem('profile', name);
+    location.href = '/browse';
+  };
+
+  // ============================================================ ¿Quién está viendo?
+  if (path.startsWith('/ProfilesGate') || (path.startsWith('/browse') && !sessionStorage.getItem('profile'))) {
+    if (NEW) {
+      // El sitio nuevo muestra la pantalla de perfiles sobre /browse.
+      sessionStorage.removeItem('profile');
+      if (path.startsWith('/ProfilesGate')) history.replaceState(null, '', '/browse');
+      app.appendChild(h(`<div class="gate" data-uia="profile-gate-screen">
+        <nav data-uia="navigation"><a class="logo" data-uia="navigation+logo" href="/browse">Netflix</a></nav>
+        <h1>¿Quién está viendo ahora?</h1>
+        <div class="tiles" data-uia="profile-selector">
+          ${PROFILES.map((n, i) => `<button data-uia="profile-selector+tile-P${i}ID" data-name="${n}"><div class="av"></div><span>${n}</span></button>`).join('')}
+          <button data-uia="profile-selector+add"><div class="av add"></div><span>Agregar perfil</span></button>
+        </div>
+        <button class="manage" data-uia="profile-gate-screen+manage">Administrar perfiles</button></div>`));
+      app.querySelectorAll('button[data-name]').forEach((b) => b.addEventListener('click', (e) => choose(b.dataset.name, e)));
+    } else {
+      app.appendChild(h(`<div class="list-profiles"><h1>¿Quién está viendo?</h1><ul class="choose-profile">
+        ${PROFILES.map((n) => `<li class="profile"><a class="profile-link" href="/browse" data-name="${n}"><div class="avatar"></div><span class="profile-name">${n}</span></a></li>`).join('')}
+        <li class="profile"><a class="profile-link" href="/profiles/add"><div class="addProfileIcon avatar"></div><span>Agregar perfil</span></a></li></ul></div>`));
+      app.querySelectorAll('a.profile-link[data-name]').forEach((a) => a.addEventListener('click', (e) => choose(a.dataset.name, e)));
+    }
+    return;
+  }
+
+  // ============================================================ reproductor
+  if (path.startsWith('/watch/')) {
+    const id = path.split('/')[2];
+    log('watch:' + id);
+    const st = { t: 60000, paused: false, vol: 0.5, muted: false, text: 0, audio: 0 };
+    const texts = NEW
+      ? [{ trackId: 'T:es-forced', displayName: 'Desactivados', isForcedNarrative: true, rawTrackType: 'SUBTITLES' },
+        { trackId: 'T:en-cc', displayName: 'Inglés', rawTrackType: 'CLOSEDCAPTIONS' },
+        { trackId: 'T:es', displayName: 'Español', rawTrackType: 'SUBTITLES' },
+        { trackId: 'T:pt-BR', displayName: 'Portugués (Brasil)', rawTrackType: 'SUBTITLES' }]
+      : [{ trackId: 'off', displayName: 'Off', isNoneTrack: true }, { trackId: 'es', displayName: 'Español' },
+        { trackId: 'en', displayName: 'English' }, { trackId: 'f', displayName: 'Forced', isForcedNarrative: true }];
+    const audios = NEW
+      ? [{ trackId: 'a-es', displayName: 'Español' }, { trackId: 'a-en', displayName: 'Inglés [Original]' }]
+      : [{ trackId: 'a-en', displayName: 'English [Original]' }, { trackId: 'a-es', displayName: 'Español' }];
+    const player = {
+      isPaused: () => st.paused, play: () => { st.paused = false; log('play'); }, pause: () => { st.paused = true; log('pause'); },
+      getCurrentTime: () => st.t, getDuration: () => 2700000, seek: (ms) => { st.t = ms; log('seek:' + ms); },
+      getVolume: () => st.vol, setVolume: (v) => { st.vol = v; log('vol:' + v); }, isMuted: () => st.muted, setMuted: (m) => { st.muted = m; log('muted:' + m); },
+      getTimedTextTrackList: () => texts, getTimedTextTrack: () => texts[st.text], setTimedTextTrack: (t) => { st.text = texts.indexOf(t); log('subs:' + t.displayName); },
+      getAudioTrackList: () => audios, getAudioTrack: () => audios[st.audio], setAudioTrack: (t) => { st.audio = audios.indexOf(t); log('audio:' + t.displayName); },
+    };
+    window.netflix = { appContext: { state: { playerApp: { getAPI: () => ({ videoPlayer: { getAllPlayerSessionIds: () => ['watch-' + id], getVideoPlayerBySessionId: () => player } }) } } } };
+    document.addEventListener('keydown', (e) => log('key:' + e.key + (e.isTrusted ? ':trusted' : '')));
+    const next = () => { log('next-episode'); location.href = '/watch/' + (Number(id) + 1); };
+    const exit = () => { log('exit-player'); location.href = NEW ? '/browse?jbv=' + id : '/browse'; };
+
+    if (NEW) {
+      // Los controles se sacan del DOM al ocultarse y tardan un instante en volver tras mover el mouse.
+      const root = h(`<div data-uia="watch-video"><div data-uia="player" tabindex="0" class="passive"><video muted></video>
+        <button class="skip" data-uia="player-skip-intro">Saltar intro</button></div></div>`);
+      app.appendChild(root);
+      const pl = root.querySelector('[data-uia="player"]');
+      const controls = () => h(`<div class="ctrls">
+        <div class="ctrl-top"><button data-uia="control-nav-back" aria-label="Back to Browse">←</button><button data-uia="control-flag" aria-label="Reportar un problema de reproducción a Netflix.">⚑</button></div>
+        <div class="ctrl-bottom"><button data-uia="control-play-pause-pause" aria-label="Pausar">⏸</button><button data-uia="control-back10" aria-label="Retroceder">⟲</button>
+          <button data-uia="control-forward10" aria-label="Avanzar">⟳</button><button data-uia="control-volume-high" aria-label="Volumen">🔊</button><span class="sp"></span>
+          <button data-uia="control-next" aria-label="Siguiente episodio">⏭</button><button data-uia="control-audio-subtitle" aria-label="Audio y subtítulos">💬</button>
+          <button data-uia="control-speed" aria-label="1x (Normal)">1x</button><button data-uia="control-fullscreen-enter" aria-label="Pantalla completa">⛶</button></div></div>`);
+      let showT = 0; let hideT = 0;
+      const hide = () => { pl.className = 'passive'; const c = pl.querySelector('.ctrls'); if (c) c.remove(); };
+      const show = () => {
+        clearTimeout(hideT); hideT = setTimeout(hide, 1500);
+        if (pl.querySelector('.ctrls') || showT) return;
+        showT = setTimeout(() => {
+          showT = 0; pl.className = 'active';
+          const c = controls(); pl.appendChild(c);
+          c.querySelector('[data-uia="control-next"]').addEventListener('click', next);
+          c.querySelector('[data-uia="control-nav-back"]').addEventListener('click', exit);
+        }, 150);
+      };
+      document.addEventListener('mousemove', show);
+    } else {
+      const p = h(`<div class="player"><video muted></video>
+        <div class="topbar"><button data-uia="nfplayer-exit" aria-label="Volver al explorador">←</button></div>
+        <button class="skip" data-uia="player-skip-intro">Saltar intro</button>
+        <div class="controls"><button data-uia="control-play-pause-pause">⏯</button><button data-uia="control-audio-subtitle">Audio y subtítulos</button><button data-uia="control-next">Siguiente</button></div></div>`);
+      app.appendChild(p);
+      let hideT = 0;
+      const show = () => { p.querySelector('.controls').classList.remove('hidden'); p.querySelector('.topbar').classList.remove('hidden'); clearTimeout(hideT); hideT = setTimeout(() => { p.querySelector('.controls').classList.add('hidden'); p.querySelector('.topbar').classList.add('hidden'); }, 1500); };
+      document.addEventListener('mousemove', show); show();
+      p.querySelector('[data-uia="control-next"]').addEventListener('click', next);
+      p.querySelector('[data-uia="nfplayer-exit"]').addEventListener('click', exit);
+    }
+    app.querySelector('.skip').addEventListener('click', (e) => { log('skip-intro' + (e.isTrusted ? ':trusted' : '')); e.target.remove(); });
+    return;
+  }
+
+  // ============================================================ inicio (/browse)
+  const ROWS = [
+    ['continueWatching', NEW ? 'Continuar viendo contenido de Gaby' : 'Seguir viendo como Gaby', 'Seguir'],
+    ['trending', 'Tendencias', 'Tendencias'], ['popular', 'Populares', 'Populares'],
+    ['new', 'Nuevos lanzamientos', 'Nuevos'], ['top10', 'Top 10', 'Top'], ['comedy', 'Comedias', 'Comedias'],
+  ];
+  const PER_PAGE = 6; const ITEMS = 18; const PAGES = Math.ceil(ITEMS / PER_PAGE);
+  const watchId = (ri, i) => 80000 + ri * 100 + i + 1;
+
+  if (NEW) {
+    app.appendChild(h(`<nav class="top" data-uia="navigation"><a class="logo-n" data-uia="navigation+logo" href="/browse">Netflix</a>
+      <a data-uia="nav-home" href="/browse">Inicio</a><a data-uia="nav-series" href="/browse/genre/83">Series</a>
+      <a data-uia="nav-movies" href="/browse/genre/34399">Películas</a><a data-uia="nav-myProfile" href="/browse/my-netflix">Mi Netflix</a>
+      <div class="actions"><button data-uia="navigation+actions+search+icon" aria-label="Buscar">🔍</button>
+      <button data-uia="navigation+profile-menu+trigger" aria-label="Menú de la cuenta">👤</button></div></nav>`));
+    // Portada: un carrusel con varias diapositivas; solo una está visible.
+    app.appendChild(h(`<section class="bb" data-uia="billboard"><video class="billboard-preview" muted loop style="width:160px;height:90px;background:#444"></video>
+      ${[90000, 90001, 90002].map((wid, i) => `<div class="slide${i === 1 ? ' on' : ''}" data-watch="${wid}"><h1 data-uia="billboard-title">Destacada ${i + 1}</h1>
+        <div data-uia="billboard-actions"><button data-uia="play-video-button">▶ Reproducir</button><button data-uia="billboard-more-info">Más info</button></div></div>`).join('')}</section>`));
+    app.querySelectorAll('[data-uia="play-video-button"]').forEach((b) => b.addEventListener('click', () => { location.href = '/watch/' + b.closest('.slide').dataset.watch; }));
+    ROWS.forEach(([ctx, title, short], ri) => {
+      const row = h(`<section class="carousel-row" data-uia="carousel-row-section-${ri + 1}" aria-labelledby="row-${ri}-heading">
+        <div><h2 id="row-${ri}-heading">${title}</h2></div>
+        <div class="scroller" data-uia="carousel-scroller">
+          <button type="button" class="hk hk-left off" aria-label="Ver títulos anteriores" tabindex="-1" data-uia="carousel-hawkins-left-button">‹</button>
+          <div class="track">${Array.from({ length: ITEMS }, (_, i) => `<div class="slot" data-virtual-slot="${i}"></div>`).join('')}</div>
+          <button type="button" class="hk hk-right" aria-label="Ver más títulos" tabindex="-1" data-uia="carousel-hawkins-right-button">›</button>
+        </div></section>`);
+      const slots = [...row.querySelectorAll('.slot')];
+      const track = row.querySelector('.track');
+      const prev = row.querySelector('.hk-left'); const nextB = row.querySelector('.hk-right');
+      let page = 0;
+      // Virtualización: solo hay tarjetas en la página visible y en las vecinas.
+      const render = () => {
+        const from = (page - 1) * PER_PAGE; const to = (page + 2) * PER_PAGE;
+        slots.forEach((s, i) => {
+          if (i >= from && i < to) {
+            if (s.firstChild) return;
+            const label = `${short} ${i + 1}`; const wid = watchId(ri, i);
+            const cw = ctx === 'continueWatching';
+            s.appendChild(h(`<div><a href="/browse?jbv=${wid}" tabindex="0" aria-label="${label}" data-uia="${cw ? 'progress-card' : 'standard-card'}">
+              <div data-uia="card-image-focus-host"><img alt="" width="1" height="1" class="${cw ? 'continue-watching-card' : 'standard-card'}"></div></a>
+              ${cw ? '<span class="progress-bar"><span class="progress-completed" role="presentation"></span></span>' : ''}</div>`));
+            const a = s.querySelector('a');
+            a.addEventListener('click', (e) => {
+              e.preventDefault(); log('card:' + label + (e.isTrusted ? ':trusted' : ''));
+              history.pushState(null, '', '/browse?jbv=' + wid);
+              openModal(label, wid);
+            });
+          } else if (s.firstChild) {
+            s.textContent = '';
+          }
+        });
+      };
+      const go = (d) => {
+        page = Math.max(0, Math.min(PAGES - 1, page + d));
+        track.style.transform = `translateX(-${page * 92}vw)`;
+        prev.classList.toggle('off', page === 0); nextB.classList.toggle('off', page === PAGES - 1);
+        render(); log(`page:${ctx}:${page}`);
+      };
+      nextB.addEventListener('click', () => go(1)); prev.addEventListener('click', () => go(-1));
+      render();
+      app.appendChild(row);
+    });
+    app.appendChild(h(`<footer class="member-footer" data-uia="member-footer"><a href="/help">Centro de ayuda</a><a href="/terms">Términos</a></footer>`));
+    // Diálogo oculto de cookies (OneTrust), como en el sitio real: no debe tomarse como ficha abierta.
+    app.appendChild(h(`<div role="dialog" aria-modal="true" aria-label="Centro de preferencia de la privacidad" style="display:none"><button>Cerrar</button></div>`));
+  } else {
+    app.appendChild(h(`<div class="pinning-header"><div class="main-header"><a class="logo" href="/browse">NETFLIX</a>
+       <a href="/browse">Inicio</a><a href="/browse/genre/83">Series</a><a href="/browse/genre/34399">Películas</a><a href="/browse/my-list">Mi lista</a></div></div>`));
+    app.appendChild(h(`<div class="billboard"><video class="billboard-preview" muted loop style="width:160px;height:90px;background:#444"></video><h1>Película destacada</h1><a href="/watch/90000" data-uia="play-button"><button tabindex="-1">▶ Reproducir</button></a><button data-uia="billboard-more-info">Más información</button></div>`));
+    ROWS.forEach(([ctx, title, short], ri) => {
+      const items = Array.from({ length: ITEMS }, (_, i) => `<div class="slider-item"><div class="title-card"><a href="/watch/${watchId(ri, i)}" aria-label="${short} ${i + 1}">${short} ${i + 1}</a></div></div>`).join('');
+      const row = h(`<div class="lolomoRow" data-list-context="${ctx}"><h2 class="rowHeader"><a class="rowTitle" href="/browse/row/${ctx}">${title}</a></h2>
+        <div class="rowContainer"><span class="handle handlePrev" role="button" tabindex="0" aria-label="Ver títulos anteriores" style="display:none">‹</span>
+        <div class="sliderMask"><div class="sliderContent">${items}</div></div>
+        <span class="handle handleNext" role="button" tabindex="0" aria-label="Ver más títulos">›</span></div></div>`);
+      let page = 0;
+      const content = row.querySelector('.sliderContent');
+      const prev = row.querySelector('.handlePrev'); const next = row.querySelector('.handleNext');
+      const go = (d) => { page = Math.max(0, Math.min(PAGES - 1, page + d)); content.style.transform = `translateX(-${page * 100}%)`; prev.style.display = page ? '' : 'none'; next.style.display = page < PAGES - 1 ? '' : 'none'; log(`page:${ctx}:${page}`); };
+      next.addEventListener('click', () => go(1)); prev.addEventListener('click', () => go(-1));
+      row.querySelectorAll('.title-card a').forEach((a) => a.addEventListener('click', (e) => {
+        e.preventDefault(); log('card:' + a.getAttribute('aria-label') + (e.isTrusted ? ':trusted' : ''));
+        openModal(a.getAttribute('aria-label'), a.getAttribute('href').split('/').pop());
+      }));
+      app.appendChild(row);
+    });
+    app.appendChild(h(`<footer class="member-footer"><a href="/help">Centro de ayuda</a><a href="/terms">Términos</a></footer>`));
+  }
+
+  // ============================================================ ficha (igual en los dos diseños, salvo episodios y URL)
+  function openModal(name, wid) {
+    const episodes = [1, 2, 3, 4, 5, 6].map((i) => (NEW
+      ? `<div class="titleCard--container" data-uia="titleCard--container" tabindex="0" role="button">Episodio ${i}</div>`
+      : `<button data-uia="episode-${i}">Episodio ${i}</button>`)).join('');
+    const m = h(`<div class="previewModal--container detail-modal" role="dialog" aria-modal="true" tabindex="-1"${NEW ? ' data-uia="modal-motion-container-DETAIL_MODAL"' : ''}><h1>${name}</h1>
+      <a href="/watch/${wid}" data-uia="play-button"><button tabindex="-1">▶ Reproducir</button></a>
+      <button data-uia="add-to-my-list">+ Mi lista</button>${NEW ? '<button data-uia="thumbs-rate-button" aria-label="Voto">👍</button>' : ''}
+      ${NEW ? '<span data-uia="previewModal-closebtn" role="button" tabindex="0" aria-label="close">✕</span>' : '<button data-uia="previewModal-closebtn" aria-label="cerrar">✕</button>'}
+      <div class="episodes"${NEW ? ' data-uia="episode-selector"' : ''}>${episodes}</div></div>`);
+    document.body.appendChild(m); log('modal-open:' + name);
+    const close = () => {
+      m.remove(); document.removeEventListener('keydown', onKey); log('modal-close');
+      if (NEW) history.replaceState(null, '', '/browse');
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    m.querySelector('[data-uia="previewModal-closebtn"]').addEventListener('click', close);
+  }
+})();
+</script>
+</body>
+</html>
