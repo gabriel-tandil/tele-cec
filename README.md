@@ -300,7 +300,7 @@ reduce_effects = false
 stop_previews = false
 ```
 
-Los flags se aplican al abrir el navegador y el CSS al reiniciar el servicio, así que después del cambio: `systemctl --user restart netflix-cec`, cerrá el navegador y volvé a abrirlo (OK en el control).
+Los flags se aplican al abrir el navegador y el CSS al reiniciar el servicio, así que después del cambio: `systemctl --user restart netflix-cec`, cerrá el navegador y volvé a abrirlo (OK en el control). En Firefox, al reabrirlo netflix-cec también borra esas preferencias de `prefs.js`, donde Firefox las había guardado, para que vuelvan a su valor normal.
 
 Otras cosas que ayudan bastante:
 

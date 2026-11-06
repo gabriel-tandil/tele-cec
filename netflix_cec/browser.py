@@ -11,6 +11,7 @@ import glob
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -112,12 +113,57 @@ def _js_value(v: Any) -> str:
     return json.dumps(v, ensure_ascii=False)
 
 
+USER_JS_HEADER = "// Lo genera netflix-cec cada vez que abre Firefox: los cambios a mano se pierden."
+_PREF_LINE = re.compile(r'^\s*user_pref\(\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _pref_keys(text: str) -> set[str]:
+    keys = set()
+    for line in text.splitlines():
+        m = _PREF_LINE.match(line)
+        if m:
+            try:
+                keys.add(json.loads(f'"{m.group(1)}"'))
+            except ValueError:
+                keys.add(m.group(1))
+    return keys
+
+
+def _drop_prefs(prefs_js: Path, keys: set[str]) -> None:
+    try:
+        lines = prefs_js.read_text(encoding="utf-8").splitlines(keepends=True)
+    except OSError:
+        return
+    kept = [ln for ln in lines if not (_pref_keys(ln) & keys)]
+    if len(kept) != len(lines):
+        tmp = prefs_js.with_suffix(".js.netflix-cec")
+        tmp.write_text("".join(kept), encoding="utf-8")
+        tmp.replace(prefs_js)
+        log.info("Preferencias de Firefox que netflix-cec ya no fija (vuelven a su valor normal): %s",
+                 ", ".join(sorted(keys)))
+
+
 def write_user_js(profile: Path, prefs: dict[str, Any]) -> None:
-    lines = ["// Lo genera netflix-cec cada vez que abre Firefox: los cambios a mano se pierden.",
+    """Escribe el user.js del perfil (Firefox tiene que estar cerrado).
+
+    Firefox copia lo del user.js a su prefs.js y ahí queda aunque después se saque del user.js. Por
+    eso, lo que netflix-cec fijaba antes y ya no fija (p. ej. reduce_effects = false, o una pref
+    borrada de [browser.firefox] prefs) también se borra de prefs.js, para que vuelva a su valor normal.
+    """
+    profile.mkdir(parents=True, exist_ok=True)
+    user_js = profile / "user.js"
+    try:
+        old = user_js.read_text(encoding="utf-8")
+    except OSError:
+        old = ""
+    if old.startswith(USER_JS_HEADER):  # solo si el user.js anterior era nuestro
+        removed = _pref_keys(old) - set(prefs)
+        if removed:
+            _drop_prefs(profile / "prefs.js", removed)
+    lines = [USER_JS_HEADER,
              "// Para agregar o cambiar preferencias usá [browser.firefox] prefs en config.toml."]
     lines += [f"user_pref({_js_value(k)}, {_js_value(v)});" for k, v in prefs.items()]
-    profile.mkdir(parents=True, exist_ok=True)
-    (profile / "user.js").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    user_js.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 class Browser:
