@@ -34,6 +34,7 @@ extra_args = ["--password-store=basic"]       # agregá acá tu --user-agent si 
 # Rendimiento (útil en Raspberry Pi):
 reduce_effects = true    # sin animaciones, transiciones ni scroll suave (flags de Chromium o prefs de Firefox + CSS)
 stop_previews = true     # pausar y ocultar los avances que Netflix reproduce solos en el inicio
+splash = true            # al abrir el navegador, mostrar "Abriendo Netflix…" hasta que cargue (en vez de una pantalla vacía)
 
 # Solo con engine = "firefox". Firefox se controla por WebDriver BiDi, que admite UNA sola
 # sesión: la tiene el servicio, y los comandos sueltos (accion, diagnostico) se la piden a él.
@@ -47,6 +48,14 @@ prefs = {}
 # Con el control remoto activo, Firefox expone navigator.webdriver = true (Chromium no). Esto lo
 # oculta para que Netflix vea el mismo navegador que sin netflix-cec.
 hide_webdriver = true
+
+# Avisos en pantalla mientras se ejecuta lo que pediste con el control.
+[feedback]
+busy = true                   # indicador "trabajando" (circulito + texto arriba a la derecha) en las acciones que tardan
+busy_delay_ms = 250           # mostrarlo solo si la acción tarda más que esto (así no parpadea en las rápidas)
+key_echo = false              # diagnóstico: mostrar un instante cada tecla recibida (arriba a la izquierda)
+cec_osd = false               # al abrir el navegador, pedirle a la TV que muestre un texto (CEC; muchas TVs lo ignoran)
+cec_osd_text = "Netflix..."   # máx. 13 caracteres, sin acentos
 
 [netflix]
 seek_seconds = 10

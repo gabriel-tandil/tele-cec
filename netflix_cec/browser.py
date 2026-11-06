@@ -21,6 +21,9 @@ from typing import Any
 
 from . import bidi, cdp
 
+# Pantalla "Abriendo Netflix…" que se ve mientras arranca el navegador (browser.splash).
+SPLASH = Path(__file__).resolve().parent / "splash.html"
+
 log = logging.getLogger("browser")
 
 ENGINES = ("chromium", "firefox")
@@ -184,6 +187,7 @@ class Browser:
         # que lo oculta (pending_url es a dónde ir).
         self.hide_webdriver = self.firefox and bool(self.fx.get("hide_webdriver", True))
         self.pending_url: str | None = None
+        self.splash = bool(cfg.get("splash", True)) and SPLASH.is_file()
         self.port = int(cfg.get("debug_port", 9222))
         self.proc: subprocess.Popen | None = None
         self._last_launch = 0.0
@@ -194,6 +198,20 @@ class Browser:
     @property
     def firefox(self) -> bool:
         return self.engine == "firefox"
+
+    @staticmethod
+    def is_splash(url: str) -> bool:
+        return url.startswith("file:") and url.split("?")[0].endswith("/" + SPLASH.name)
+
+    def _first_page(self, url: str) -> str:
+        """Primera página al abrir: la pantalla de carga (o en blanco); el controller navega después."""
+        if self.splash:
+            self.pending_url = url
+            return SPLASH.as_uri()
+        if self.hide_webdriver:
+            self.pending_url = url
+            return "about:blank"
+        return url
 
     @property
     def user_data_dir(self) -> Path:
@@ -232,7 +250,7 @@ class Browser:
         else:
             args.append("--start-fullscreen")
         args += self._extra(self.cfg.get("extra_args"), args)
-        args.append(url)
+        args.append(self._first_page(url))
         return args
 
     def _firefox_args(self, binary: str, url: str) -> list[str]:
@@ -242,10 +260,7 @@ class Browser:
         if self.cfg.get("kiosk", True):
             args.append("--kiosk")
         args += self._extra(self.fx.get("extra_args"), args)
-        if self.hide_webdriver:
-            self.pending_url = url
-            url = "about:blank"
-        args.append(url)
+        args.append(self._first_page(url))
         return args
 
     @staticmethod

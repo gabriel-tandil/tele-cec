@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import threading
 from pathlib import Path
 
@@ -89,13 +90,13 @@ extra_args = ["--headless", "--window-size=1280,720"]
 [netflix]
 profiles_url = "{HOST}/ProfilesGate"
 page_delay_ms = 650
+[feedback]
+key_echo = true
 """)
     cfg = config_mod.load(cfg_file)
     browser = Browser(cfg.browser)
-    chrome = subprocess.Popen(
-        launch_cmd(browser, browser.binary(), tmp / "profile", f"{HOST}/ProfilesGate?layout={layout}"),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    cmd = launch_cmd(browser, browser.binary(), tmp / "profile", f"{HOST}/ProfilesGate?layout={layout}")
+    chrome = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     ctl = Controller(cfg, browser)
     try:
         for _ in range(60):
@@ -128,6 +129,25 @@ page_delay_ms = 650
         async def last_log(prefix: str) -> list[str]:
             return [x for x in (await st())["log"] if x.startswith(prefix)]
 
+        async def log_since(n: int) -> list[str]:
+            return (await st())["log"][n:]
+
+        async def wait_busy_off(n: int, timeout: float = 5.0) -> list[str]:
+            """Espera a que el indicador se apague (después de haberse encendido) y devuelve el log desde n."""
+            deadline = time.monotonic() + timeout
+            while True:
+                lg = await log_since(n)
+                ons = [i for i, x in enumerate(lg) if x.startswith("busy-on")]
+                if (ons and "busy-off" in lg[ons[-1]:]) or time.monotonic() > deadline:
+                    return lg
+                await asyncio.sleep(0.1)
+
+        def busy_texts(lg: list[str]) -> list[str]:
+            return [x[len("busy-on:"):] for x in lg if x.startswith("busy-on:")]
+
+        if browser.firefox:
+            check(browser.is_splash(cmd[-1]), f"Firefox abre primero la pantalla de carga: {cmd[-1]}")
+
         print("Perfiles")
         check(await ctl.context() == "profiles", "contexto 'profiles' en ¿Quién está viendo?")
         await press("NUMBER2", pause=1.5)
@@ -151,9 +171,12 @@ page_delay_ms = 650
                   f"navigator.webdriver oculto desde antes de los scripts de la página: {sorted(set(seen))}")
 
         print("Navegación espacial")
+        n_nav = len((await st())["log"])
         await press("DOWN")
         s = await st()
         check(s["cur"] is not None and "Reproducir" in s["cur"], f"1.ª flecha muestra el foco inicial (billboard): {s['cur']!r}")
+        echo = await ctl.cdp.evaluate("(document.getElementById('nfx-echo') || {}).textContent || ''")
+        check(echo == "▼", f"eco de teclas (feedback.key_echo): {echo!r}")
         await shot("1-billboard")
         await press("DOWN")
         s = await st()
@@ -182,6 +205,7 @@ page_delay_ms = 650
         await shot("3-scroll")
         s = await st()
         check(s["cur"] is not None and s["cur"].startswith(("Populares", "Nuevos", "Top")), f"bajando varias filas hace scroll: {s['cur']!r}")
+        check(not busy_texts(await log_since(n_nav)), "las acciones rápidas (flechas, paginado) no muestran el indicador")
 
         print("Modal")
         await press("SELECT", pause=0.8)
@@ -208,12 +232,22 @@ page_delay_ms = 650
         focused_href = "(document.querySelector('.nfx-focused') || document.body).getAttribute('href') || ''"
         href = await ctl.cdp.evaluate(focused_href)
         wid = href.split("=")[-1].split("/")[-1]
-        await press("PLAY", pause=1.5)
+        n0 = len((await st())["log"])
+        await press("PLAY", pause=0.3)
+        lg = await wait_busy_off(n0)
         s = await st()
         check(bool(wid) and s["path"] == f"/watch/{wid}", f"PLAY sobre una tarjeta reproduce ese título: {href} -> {s['path']}")
         if new:
-            check(any(x.startswith("card:") for x in s["log"][-4:]), "(abriendo la ficha y apretando «Reproducir»)")
-        await ctl.navigate(f"{HOST}/browse")
+            check(any(x.startswith("card:") for x in lg), "(abriendo la ficha y apretando «Reproducir»)")
+        texts = busy_texts(lg)
+        check(any(t.startswith("Cargando «") for t in texts), f"indicador «Cargando «título»…» mientras carga: {texts}")
+        check("video-playing" in lg and "busy-off" in lg[lg.index("video-playing"):],
+              f"y se apaga recién cuando arranca el video: {[x for x in lg if x.startswith(('busy', 'video', 'watch'))]}")
+        n0 = len((await st())["log"])
+        await ctl.run_action("home")
+        lg = await wait_busy_off(n0)
+        check("Cargando el inicio…" in busy_texts(lg) and "busy-off" in lg,
+              f"«inicio» muestra el indicador hasta que carga la página: {[x for x in lg if x.startswith('busy')]}")
         await press("DOWN")
         s = await st()
         check(s["cur"] is not None and "Reproducir" in s["cur"], f"el primer foco es «Reproducir» de la portada: {s['cur']!r}")
@@ -233,6 +267,7 @@ page_delay_ms = 650
         await press("PLAY", pause=0.6)
         s = await st()
         check(s["path"] == "/browse", "PLAY sin nada resaltado no hace nada (solo avisa)")
+        check(not await ctl.cdp.evaluate("!!document.querySelector('#nfx-busy.on')"), "no queda ningún indicador encendido")
 
         print("Seguir viendo + reproductor")
         await press("F3_GREEN", pause=1.5)

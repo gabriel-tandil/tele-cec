@@ -230,13 +230,13 @@ async def cmd_browser(args: argparse.Namespace, cfg: config_mod.Config) -> int:
         return 0
     ok = await browser.launch(args.url)
     if ok and browser.pending_url:
-        # Firefox abrió en blanco (para ocultar navigator.webdriver): alguien tiene que llevarlo a Netflix.
-        await _firefox_first_navigation(cfg, browser, args.url)
+        # Abrió en la pantalla de carga (o en blanco): alguien tiene que llevarlo a Netflix.
+        await _first_navigation(cfg, browser, args.url)
     print(f"{browser.name} abierto." if ok else f"No pude abrir {browser.name} (mirá el log de arriba).")
     return 0 if ok else 1
 
 
-async def _firefox_first_navigation(cfg: config_mod.Config, browser: Browser, url: str | None) -> None:
+async def _first_navigation(cfg: config_mod.Config, browser: Browser, url: str | None) -> None:
     if await ipc.request({"op": "info"}) is not None:
         # El servicio se conecta solo (en unos segundos) y abre browser.start_url; si se pidió otra
         # URL, se la mando cuando esté conectado.

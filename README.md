@@ -106,6 +106,14 @@ Busca en pantalla, en orden: **Saltar intro**, **Saltar resumen**, **Saltar** (a
   - Si aparece "¿Quién está viendo?", te pide que elijas un perfil, o elige solo el de `default_profile` si lo configuraste.
 - Para que un solo botón haga todo, usá una macro (ver abajo).
 
+### Avisos mientras trabaja
+
+- **Indicador "trabajando"**: si una acción tarda más de un cuarto de segundo (▶ en la lista, verde, perfiles, inicio…), arriba a la derecha aparece un circulito con lo que está haciendo: «Abriendo «Merlina»…» → «Cargando «Merlina»…». No se apaga al cambiar de página: sigue hasta que arranca el video o termina de cargar la pantalla (como máximo 15–20 s). **Atrás** lo cancela.
+- **Pantalla de carga**: al abrir el navegador se ve «Abriendo Netflix…» en vez de una pantalla vacía, y después el indicador hasta que Netflix termina de cargar (`browser.splash`).
+- **Eco de teclas** (apagado): con `feedback.key_echo = true`, cada tecla que llega se muestra un instante arriba a la izquierda. Sirve para saber si la TV no mandó la tecla o si llegó y la acción no hizo nada.
+- **Aviso en la TV** (apagado): con `feedback.cec_osd = true`, al abrir el navegador se le pide a la TV por CEC que muestre "Netflix...". Muchas TVs lo ignoran: probalo con la tuya.
+- En el log, las acciones que tardan un segundo o más quedan registradas con su duración (`netflix: continue_watching: 2.3 s`).
+
 ### Mantener apretado
 
 Las flechas, los ±10 s y el volumen se repiten mientras mantenés el botón, si tu TV repite la tecla. Las macros, los perfiles y el botón inteligente se ejecutan una sola vez por pulsación. Para distinguir "mantener" de "apretar dos veces" se usa la liberación de la tecla (CEC 0x45); si tu TV no la manda, se usa `debounce_ms`.
@@ -197,6 +205,10 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `browser.kiosk` | `true` | Pantalla completa sin barras |
 | `browser.reduce_effects` | `true` | Sin animaciones, transiciones ni scroll suave (ver [Rendimiento](#rendimiento)) |
 | `browser.stop_previews` | `true` | Pausar y ocultar los avances que Netflix reproduce solos en el inicio |
+| `browser.splash` | `true` | Pantalla «Abriendo Netflix…» mientras arranca el navegador |
+| `feedback.busy` · `feedback.busy_delay_ms` | `true` · `250` | Indicador "trabajando" y a partir de cuánto mostrarlo (ver [Avisos](#avisos-mientras-trabaja)) |
+| `feedback.key_echo` | `false` | Mostrar cada tecla recibida |
+| `feedback.cec_osd` · `feedback.cec_osd_text` | `false` · `"Netflix..."` | Texto en la pantalla de la TV al abrir el navegador (máx. 13 caracteres) |
 | `netflix.seek_seconds` | `10` | Salto de ◀ ▶ |
 | `netflix.volume_step` | `0.1` | Paso de volumen (10 %) |
 | `netflix.default_profile` | `0` | Perfil para "Seguir viendo" (0 = preguntar) |
@@ -327,6 +339,8 @@ Otras cosas que ayudan bastante:
 - Para usar tu propio acceso directo, tiene que incluir `--remote-debugging-port=9222 --user-data-dir=$HOME/.config/chromium-netflix`. Lo más simple es usar "Netflix (TV)" o `netflix-cec navegador`.
 
 **Netflix no reproduce en el perfil nuevo** (error de DRM o de navegador no compatible): agregá en `browser.extra_args` los mismos flags que usás en tu Chromium habitual, por ejemplo tu `--user-agent`. En Firefox, la primera vez Widevine se descarga solo y tarda un minuto: esperá y probá de nuevo.
+
+**Quiero salir de la pantalla completa**: con `kiosk = true` (por defecto) el navegador no tiene barras y F11 no hace nada. Desde el teclado: **Alt+Tab** cambia a otra ventana y **Alt+F4** cierra el navegador (el control lo vuelve a abrir con OK). Para usarlo en ventana poné `kiosk = false` en `[browser]`: Chromium abre en pantalla completa común (F11 la alterna) y Firefox abre en una ventana normal.
 
 **Algo de Netflix dejó de funcionar** (el botón inteligente no encuentra nada, no detecta los perfiles…): Netflix cambia su web cada tanto.
 1. Con esa pantalla abierta, corré `netflix-cec diagnostico --detalle`. Lista los atributos `data-uia` visibles y los métodos del reproductor.

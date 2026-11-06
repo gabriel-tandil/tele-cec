@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -14,7 +15,7 @@ from .browser import Browser
 from .cdp import CDPClosed, CDPError, ContextLost, SessionBusy
 from .cec import OP_STANDBY, CecFrame
 from .config import PKG_DIR, Config
-from .keys import key_label
+from .keys import key_label, key_name
 
 log = logging.getLogger("netflix")
 
@@ -23,6 +24,29 @@ REPEATABLE = {"nav", "seek", "volume", "key", "type"}
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
 LONG = {"continue_watching", "profiles", "profile", "home", "launch", "macro", "wait", "reload"}
 PLAY_ACTIONS = {"play", "play_pause"}
+# Indicador "trabajando": texto inicial por acción (las acciones largas lo van actualizando).
+# Las que no figuran usan BUSY_DEFAULT; las de QUIET nunca lo muestran (ya se ve lo que hacen).
+BUSY_TEXT = {
+    "continue_watching": "Buscando «Seguir viendo»…",
+    "profiles": "Abriendo los perfiles…",
+    "profile": "Entrando al perfil…",
+    "home": "Yendo al inicio…",
+    "launch": "Abriendo Netflix…",
+    "reload": "Recargando…",
+    "play": "Reproduciendo…",
+    "play_pause": "Reproduciendo…",
+    "next_episode": "Siguiente episodio…",
+    "smart_skip": "Un momento…",
+}
+BUSY_DEFAULT = "Un momento…"
+# Eco de teclas (feedback.key_echo): cómo se muestra cada tecla.
+ECHO = {
+    "UP": "▲", "DOWN": "▼", "LEFT": "◀", "RIGHT": "▶", "SELECT": "OK", "ENTER": "OK",
+    "EXIT": "Atrás", "AN_RETURN": "Atrás", "PLAY": "Play", "PAUSE": "Pausa", "PAUSE_PLAY_FUNCTION": "Play/Pausa",
+    "STOP": "Stop", "FORWARD": "⏭", "BACKWARD": "⏮", "FAST_FORWARD": "⏩", "REWIND": "⏪",
+    "F1_BLUE": "Azul", "F2_RED": "Rojo", "F3_GREEN": "Verde", "F4_YELLOW": "Amarillo",
+}
+QUIET = REPEATABLE | {"none", "toast", "wait", "nav_mode", "mute", "subtitles", "audio", "pause"}
 # Acciones que no necesitan el navegador.
 OFFLINE_OK = {"launch", "wait", "none", "macro"}
 
@@ -31,6 +55,10 @@ HIDE_WEBDRIVER_JS = (
     "try { if (navigator.webdriver) Object.defineProperty(Navigator.prototype, 'webdriver', "
     "{ get: () => false, configurable: true, enumerable: true }); } catch (e) { /* nada */ }\n"
 )
+
+
+def loading_text(title: str) -> str:
+    return f"Cargando «{title}»…" if title else "Cargando el video…"
 
 
 def build_script(cfg: Config) -> tuple[str, str]:
@@ -66,6 +94,15 @@ class Controller:
         self._macro_task: asyncio.Task | None = None
         self._wiggle = 0
         self._was_connected = False
+        fb = cfg.raw.get("feedback") or {}
+        self._busy_delay = float(fb.get("busy_delay_ms", 250)) / 1000
+        self._busy_on = bool(fb.get("busy", True))
+        self._key_echo = bool(fb.get("key_echo", False))
+        self._busy_text = ""
+        self._busy_shown = False
+        self._busy_handoff = False
+        self._busy_persist_until = 0.0
+        self._busy_timer: asyncio.Task | None = None
 
     @property
     def cdp(self) -> Any:
@@ -118,7 +155,7 @@ class Controller:
                 log.debug("Descarto tecla vieja %s", key_label(code))
                 continue
             try:
-                await self.handle_key(code)
+                await self.handle_key(code, ts)
             except CDPClosed:
                 log.warning("Se perdió %s mientras se ejecutaba la acción", self.bname)
             except Exception:  # noqa: BLE001
@@ -164,9 +201,11 @@ class Controller:
                 continue
             warned = False
             try:
-                await self._setup(page)
+                navigated = await self._setup(page)
                 self.page = page
                 self.connected.set()
+                if navigated:
+                    asyncio.get_running_loop().create_task(self.busy_after_navigation("Cargando Netflix…"))
                 self.browser.notify_connected()
                 log.info("Conectado a %s: %s", self.bname, page.url or "?")
                 self._was_connected = True
@@ -180,7 +219,8 @@ class Controller:
                 await page.close()
             await asyncio.sleep(1)
 
-    async def _setup(self, page: Any) -> None:
+    async def _setup(self, page: Any) -> bool:
+        """Instala el script en la pestaña. Devuelve True si además la mandó a Netflix (arranque)."""
         await page.setup_page(self.script)
         try:
             await page.evaluate(self.script)
@@ -189,13 +229,16 @@ class Controller:
         url = page.url or ""
         start = self.cfg.browser.get("start_url")
         pending, self.browser.pending_url = self.browser.pending_url, None
-        if self.browser.firefox and url in ("", "about:blank"):
-            # Firefox arranca en blanco (ver Browser.hide_webdriver): ahora que el script está
-            # instalado, recién se abre Netflix.
+        if self.browser.is_splash(url) or (self.browser.firefox and url in ("", "about:blank")):
+            # El navegador arranca en la pantalla de carga (o en blanco, ver Browser.hide_webdriver):
+            # ahora que el script está instalado, recién se abre Netflix.
             await page.navigate(pending or start)
-        elif "netflix.com" not in url and url not in ("", "about:blank"):
+            return True
+        if "netflix.com" not in url and url not in ("", "about:blank"):
             log.info("La pestaña no es de Netflix (%s): abro %s", url or "vacía", start)
             await page.navigate(start)
+            return True
+        return False
 
     async def connect_once(self, timeout: float = 10.0) -> bool:
         """Para comandos sueltos (accion, diagnostico): conectarse sin bucle de recuperación.
@@ -232,8 +275,12 @@ class Controller:
             log.debug("No pude leer el contexto: %s", exc)
             return "browse"
 
-    async def handle_key(self, code: int) -> None:
+    async def handle_key(self, code: int, ts: float | None = None) -> None:
         label = key_label(code)
+        if ts is not None and time.monotonic() - ts > 0.15:
+            log.debug("Tecla %s: %.0f ms en cola", label, (time.monotonic() - ts) * 1000)
+        if self._key_echo and self.page:
+            asyncio.get_running_loop().create_task(self._echo(code))
         self._ctx = await self.context()
         found = self.cfg.action_for(self._ctx, code)
         if not found:
@@ -260,6 +307,9 @@ class Controller:
         if self._macro_task and not self._macro_task.done():
             self._macro_task.cancel()
             log.info("Acción en curso cancelada por otra tecla")
+        if name == "back" and self._busy_persist_until > time.monotonic():
+            # Atrás mientras carga lo que se pidió antes: ese indicador ya no corresponde.
+            await self.busy_clear()
 
         log.info("Tecla %s [%s] -> %s", label, self._ctx, action if isinstance(action, str) else " + ".join(map(str, action)))
         # En la lista, PLAY abre la ficha y espera su botón: también va en segundo plano.
@@ -281,6 +331,20 @@ class Controller:
     async def run_action(self, action: Any, depth: int = 0) -> None:
         if depth > 8:
             log.warning("Macros demasiado anidadas; corto en %s", action)
+            return
+        if depth == 0:
+            name = str(action[0] if isinstance(action, list) and action else action).strip().partition(":")[0]
+            text = "" if name in QUIET else BUSY_TEXT.get(name, BUSY_DEFAULT)
+            if name in PLAY_ACTIONS and self._ctx != "browse":
+                text = ""  # en el reproductor play/pausa es instantáneo
+            start = time.monotonic()
+            try:
+                async with self.feedback(text):
+                    await self.run_action(action, 1)
+            finally:
+                took = time.monotonic() - start
+                (log.info if took >= 1 else log.debug)("%s: %.1f s", action if isinstance(action, str)
+                                                       else " + ".join(map(str, action)), took)
             return
         if isinstance(action, list):
             for i, step in enumerate(action):
@@ -333,6 +397,89 @@ class Controller:
                 return val
             return {}
         return {}
+
+    # ---------------------------------------------------------------- indicador "trabajando"
+    @contextlib.asynccontextmanager
+    async def feedback(self, text: str):
+        """Si la acción tarda más de feedback.busy_delay_ms, muestra el indicador hasta que termine."""
+        self._busy_text, self._busy_shown, self._busy_handoff = text, False, False
+        self._busy_timer = None
+        if text and self._busy_on and self.page:
+            self._busy_timer = asyncio.get_running_loop().create_task(self._busy_later())
+        try:
+            yield
+        finally:
+            if self._busy_timer:
+                self._busy_timer.cancel()
+            if self._busy_shown and not self._busy_handoff:
+                await self.busy_clear()
+
+    async def _busy_later(self) -> None:
+        await asyncio.sleep(self._busy_delay)
+        await self._busy_js(self._busy_text)
+
+    async def _busy_js(self, text: str, until: str | None = None, ttl: float = 15, nav: bool = False) -> dict:
+        if not self._busy_on or not self.page:
+            return {}
+        try:
+            r = await self.js("busy", text, until, int(ttl * 1000), nav)
+        except CDPError as exc:
+            log.debug("No pude mostrar el indicador: %s", exc)
+            return {}
+        self._busy_shown = True
+        return r
+
+    async def busy(self, text: str, until: str | None = None, ttl: float = 15, nav: bool = False) -> None:
+        """Actualiza el texto del indicador.
+
+        Con until ("playing", "page", "profiles") el indicador pasa a la página: se muestra ya, sobrevive a
+        la navegación y se apaga solo cuando se cumple la condición. nav=True: no mirar la condición hasta
+        que cargue un documento nuevo (si no, la página vieja ya la cumple).
+        """
+        self._busy_text = text
+        if until:
+            # El indicador pasa a la página: que el temporizador del inicio no lo pise con uno sin condición.
+            if self._busy_timer:
+                self._busy_timer.cancel()
+            self._busy_handoff = True
+            self._busy_persist_until = time.monotonic() + ttl
+            await self._busy_js(text, until, ttl, nav)
+        elif self._busy_shown:
+            await self._busy_js(text)
+
+    async def busy_clear(self) -> None:
+        self._busy_shown = False
+        self._busy_persist_until = 0.0
+        try:
+            await self.js("done")
+        except CDPError:
+            pass
+
+    async def busy_after_navigation(self, text: str, until: str = "page", ttl: float = 20) -> None:
+        """Para navegaciones a otro origen (pantalla de carga -> Netflix): sessionStorage no pasa de un
+        origen a otro, así que se espera a que cargue el documento nuevo y se pone ahí."""
+        if not self._busy_on:
+            return
+        old = self.page.url if self.page else ""
+        for _ in range(30):
+            await asyncio.sleep(0.25)
+            if not self.page:
+                return
+            try:
+                r = await self.js("busy", text, until, int(ttl * 1000), False)
+            except CDPError:
+                continue
+            url = r.get("url", "")
+            if url and url != old and not url.startswith(("about:", "file:")):
+                self._busy_persist_until = time.monotonic() + ttl
+                return
+
+    async def _echo(self, code: int) -> None:
+        try:
+            name = key_name(code)
+            await self.js("echo", ECHO.get(name) or (name[6:] if name.startswith("NUMBER") else name))
+        except CDPError:
+            pass
 
     def _page(self) -> Any:
         if self.page is None:
@@ -507,18 +654,22 @@ class Controller:
             await self.toast("No encontré «Reproducir» en la ficha" if r.get("modal")
                              else "Elegí un título con las flechas")
             return False
-        title = r.get("title") or r.get("label") or ""
-        log.info("Reproducir: %s", title or "?")
+        title = r.get("title") or ""
+        log.info("Reproducir: %s", title or r.get("label") or "?")
         if r.get("href"):
+            await self.busy(loading_text(title), until="playing", ttl=20)
             await self.navigate(r["href"])
             return True
         if r.get("opened"):
             return await self.open_and_play(r)
+        await self.busy(loading_text(title), until="playing", ttl=20)
         await self.apply_click(r)
         return True
 
     async def open_and_play(self, r: dict, timeout: float = 5.0) -> bool:
         """Abre la ficha de una tarjeta y aprieta su botón «Reproducir» apenas aparece."""
+        title = r.get("title") or ""
+        await self.busy(f"Abriendo «{title}»…" if title else "Abriendo la ficha…")
         await self.apply_click(r)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -528,6 +679,7 @@ class Controller:
                 await asyncio.sleep(0.2)  # que termine la animación de apertura
                 pb = await self.js("playButton")
                 if not pb.get("none"):
+                    await self.busy(loading_text(title), until="playing", ttl=20)
                     await self.apply_click(pb)
                     return True
         log.warning("La ficha no mostró el botón «Reproducir»")
@@ -593,9 +745,11 @@ class Controller:
             log.warning("wait:%s inválido (milisegundos)", arg)
 
     async def a_reload(self, arg: str) -> None:
+        await self.busy("Recargando…", until="page", nav=True)
         await self._page().reload()
 
     async def a_home(self, arg: str) -> None:
+        await self.busy("Cargando el inicio…", until="page", nav=True)
         await self.navigate(self.cfg.browser.get("start_url"))
 
     async def a_macro(self, arg: str, depth: int = 0) -> None:
@@ -618,6 +772,11 @@ class Controller:
             return
         if self.source and self.cfg.cec.get("activate_source") in ("launch", "both"):
             await self.source.activate_source()
+        fb = self.cfg.raw.get("feedback") or {}
+        if self.source and fb.get("cec_osd"):
+            # Aviso en la pantalla de la TV (CEC "Set OSD String", máx. 13 caracteres ASCII): no todas lo muestran.
+            text = str(fb.get("cec_osd_text") or "Netflix...").encode("ascii", "ignore").decode()[:13]
+            await self.source.send(f"osd 0 {text}")
         if not await self.browser.launch():
             return
         try:
@@ -647,9 +806,12 @@ class Controller:
         if r.get("none"):
             log.warning("No hay perfil %d (encontré %s)", n, r.get("count", 0))
             return
+        name = r.get("name") or ""
+        await self.busy(f"Entrando como {name}…" if name else "Entrando al perfil…")
         await self.apply_click(r)
-        log.info("Perfil elegido: %d (%s)", n, r.get("name", "?"))
-        await self.wait_ctx(unwanted={"profiles"}, timeout=10)
+        log.info("Perfil elegido: %d (%s)", n, name or "?")
+        if await self.wait_ctx(unwanted={"profiles"}, timeout=10):
+            await self.busy("Cargando Netflix…", until="page")
 
     async def a_continue_watching(self, arg: str) -> None:
         start_url = self.cfg.browser.get("start_url")
@@ -672,6 +834,7 @@ class Controller:
                     return
                 r = await self.js("profile", default_profile)
                 if not r.get("none"):
+                    await self.busy(f"Entrando como {r.get('name')}…" if r.get("name") else "Entrando al perfil…")
                     await self.apply_click(r)
                     log.info("Perfil por defecto: %s", r.get("name", default_profile))
                     await self.wait_ctx(unwanted={"profiles"}, timeout=10)
@@ -680,8 +843,11 @@ class Controller:
             if r.get("href"):
                 title = r.get("title") or ""
                 log.info("Seguir viendo: %s", title or r["href"])
-                await self.toast(f"Seguir viendo: {title}" if title else "Seguir viendo…", 2000)
-                await asyncio.sleep(0.3)
+                if self._busy_on:
+                    await self.busy(loading_text(title), until="playing", ttl=20)
+                else:
+                    await self.toast(f"Seguir viendo: {title}" if title else "Seguir viendo…", 2000)
+                    await asyncio.sleep(0.3)
                 await self.navigate(r["href"])
                 return
             if r.get("opened"):

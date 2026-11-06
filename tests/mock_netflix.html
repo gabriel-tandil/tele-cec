@@ -107,6 +107,13 @@
 
   // Lo que ve un script de la página al cargar (Firefox con control remoto pone true si no se oculta).
   log('webdriver:' + navigator.webdriver);
+  // Registra cuándo aparece y desaparece el indicador "trabajando" de netflix-cec (y con qué texto).
+  let busyWas = false;
+  setInterval(() => {
+    const b = document.getElementById('nfx-busy');
+    const on = !!b && b.classList.contains('on');
+    if (on !== busyWas) { busyWas = on; log(on ? 'busy-on:' + b.textContent : 'busy-off'); }
+  }, 40);
   if (params.get('layout')) sessionStorage.setItem('layout', params.get('layout'));
   const NEW = (sessionStorage.getItem('layout') || 'nuevo') !== 'viejo';
   document.documentElement.dataset.layout = NEW ? 'nuevo' : 'viejo';
@@ -167,6 +174,17 @@
     };
     window.netflix = { appContext: { state: { playerApp: { getAPI: () => ({ videoPlayer: { getAllPlayerSessionIds: () => ['watch-' + id], getVideoPlayerBySessionId: () => player } }) } } } };
     document.addEventListener('keydown', (e) => log('key:' + e.key + (e.isTrusted ? ':trusted' : '')));
+    // El video "carga" en 800 ms: un stream de un canvas, para que sea un <video> que reproduce de verdad.
+    setTimeout(() => {
+      const v = document.querySelector('video');
+      if (!v) return;
+      const c = document.createElement('canvas'); c.width = 64; c.height = 36;
+      const g = c.getContext('2d'); let n = 0;
+      setInterval(() => { g.fillStyle = `hsl(${(n += 15) % 360} 60% 40%)`; g.fillRect(0, 0, 64, 36); }, 50);
+      v.addEventListener('playing', () => log('video-playing'), { once: true });
+      v.srcObject = c.captureStream(20);
+      v.play().catch((e) => log('video-error:' + e));
+    }, 800);
     const next = () => { log('next-episode'); location.href = '/watch/' + (Number(id) + 1); };
     const exit = () => { log('exit-player'); location.href = NEW ? '/browse?jbv=' + id : '/browse'; };
 

@@ -15,6 +15,7 @@
     cur: null, lastRect: null, beforeModal: null, path: location.pathname,
     raf: 0, ringKey: '', toastTimer: 0, seekT: null, seekAt: 0,
     pagingRow: null, pagingIndex: -1, navMode: false, navModePath: '',
+    busyTimer: 0, echoTimer: 0,
   };
 
   // ------------------------------------------------------------ utilidades
@@ -117,7 +118,21 @@
   font:600 clamp(18px,2.1vw,42px)/1.3 "Netflix Sans",Helvetica,Arial,sans-serif;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;z-index:2147483647;pointer-events:none;opacity:0;box-shadow:0 6px 24px rgba(0,0,0,.55);
   transition:opacity .18s,transform .18s}
-#nfx-toast.on{opacity:1;transform:translate(-50%,0)}`;
+#nfx-toast.on{opacity:1;transform:translate(-50%,0)}
+#nfx-busy{position:fixed;top:4vh;right:3vw;display:flex;align-items:center;gap:.6em;max-width:60vw;box-sizing:border-box;
+  padding:.45em 1.1em .45em .75em;border-radius:999px;background:rgba(20,20,20,.9);color:#fff;
+  font:600 clamp(16px,1.6vw,34px)/1.3 "Netflix Sans",Helvetica,Arial,sans-serif;white-space:nowrap;overflow:hidden;
+  z-index:2147483647;pointer-events:none;opacity:0;transition:opacity .15s;box-shadow:0 4px 18px rgba(0,0,0,.55)}
+#nfx-busy.on{opacity:1}
+#nfx-busy span{overflow:hidden;text-overflow:ellipsis}
+#nfx-busy i{flex:none;width:1em;height:1em;box-sizing:border-box;border-radius:50%;border:.17em solid rgba(255,255,255,.25);
+  border-top-color:#e50914;animation:nfx-spin .8s linear infinite!important;animation-duration:.8s!important;
+  animation-iteration-count:infinite!important}
+@keyframes nfx-spin{to{transform:rotate(360deg)}}
+#nfx-echo{position:fixed;top:4vh;left:3vw;min-width:1.6em;padding:.25em .6em;box-sizing:border-box;border-radius:8px;
+  background:rgba(20,20,20,.85);color:#fff;text-align:center;font:700 clamp(16px,1.6vw,34px)/1.3 Helvetica,Arial,sans-serif;
+  z-index:2147483647;pointer-events:none;opacity:0;transition:opacity .1s}
+#nfx-echo.on{opacity:1}`;
     (document.head || document.documentElement).appendChild(st);
   }
 
@@ -173,6 +188,90 @@
     t.classList.add('on');
     clearTimeout(S.toastTimer);
     S.toastTimer = setTimeout(() => t.classList.remove('on'), ms || 1800);
+    return { ok: true };
+  }
+
+  // ------------------------------------------------------------ indicador "trabajando"
+  // Píldora con un circulito girando mientras el servicio hace algo que tarda. Con "until" se guarda en
+  // sessionStorage y sobrevive a la navegación: el script la vuelve a mostrar en la página nueva y la
+  // apaga solo cuando se cumple la condición (o vence).
+  const BUSY_KEY = 'nfx-busy';
+  function busyLoad() {
+    try { return JSON.parse(sessionStorage.getItem(BUSY_KEY) || 'null'); } catch (e) { return null; }
+  }
+  function busyStore(v) {
+    try { if (v) sessionStorage.setItem(BUSY_KEY, JSON.stringify(v)); else sessionStorage.removeItem(BUSY_KEY); } catch (e) { /* nada */ }
+  }
+  function whenBody(fn) {
+    if (document.body) { fn(); return; }
+    const mo = new MutationObserver(() => { if (document.body) { mo.disconnect(); fn(); } });
+    mo.observe(document.documentElement || document, { childList: true, subtree: true });
+  }
+  function busyShow(text) {
+    whenBody(() => {
+      ensureStyle();
+      const b = overlay('nfx-busy');
+      if (!b.firstChild) b.innerHTML = '<i></i><span></span>';
+      b.lastChild.textContent = String(text);
+      b.classList.add('on');
+    });
+  }
+  function busyHide() {
+    const b = document.getElementById('nfx-busy');
+    if (b) b.classList.remove('on');
+    clearInterval(S.busyTimer); S.busyTimer = 0;
+  }
+  function videoPlaying() {
+    const v = inPlayer() && document.querySelector('video');
+    return !!v && !v.paused && v.readyState >= 3 && v.currentTime > 0;
+  }
+  // ¿Ya está lo que se esperaba? playing = el video arrancó; page = Netflix terminó de cargar algo usable.
+  function busyReached(st) {
+    if (st.nav && performance.timeOrigin === st.doc) return false;  // todavía es la página anterior
+    if (st.until === 'playing') return videoPlaying();
+    if (st.until === 'profiles') return ctx().ctx === 'profiles';
+    if (st.until === 'page') {
+      const c = ctx().ctx;
+      return c === 'profiles' || videoPlaying() || (c === 'browse' && (anyShown(C.row) || !!modalRoot()));
+    }
+    return false;
+  }
+  function busyWatch(st) {
+    clearInterval(S.busyTimer);
+    S.busyTimer = setInterval(() => {
+      if (Date.now() > st.exp || (st.until && busyReached(st))) { busyHide(); if (st.until) busyStore(null); }
+    }, 250);
+  }
+  function busy(text, until, ttl, nav) {
+    const st = { text: String(text), until: until || null, exp: Date.now() + (ttl || 15000), nav: !!nav, doc: performance.timeOrigin };
+    busyStore(st.until ? st : null);
+    busyShow(st.text);
+    busyWatch(st);
+    return { ok: true, url: location.href };
+  }
+  function done(text, ms) {
+    busyHide(); busyStore(null);
+    if (text) toast(text, ms);
+    return { ok: true };
+  }
+  function busyResume() {
+    const st = busyLoad();
+    if (!st) return;
+    if (Date.now() > st.exp) { busyStore(null); return; }
+    busyShow(st.text);
+    busyWatch(st);
+  }
+
+  // Eco de teclas (diagnóstico): muestra un instante la tecla que llegó.
+  function echo(label) {
+    whenBody(() => {
+      ensureStyle();
+      const e = overlay('nfx-echo');
+      e.textContent = String(label);
+      e.classList.add('on');
+      clearTimeout(S.echoTimer);
+      S.echoTimer = setTimeout(() => e.classList.remove('on'), 600);
+    });
     return { ok: true };
   }
 
@@ -664,6 +763,7 @@
   // ------------------------------------------------------------ API
   const API = {
     ctx, nav, afterPage, activate, back, restore, smart, cw, profile, playButton, playSelected, nextEpisode, navMode, toast, dump,
+    busy, done, echo,
     profiles: () => ({ names: profileLinks().map(textOf) }),
     playPause: () => playPause(),
     play: () => playPause('play'),
@@ -739,7 +839,8 @@
     clearInterval(S.perfTimer);
     if (S.onPlay) document.removeEventListener('play', S.onPlay, true);
     if (document.documentElement) document.documentElement.classList.remove('nfx-browse');
-    for (const id of ['nfx-ring', 'nfx-toast', 'nfx-style', 'nfx-perf']) { const e = document.getElementById(id); if (e) e.remove(); }
+    clearInterval(S.busyTimer); clearTimeout(S.echoTimer);
+    for (const id of ['nfx-ring', 'nfx-toast', 'nfx-busy', 'nfx-echo', 'nfx-style', 'nfx-perf']) { const e = document.getElementById(id); if (e) e.remove(); }
     if (S.cur && S.cur.classList) S.cur.classList.remove('nfx-focused');
   }
 
@@ -748,4 +849,5 @@
 
   window.__nfx = { v: V, cmd, destroy };
   initPerf();
+  busyResume();
 })();
