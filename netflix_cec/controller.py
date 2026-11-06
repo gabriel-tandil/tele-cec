@@ -1,4 +1,4 @@
-"""Lógica principal: teclas CEC -> contexto -> acción/macro sobre Netflix en Chromium."""
+"""Lógica principal: teclas CEC -> contexto -> acción/macro sobre Netflix en el navegador."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .browser import Browser
-from .cdp import CDP, CDPClosed, CDPError, list_pages, pick_page
+from .cdp import CDPClosed, CDPError, ContextLost, SessionBusy
 from .cec import OP_STANDBY, CecFrame
 from .config import PKG_DIR, Config
 from .keys import key_label
@@ -22,44 +22,21 @@ log = logging.getLogger("netflix")
 REPEATABLE = {"nav", "seek", "volume", "key", "type"}
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
 LONG = {"continue_watching", "profiles", "profile", "home", "launch", "macro", "wait", "reload"}
-# Acciones que no necesitan Chromium.
+# Acciones que no necesitan el navegador.
 OFFLINE_OK = {"launch", "wait", "none", "macro"}
 
-# Teclas para Input.dispatchKeyEvent: nombre -> (virtual key code, code, texto)
-KEYDEFS: dict[str, tuple[int, str, str | None]] = {
-    "Escape": (27, "Escape", None),
-    "Enter": (13, "Enter", "\r"),
-    " ": (32, "Space", " "),
-    "Space": (32, "Space", " "),
-    "Backspace": (8, "Backspace", None),
-    "Tab": (9, "Tab", None),
-    "ArrowLeft": (37, "ArrowLeft", None),
-    "ArrowUp": (38, "ArrowUp", None),
-    "ArrowRight": (39, "ArrowRight", None),
-    "ArrowDown": (40, "ArrowDown", None),
-    "PageUp": (33, "PageUp", None),
-    "PageDown": (34, "PageDown", None),
-    "Home": (36, "Home", None),
-    "End": (35, "End", None),
-}
-
-
-def keydef(name: str) -> tuple[str, int, str, str | None]:
-    if name in KEYDEFS:
-        vk, code, text = KEYDEFS[name]
-        return (" " if name == "Space" else name), vk, code, text
-    if len(name) == 1:
-        ch = name
-        if ch.isdigit():
-            return ch, ord(ch), f"Digit{ch}", ch
-        if ch.isalpha():
-            return ch, ord(ch.upper()), f"Key{ch.upper()}", ch
-        return ch, 0, "", ch
-    raise ValueError(f"tecla desconocida: {name}")
+# Con el control remoto activo Firefox pone navigator.webdriver = true (Chromium no); esto lo oculta.
+HIDE_WEBDRIVER_JS = (
+    "try { if (navigator.webdriver) Object.defineProperty(Navigator.prototype, 'webdriver', "
+    "{ get: () => false, configurable: true, enumerable: true }); } catch (e) { /* nada */ }\n"
+)
 
 
 def build_script(cfg: Config) -> tuple[str, str]:
     src = (PKG_DIR / "nfx.js").read_text(encoding="utf-8")
+    fx = cfg.browser.get("firefox") or {}
+    if str(cfg.browser.get("engine", "chromium")).lower() == "firefox" and fx.get("hide_webdriver", True):
+        src = HIDE_WEBDRIVER_JS + src
     js_cfg = dict(cfg.selectors)
     js_cfg["trusted_click"] = bool(cfg.netflix.get("trusted_click", True))
     js_cfg["reduce_effects"] = bool(cfg.browser.get("reduce_effects", True))
@@ -77,7 +54,7 @@ class Controller:
         self.cfg = cfg
         self.browser = browser
         self.source: Any = None  # CecClientSource / StdinSource (para "fuente activa")
-        self.cdp: CDP | None = None
+        self.page: Any = None  # cdp.CDP (Chromium) o bidi.BiDi (Firefox)
         self.connected = asyncio.Event()
         self.queue: asyncio.Queue[tuple[int | None, float]] = asyncio.Queue(maxsize=8)
         self.script, self.version = build_script(cfg)
@@ -88,6 +65,15 @@ class Controller:
         self._macro_task: asyncio.Task | None = None
         self._wiggle = 0
         self._was_connected = False
+
+    @property
+    def cdp(self) -> Any:
+        """Nombre anterior de self.page (lo usan las pruebas)."""
+        return self.page
+
+    @property
+    def bname(self) -> str:
+        return self.browser.name
 
     # ================================================================ entrada
     def on_key(self, code: int) -> None:
@@ -106,7 +92,7 @@ class Controller:
     def on_frame(self, frame: CecFrame) -> None:
         if frame.opcode == OP_STANDBY:
             log.info("La TV pasó a standby")
-            if self.cfg.cec.get("pause_on_standby", True) and self.cdp:
+            if self.cfg.cec.get("pause_on_standby", True) and self.page:
                 asyncio.get_running_loop().create_task(self._pause_if_playing())
 
     async def _pause_if_playing(self) -> None:
@@ -133,24 +119,42 @@ class Controller:
             try:
                 await self.handle_key(code)
             except CDPClosed:
-                log.warning("Se perdió Chromium mientras se ejecutaba la acción")
+                log.warning("Se perdió %s mientras se ejecutaba la acción", self.bname)
             except Exception:  # noqa: BLE001
                 log.exception("Error manejando la tecla %s", key_label(code))
 
     async def browser_loop(self) -> None:
-        """Mantiene la conexión con Chromium y la recupera si se cierra o se cae."""
+        """Mantiene la conexión con el navegador y la recupera si se cierra o se cae."""
         port = self.browser.port
         launch_mode = self.cfg.browser.get("launch", "on_key")
         warned = False
+        busy_since = 0.0
         while True:
-            page = None
             try:
-                page = pick_page(await list_pages(port))
-            except Exception:  # noqa: BLE001 (Chromium no está escuchando)
+                page = await self.browser.connect()
+            except SessionBusy:
+                # Firefox con la sesión de control tomada por un cliente que murió sin cerrarla:
+                # no la libera nunca, así que la única salida es reiniciar ese Firefox.
+                now = time.monotonic()
+                busy_since = busy_since or now
+                if launch_mode != "never" and self.browser.can_autolaunch():
+                    log.warning("%s tiene la sesión de control tomada por otro cliente", self.bname)
+                    await self.browser.restart()
+                elif now - busy_since > 60:
+                    log.warning("%s sigue con la sesión de control tomada: reinicialo (o el servicio lo hace "
+                                "solo si browser.launch no es 'never')", self.bname)
+                    busy_since = now
+                await asyncio.sleep(2)
+                continue
+            except Exception as exc:  # noqa: BLE001
+                log.warning("No pude conectarme a %s: %s", self.bname, exc)
                 page = None
+                await asyncio.sleep(2)
+                continue
+            busy_since = 0.0
             if page is None:
                 if not warned:
-                    log.info("Chromium no está disponible en el puerto %d (%s)", port,
+                    log.info("%s no está disponible en el puerto %d (%s)", self.bname, port,
                              {"on_key": "se abre con OK", "always": "lo abro", "never": "esperando"}[launch_mode])
                     warned = True
                 if launch_mode == "always" and self.browser.can_autolaunch():
@@ -158,65 +162,65 @@ class Controller:
                 await asyncio.sleep(2)
                 continue
             warned = False
-            cdp = CDP(page["webSocketDebuggerUrl"])
             try:
-                await cdp.open()
-                await self._setup(cdp, page)
-                self.cdp = cdp
+                await self._setup(page)
+                self.page = page
                 self.connected.set()
                 self.browser.notify_connected()
-                log.info("Conectado a Chromium: %s", page.get("url", "?"))
+                log.info("Conectado a %s: %s", self.bname, page.url or "?")
                 self._was_connected = True
-                await cdp.closed.wait()
-                log.warning("Se perdió la conexión con Chromium (¿se cerró la pestaña o el navegador?)")
+                await page.closed.wait()
+                log.warning("Se perdió la conexión con %s (¿se cerró la pestaña o el navegador?)", self.bname)
             except Exception as exc:  # noqa: BLE001
-                log.warning("No pude conectarme a Chromium: %s", exc)
+                log.warning("No pude preparar la pestaña de %s: %s", self.bname, exc)
             finally:
-                self.cdp = None
+                self.page = None
                 self.connected.clear()
-                await cdp.close()
+                await page.close()
             await asyncio.sleep(1)
 
-    async def _setup(self, cdp: CDP, page: dict) -> None:
-        await cdp.send("Page.enable")
-        await cdp.send("Page.addScriptToEvaluateOnNewDocument", {"source": self.script})
+    async def _setup(self, page: Any) -> None:
+        await page.setup_page(self.script)
         try:
-            await cdp.send("Emulation.setFocusEmulationEnabled", {"enabled": True})
-        except CDPError:
-            pass
-        try:
-            await cdp.evaluate(self.script)
+            await page.evaluate(self.script)
         except CDPError as exc:
             log.debug("Inyección inicial falló (se reintenta luego): %s", exc)
-        url = page.get("url", "")
-        if "netflix.com" not in url and url not in ("", "about:blank"):
-            start = self.cfg.browser.get("start_url")
+        url = page.url or ""
+        start = self.cfg.browser.get("start_url")
+        pending, self.browser.pending_url = self.browser.pending_url, None
+        if self.browser.firefox and url in ("", "about:blank"):
+            # Firefox arranca en blanco (ver Browser.hide_webdriver): ahora que el script está
+            # instalado, recién se abre Netflix.
+            await page.navigate(pending or start)
+        elif "netflix.com" not in url and url not in ("", "about:blank"):
             log.info("La pestaña no es de Netflix (%s): abro %s", url or "vacía", start)
-            await cdp.send("Page.navigate", {"url": start})
+            await page.navigate(start)
 
-    async def connect_once(self, timeout: float = 5.0) -> bool:
-        """Para comandos sueltos (accion, diagnostico): conectarse sin bucle de recuperación."""
+    async def connect_once(self, timeout: float = 10.0) -> bool:
+        """Para comandos sueltos (accion, diagnostico): conectarse sin bucle de recuperación.
+
+        Con Firefox puede lanzar SessionBusy (el servicio u otro cliente tiene la única sesión).
+        """
+        page = await asyncio.wait_for(self.browser.connect(), timeout)
+        if page is None:
+            return False
         try:
-            page = pick_page(await list_pages(self.browser.port))
-        except Exception:  # noqa: BLE001
-            return False
-        if not page:
-            return False
-        cdp = CDP(page["webSocketDebuggerUrl"])
-        await asyncio.wait_for(cdp.open(), timeout)
-        await self._setup(cdp, page)
-        self.cdp = cdp
+            await self._setup(page)
+        except BaseException:
+            await page.close()
+            raise
+        self.page = page
         self.connected.set()
         return True
 
     async def disconnect(self) -> None:
-        if self.cdp:
-            await self.cdp.close()
-            self.cdp = None
+        if self.page:
+            page, self.page = self.page, None
+            await page.close()
 
     # ================================================================ teclas
     async def context(self) -> str:
-        if not self.cdp:
+        if not self.page:
             return "offline"
         try:
             r = await self.js("ctx")
@@ -268,7 +272,7 @@ class Controller:
         except asyncio.CancelledError:
             pass
         except CDPClosed:
-            log.warning("Se perdió Chromium durante la acción %s", action)
+            log.warning("Se perdió %s durante la acción %s", self.bname, action)
         except Exception:  # noqa: BLE001
             log.exception("Error en la acción %s", action)
 
@@ -287,8 +291,8 @@ class Controller:
         if handler is None:
             log.warning("Acción desconocida: %r", action)
             return
-        if self.cdp is None and name not in OFFLINE_OK:
-            log.info("Chromium no está conectado: no puedo ejecutar %s", action)
+        if self.page is None and name not in OFFLINE_OK:
+            log.info("%s no está conectado: no puedo ejecutar %s", self.bname, action)
             return
         if name == "macro":
             await self.a_macro(arg, depth)
@@ -302,23 +306,21 @@ class Controller:
             f"window.__nfx.cmd({json.dumps(name)}, {json.dumps(list(args), ensure_ascii=False)}) : {{__missing: true}}"
         )
         for attempt in range(3):
-            cdp = self.cdp
-            if cdp is None:
-                raise CDPClosed("sin conexión con Chromium")
+            page = self.page
+            if page is None:
+                raise CDPClosed(f"sin conexión con {self.bname}")
             try:
-                val = await cdp.evaluate(expr, timeout)
-            except CDPClosed:
-                raise
-            except CDPError as exc:
+                val = await page.evaluate(expr, timeout)
+            except ContextLost:
                 # Durante una navegación el contexto de JS desaparece un instante.
-                if "context" in str(exc).lower() and attempt < 2:
+                if attempt < 2:
                     await asyncio.sleep(0.5)
                     continue
                 raise
             if isinstance(val, dict) and val.get("__missing"):
                 log.debug("Script no presente (página nueva): lo inyecto")
                 try:
-                    await cdp.evaluate(self.script)
+                    await page.evaluate(self.script)
                 except CDPError as exc:
                     log.debug("Falló la inyección: %s", exc)
                     await asyncio.sleep(0.5)
@@ -330,32 +332,39 @@ class Controller:
             return {}
         return {}
 
-    async def send(self, method: str, params: dict | None = None) -> dict:
-        if self.cdp is None:
-            raise CDPClosed("sin conexión con Chromium")
-        return await self.cdp.send(method, params)
+    def _page(self) -> Any:
+        if self.page is None:
+            raise CDPClosed(f"sin conexión con {self.bname}")
+        return self.page
 
-    async def mouse(self, kind: str, x: float, y: float, **extra: Any) -> None:
-        await self.send("Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, **extra})
+    async def mouse_move(self, x: float, y: float) -> None:
+        await self._page().mouse_move(x, y)
+
+    async def _soft_move(self, x: float, y: float) -> None:
+        """Movimiento accesorio: si la página está navegando, Firefox lo rechaza y no importa."""
+        try:
+            await self.mouse_move(x, y)
+        except CDPClosed:
+            raise
+        except CDPError as exc:
+            log.debug("Movimiento del puntero ignorado: %s", str(exc).splitlines()[0][:120])
 
     async def click(self, x: float, y: float) -> None:
-        await self.mouse("mouseMoved", x, y)
-        await self.mouse("mousePressed", x, y, button="left", buttons=1, clickCount=1)
-        await self.mouse("mouseReleased", x, y, button="left", buttons=0, clickCount=1)
+        await self._page().mouse_click(x, y)
         await asyncio.sleep(0.05)
         await self.park()
 
     async def park(self) -> None:
         """Saca el puntero de encima de los títulos (si no, Netflix abre la vista previa)."""
-        await self.mouse("mouseMoved", 1, 1)
+        await self._soft_move(1, 1)
 
     async def wiggle(self) -> None:
         """Mueve apenas el puntero para que el reproductor no oculte sus controles."""
-        # Dos movimientos a puntos distintos: si el puntero ya estaba en el primero, Chromium no
+        # Dos movimientos a puntos distintos: si el puntero ya estaba en el primero, el navegador no
         # genera "mousemove" para ese, pero el segundo siempre es un movimiento real.
         self._wiggle ^= 1
-        await self.mouse("mouseMoved", 2 + self._wiggle, 2)
-        await self.mouse("mouseMoved", 3 - self._wiggle, 3)
+        await self._soft_move(2 + self._wiggle, 2)
+        await self._soft_move(3 - self._wiggle, 3)
 
     async def wake_controls(self) -> None:
         """Muestra los controles del reproductor y espera a que estén en la página.
@@ -375,20 +384,8 @@ class Controller:
         return bool(r.get("clicked"))
 
     async def key(self, name: str, times: int = 1) -> None:
-        keyname, vk, code, text = keydef(name)
         for _ in range(max(1, times)):
-            down: dict[str, Any] = {
-                "type": "keyDown" if text else "rawKeyDown", "key": keyname, "code": code,
-                "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk,
-            }
-            if text:
-                down["text"] = text
-                down["unmodifiedText"] = text
-            await self.send("Input.dispatchKeyEvent", down)
-            await self.send("Input.dispatchKeyEvent", {
-                "type": "keyUp", "key": keyname, "code": code,
-                "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk,
-            })
+            await self._page().key_press(name)
 
     async def toast(self, text: str, ms: int = 1800) -> None:
         try:
@@ -398,7 +395,7 @@ class Controller:
 
     async def navigate(self, url: str) -> None:
         log.info("Abriendo %s", url)
-        await self.send("Page.navigate", {"url": url})
+        await self._page().navigate(url)
         await asyncio.sleep(0.8)
 
     async def wait_ctx(self, wanted: set[str] | None = None, unwanted: set[str] | None = None,
@@ -554,7 +551,7 @@ class Controller:
             log.warning("wait:%s inválido (milisegundos)", arg)
 
     async def a_reload(self, arg: str) -> None:
-        await self.send("Page.reload", {"ignoreCache": False})
+        await self._page().reload()
 
     async def a_home(self, arg: str) -> None:
         await self.navigate(self.cfg.browser.get("start_url"))
@@ -567,15 +564,15 @@ class Controller:
         await self.run_action(macro if isinstance(macro, list) else [macro], depth + 1)
 
     async def a_launch(self, arg: str) -> None:
-        if self.cdp:
+        if self.page:
             try:
-                await self.send("Page.bringToFront")
+                await self.page.bring_to_front()
             except CDPError:
                 pass
             await self.toast("Netflix ya está abierto")
             return
         if self.cfg.browser.get("launch") == "never":
-            log.info("browser.launch = 'never': no abro Chromium")
+            log.info("browser.launch = 'never': no abro %s", self.bname)
             return
         if self.source and self.cfg.cec.get("activate_source") in ("launch", "both"):
             await self.source.activate_source()
@@ -584,7 +581,7 @@ class Controller:
         try:
             await asyncio.wait_for(self.connected.wait(), 20)
         except asyncio.TimeoutError:
-            log.warning("Chromium abrió pero no logré conectarme todavía")
+            log.warning("%s abrió pero no logré conectarme todavía", self.bname)
             return
         await self.wait_ctx(unwanted={"offline"}, timeout=10)
 

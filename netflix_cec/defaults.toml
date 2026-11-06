@@ -1,0 +1,160 @@
+# =============================================================================
+#  netflix-cec — configuración
+#  Archivo del usuario: ~/.config/netflix-cec/config.toml
+#  Solo hace falta dejar lo que quieras cambiar: lo que falte toma el valor
+#  por defecto. Después de editar:  systemctl --user restart netflix-cec
+# =============================================================================
+
+log_level = "info"            # "debug" muestra cada tecla y cada acción
+
+[cec]
+cec_client = "cec-client"     # binario de libcec (paquete cec-utils)
+port = ""                     # "" = autodetectar. Pi 400: "/dev/cec0" (HDMI 0) o "/dev/cec1" (HDMI 1)
+device_type = "r"             # "r" = recording (como cec-mini-kb), "p" = playback
+osd_name = "Netflix"          # nombre que muestra la TV
+# Cuándo anunciarse como fuente activa (hace que la TV cambie a la entrada de la Pi
+# y le mande las teclas): "start" (al arrancar el servicio), "launch" (al abrir
+# Chromium desde el control), "both" o "never".
+activate_source = "both"
+pause_on_standby = true       # pausar Netflix si la TV se apaga
+
+[browser]
+engine = "chromium"                           # "chromium" o "firefox" (ver [browser.firefox] más abajo)
+binary = ""                                   # "" = buscar chromium-browser / chromium
+user_data_dir = "~/.config/chromium-netflix"  # perfil propio (Chromium no permite depurar el perfil por defecto)
+debug_port = 9222                             # puerto de control (DevTools / WebDriver BiDi); solo escucha en 127.0.0.1
+start_url = "https://www.netflix.com/browse"
+kiosk = true                                  # pantalla completa sin barras
+# Qué hacer si Chromium no está abierto:
+#   "on_key" = abrirlo al apretar una tecla del contexto [keys.offline] (por defecto OK)
+#   "always" = mantenerlo siempre abierto (lo reabre si se cierra o se cae)
+#   "never"  = no abrirlo nunca desde el servicio
+launch = "on_key"
+extra_args = ["--password-store=basic"]       # agregá acá tu --user-agent si usás uno para Netflix
+# Rendimiento (útil en Raspberry Pi):
+reduce_effects = true    # sin animaciones, transiciones ni scroll suave (flags de Chromium o prefs de Firefox + CSS)
+stop_previews = true     # pausar y ocultar los avances que Netflix reproduce solos en el inicio
+
+# Solo con engine = "firefox". Firefox se controla por WebDriver BiDi, que admite UNA sola
+# sesión: la tiene el servicio, y los comandos sueltos (accion, diagnostico) se la piden a él.
+[browser.firefox]
+binary = ""                                   # "" = buscar firefox / firefox-esr
+profile = "~/.config/firefox-netflix"         # perfil propio (netflix-cec le escribe un user.js)
+extra_args = []                               # argumentos extra para Firefox
+# Preferencias extra para el user.js (pisan las de netflix-cec), p. ej.:
+#   prefs = { "media.ffmpeg.vaapi.enabled" = true }
+prefs = {}
+# Con el control remoto activo, Firefox expone navigator.webdriver = true (Chromium no). Esto lo
+# oculta para que Netflix vea el mismo navegador que sin netflix-cec.
+hide_webdriver = true
+
+[netflix]
+seek_seconds = 10
+volume_step = 0.1               # 0.1 = 10 %
+default_profile = 0             # perfil (1..N) que elige "Seguir viendo" si aparece "¿Quién está viendo?"; 0 = preguntar
+profiles_url = "https://www.netflix.com/ProfilesGate"
+smart_double_press_ms = 4000    # botón inteligente sin nada para saltar: 2.ª pulsación en este lapso = siguiente episodio
+page_delay_ms = 0               # espera tras pasar de página una fila; 0 = auto (250 con reduce_effects, si no 700)
+debounce_ms = 700               # ignora repeticiones de teclas "no repetibles" (macros, perfiles…)
+trusted_click = true            # clic con mouse real vía DevTools (más compatible); false = element.click()
+
+# -----------------------------------------------------------------------------
+#  Mapeo de teclas por contexto.
+#  Tecla: nombre libcec (UP, SELECT, F2_RED, NUMBER1…), decimal ("113") o hex ("0x71").
+#  Usá  netflix-cec aprender  para ver qué manda cada botón de tu control.
+#  Valor: una acción ("nav:up"), o una lista de acciones (macro), o "" para desactivar.
+#
+#  Contextos (si una tecla no está en el contexto actual se busca en el siguiente):
+#    profiles    -> browse -> global   pantalla "¿Quién está viendo?"
+#    browse      -> global             inicio, grillas, ficha de un título
+#    player      -> global             reproduciendo
+#    player_menu -> browse -> global   menú abierto sobre el reproductor / pantalla final
+#    text        -> browse -> global   hay un campo de texto enfocado (PIN, búsqueda)
+#    offline                           Chromium cerrado o sin conexión
+#
+#  Acciones: nav:up|down|left|right  ok  back  smart_skip  continue_watching
+#    profiles  profile:N  home  play_pause  play  pause  seek:+10  seek:-10
+#    volume:+  volume:-  mute  subtitles  audio  next_episode  fullscreen
+#    nav_mode  type:<texto>  key:<Tecla>  toast:<texto>  wait:<ms>  launch  reload
+#    macro:<nombre>  none
+# -----------------------------------------------------------------------------
+
+[keys.global]
+EXIT = "back"
+AN_RETURN = "back"
+F1_BLUE = "home"
+F2_RED = "profiles"
+F3_GREEN = "continue_watching"
+F4_YELLOW = "smart_skip"
+FORWARD = "smart_skip"
+PLAY = "play"
+PAUSE = "pause"
+PAUSE_PLAY_FUNCTION = "play_pause"
+
+[keys.browse]
+UP = "nav:up"
+DOWN = "nav:down"
+LEFT = "nav:left"
+RIGHT = "nav:right"
+SELECT = "ok"
+ENTER = "ok"
+
+[keys.profiles]
+NUMBER1 = "profile:1"
+NUMBER2 = "profile:2"
+NUMBER3 = "profile:3"
+NUMBER4 = "profile:4"
+NUMBER5 = "profile:5"
+
+[keys.player]
+SELECT = "play_pause"
+ENTER = "play_pause"
+LEFT = "seek:-10"
+RIGHT = "seek:+10"
+REWIND = "seek:-10"
+FAST_FORWARD = "seek:+10"
+BACKWARD = "seek:-10"
+UP = "volume:+"
+DOWN = "volume:-"
+VOLUME_UP = "volume:+"
+VOLUME_DOWN = "volume:-"
+MUTE = "mute"
+F1_BLUE = "subtitles"
+F2_RED = "audio"
+CHANNEL_UP = "next_episode"
+NUMBER0 = "nav_mode"          # fuerza navegación con flechas dentro del reproductor (otra vez = volver)
+STOP = "back"
+
+[keys.player_menu]
+F1_BLUE = "subtitles"
+F2_RED = "audio"
+NUMBER0 = "nav_mode"
+
+[keys.text]
+NUMBER0 = "type:0"
+NUMBER1 = "type:1"
+NUMBER2 = "type:2"
+NUMBER3 = "type:3"
+NUMBER4 = "type:4"
+NUMBER5 = "type:5"
+NUMBER6 = "type:6"
+NUMBER7 = "type:7"
+NUMBER8 = "type:8"
+NUMBER9 = "type:9"
+CLEAR = "key:Backspace"
+
+[keys.offline]
+SELECT = "launch"
+F3_GREEN = ["launch", "continue_watching"]
+
+# Macros: listas de acciones con nombre, se usan como "macro:<nombre>".
+# Ejemplo:  [keys.browse]  NUMBER9 = "macro:perfil1_seguir"
+[macros]
+perfil1_seguir = ["profile:1", "wait:2500", "continue_watching"]
+
+# -----------------------------------------------------------------------------
+#  Selectores CSS de Netflix. Netflix cambia su web cada tanto: si algo deja de
+#  andar, corré  netflix-cec diagnostico  y ajustá acá. Lo que pongas reemplaza
+#  al valor por defecto de esa clave.
+# -----------------------------------------------------------------------------
+[selectors]

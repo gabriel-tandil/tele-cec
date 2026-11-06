@@ -3,15 +3,17 @@
 
 Levanta un servidor HTTP local con tests/mock_netflix.html, abre Chromium
 headless con DevTools y simula teclas CEC a través del Controller real.
+Por defecto prueba los dos diseños del mock (el sitio actual, "nuevo", y el
+anterior, "viejo", para cubrir los selectores de respaldo) con los dos navegadores
+(Chromium por DevTools y Firefox por WebDriver BiDi) que estén instalados.
 
-    python3 tests/e2e_mock.py [--screens DIR]
+    python3 tests/e2e_mock.py [--layout nuevo|viejo|ambos] [--motor chromium|firefox|ambos] [--screens DIR]
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 import http.server
 import os
 import shutil
@@ -26,7 +28,6 @@ sys.path.insert(0, str(ROOT))
 
 from netflix_cec import config as config_mod  # noqa: E402
 from netflix_cec.browser import Browser, find_binary  # noqa: E402
-from netflix_cec.cdp import endpoint_alive  # noqa: E402
 from netflix_cec.controller import Controller  # noqa: E402
 from netflix_cec.keys import parse_key  # noqa: E402
 
@@ -58,7 +59,18 @@ def check(cond: bool, text: str) -> None:
     print(f"  [{'OK ' if cond else 'MAL'}] {text}", flush=True)
 
 
-async def main(screens: Path | None) -> int:
+def launch_cmd(browser: Browser, binary: str, profile: Path, url: str) -> list[str]:
+    if browser.firefox:
+        # Igual que en producción (user.js, arranque en about:blank, kiosko) más --headless.
+        browser.prepare_profile()
+        return browser.args(url)
+    return [binary, "--headless=new", f"--remote-debugging-port={DEBUG_PORT}", f"--user-data-dir={profile}",
+            "--window-size=1280,720", "--no-first-run", "--disable-gpu", *browser.perf_args(), url]
+
+
+async def run(layout: str, engine: str, screens: Path | None) -> None:
+    new = layout == "nuevo"
+    print(f"\n===== {engine} · diseño {layout} =====")
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", HTTP_PORT), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
@@ -67,27 +79,29 @@ async def main(screens: Path | None) -> int:
     cfg_file.write_text(f"""
 log_level = "info"
 [browser]
+engine = "{engine}"
 debug_port = {DEBUG_PORT}
 start_url = "{HOST}/browse"
 launch = "never"
+[browser.firefox]
+profile = "{tmp / 'profile'}"
+extra_args = ["--headless", "--window-size=1280,720"]
 [netflix]
 profiles_url = "{HOST}/ProfilesGate"
 page_delay_ms = 650
 """)
     cfg = config_mod.load(cfg_file)
-    binary = find_binary()
+    browser = Browser(cfg.browser)
     chrome = subprocess.Popen(
-        [binary, "--headless=new", f"--remote-debugging-port={DEBUG_PORT}", f"--user-data-dir={tmp / 'profile'}",
-         "--window-size=1280,720", "--no-first-run", "--disable-gpu", *Browser(cfg.browser).perf_args(),
-         f"{HOST}/ProfilesGate"],
+        launch_cmd(browser, browser.binary(), tmp / "profile", f"{HOST}/ProfilesGate?layout={layout}"),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
+    ctl = Controller(cfg, browser)
     try:
-        for _ in range(40):
-            if await endpoint_alive(DEBUG_PORT):
+        for _ in range(60):
+            if await browser.alive():
                 break
             await asyncio.sleep(0.25)
-        ctl = Controller(cfg, Browser(cfg.browser))
         assert await ctl.connect_once(), "no conecta"
         await ctl.wait_ctx({"profiles"}, timeout=10)
 
@@ -102,13 +116,14 @@ page_delay_ms = 650
 
         async def st() -> dict:
             return await ctl.cdp.evaluate(
-                "({log: window.__log || [], path: location.pathname,"
-                " cur: (document.querySelector('.nfx-focused') || {}).textContent || null})")
+                "(() => { const f = document.querySelector('.nfx-focused');"
+                " return {log: window.__log || [], path: location.pathname,"
+                " cur: f ? (f.getAttribute('aria-label') || f.textContent) : null,"
+                " uia: f ? f.getAttribute('data-uia') : null}; })()")
 
         async def shot(name: str) -> None:
             if screens:
-                r = await ctl.send("Page.captureScreenshot", {"format": "png"})
-                (screens / f"{name}.png").write_bytes(base64.b64decode(r["data"]))
+                (screens / f"{engine}-{layout}-{name}.png").write_bytes(await ctl.page.screenshot())
 
         async def last_log(prefix: str) -> list[str]:
             return [x for x in (await st())["log"] if x.startswith(prefix)]
@@ -124,12 +139,16 @@ page_delay_ms = 650
         perf = await ctl.cdp.evaluate("""({
             reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
             css: !!document.getElementById('nfx-perf'),
-            dur: getComputedStyle(document.querySelector('.sliderContent')).transitionDuration,
+            dur: getComputedStyle(document.querySelector('.sliderContent, .track')).transitionDuration,
             preview: getComputedStyle(document.querySelector('.billboard-preview')).visibility,
         })""")
-        check(perf["reduced"], "Chromium con --force-prefers-reduced-motion")
+        check(perf["reduced"], "prefers-reduced-motion activo (flag de Chromium / pref de Firefox)")
         check(perf["css"] and perf["dur"] == "0.001s", f"transiciones de Netflix acortadas: {perf['dur']}")
         check(perf["preview"] == "hidden", "avance automático del inicio oculto")
+        if browser.firefox:
+            seen = [x for x in (await st())["log"] if x.startswith("webdriver:")]
+            check(bool(seen) and all(x == "webdriver:false" for x in seen),
+                  f"navigator.webdriver oculto desde antes de los scripts de la página: {sorted(set(seen))}")
 
         print("Navegación espacial")
         await press("DOWN")
@@ -154,11 +173,11 @@ page_delay_ms = 650
         check(s["cur"] == "Tendencias 6", f"abajo mantiene la columna: {s['cur']!r}")
         await press("UP", "UP")
         s = await st()
-        check(s["cur"] is not None and ("Reproducir" in s["cur"] or "Más información" in s["cur"]),
+        check(s["cur"] is not None and ("Reproducir" in s["cur"] or "Más info" in s["cur"]),
               f"arriba x2 vuelve al billboard (no a la cabecera fija): {s['cur']!r}")
         await press("UP")
         s = await st()
-        check(s["cur"] in ("Inicio", "NETFLIX", "Series", "Películas"), f"arriba otra vez -> cabecera: {s['cur']!r}")
+        check(s["cur"] in ("Inicio", "NETFLIX", "Netflix", "Series", "Películas"), f"arriba otra vez -> cabecera: {s['cur']!r}")
         await press("DOWN", "DOWN", "DOWN", "DOWN", "DOWN", "DOWN")
         await shot("3-scroll")
         s = await st()
@@ -204,21 +223,49 @@ page_delay_ms = 650
         check((await last_log("seek:"))[-1] == "seek:70000", "izquierda = -10 s")
         await press("UP", "UP", pause=0.2)
         check((await last_log("vol:"))[-1] == "vol:0.7", "arriba x2 = volumen 70 %")
-        await press("F1_BLUE", "F1_BLUE", "F1_BLUE", pause=0.2)
-        check((await last_log("subs:")) == ["subs:Español", "subs:English", "subs:Off"], f"azul cicla subtítulos (sin forzados): {await last_log('subs:')}")
+        if new:
+            # Sin pista "none": "Desactivados" es la pista forced narrative y tiene que estar en el ciclo.
+            await press("F1_BLUE", "F1_BLUE", "F1_BLUE", "F1_BLUE", pause=0.2)
+            subs = await last_log("subs:")
+            check(subs == ["subs:Inglés", "subs:Español", "subs:Portugués (Brasil)", "subs:Desactivados"],
+                  f"azul cicla subtítulos y vuelve a «Desactivados» (forced): {subs}")
+        else:
+            await press("F1_BLUE", "F1_BLUE", "F1_BLUE", pause=0.2)
+            subs = await last_log("subs:")
+            check(subs == ["subs:Español", "subs:English", "subs:Off"], f"azul cicla subtítulos (sin forzados): {subs}")
         await press("F2_RED", pause=0.2)
-        check((await last_log("audio:"))[-1] == "audio:Español", "rojo cicla audio")
+        want = "audio:Inglés [Original]" if new else "audio:Español"
+        check((await last_log("audio:"))[-1] == want, f"rojo cicla audio: {want}")
         await shot("6-player")
         await press("SELECT", pause=0.2)
         check((await st())["log"][-1] == "pause", "OK = pausa")
         await press("SELECT", pause=0.2)
         check((await st())["log"][-1] == "play", "OK otra vez = play")
+        if new:
+            # Los controles salen del DOM al ocultarse: el modo navegación tiene que despertarlos.
+            await press("NUMBER0", pause=0.3)
+            check(await ctl.context() == "player_menu", "0 activa el modo navegación")
+            await asyncio.sleep(2.0)  # que se oculten los controles
+            gone = await ctl.cdp.evaluate("!document.querySelector('[data-uia=control-nav-back]')")
+            await press("RIGHT", pause=0.3)
+            s = await st()
+            first = s["uia"]
+            check(gone and bool(first) and first.startswith("control-"),
+                  f"con los controles ocultos, una flecha los muestra y enfoca uno: {first}")
+            await press("RIGHT", pause=0.3)
+            s = await st()
+            check(bool(s["uia"]) and s["uia"].startswith("control-") and s["uia"] != first,
+                  f"y otra flecha se mueve entre ellos: {first} -> {s['uia']}")
+            await shot("6b-modo-navegacion")
+            await press("EXIT", pause=0.3)
+            check(await ctl.context() == "player", "Atrás sale del modo navegación")
         await ctl.cdp.evaluate("delete window.netflix")
         await press("RIGHT", pause=0.3)
         check((await st())["log"][-1] == "key:ArrowRight:trusted", "sin la API interna usa la tecla de Netflix (fallback)")
+        await asyncio.sleep(2.0)  # controles ocultos: Atrás igual tiene que usar «volver», no el historial
         await press("EXIT", pause=1.2)
         s = await st()
-        check(s["path"] == "/browse", f"Atrás sale del reproductor: {s['path']}")
+        check(s["path"] == "/browse" and "exit-player" in s["log"], f"Atrás sale del reproductor con «volver»: {s['path']}")
 
         print("Perfiles desde el inicio + macro")
         await press("F2_RED", pause=1.2)
@@ -228,21 +275,40 @@ page_delay_ms = 650
         s = await st()
         check("profile:Gaby:trusted" in s["log"] and s["path"] == "/watch/80001", f"macro perfil 1 + seguir viendo: {s['path']}")
     finally:
+        await ctl.disconnect()
         chrome.terminate()
         try:
             chrome.wait(5)
         except subprocess.TimeoutExpired:
             chrome.kill()
         srv.shutdown()
+        srv.server_close()
         shutil.rmtree(tmp, ignore_errors=True)
 
+
+async def main(layouts: list[str], engines: list[str], screens: Path | None) -> int:
+    for engine in engines:
+        for layout in layouts:
+            start = len(results)
+            try:
+                await run(layout, engine, screens)
+            except Exception as exc:  # noqa: BLE001
+                check(False, f"la prueba se cortó: {type(exc).__name__}: {exc}")
+            for i in range(start, len(results)):
+                results[i] = (results[i][0], f"[{engine}/{layout}] {results[i][1]}")
     bad = [t for ok, t in results if not ok]
+    for t in bad:
+        print(f"  MAL: {t}")
     print(f"\n{len(results) - len(bad)}/{len(results)} verificaciones OK")
     return 1 if bad else 0
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
+    ap.add_argument("--layout", choices=("nuevo", "viejo", "ambos"), default="ambos",
+                    help="diseño del Netflix simulado (por defecto: los dos)")
+    ap.add_argument("--motor", choices=("chromium", "firefox", "ambos"), default="ambos",
+                    help="navegador (por defecto: los que estén instalados)")
     ap.add_argument("--screens", type=Path, help="guardar capturas en este directorio")
     a = ap.parse_args()
     if a.screens:
@@ -250,4 +316,11 @@ if __name__ == "__main__":
     os.environ.pop("JOURNAL_STREAM", None)
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
-    sys.exit(asyncio.run(main(a.screens)))
+    layouts = ["nuevo", "viejo"] if a.layout == "ambos" else [a.layout]
+    engines = ["chromium", "firefox"] if a.motor == "ambos" else [a.motor]
+    for e in list(engines):
+        if not find_binary("", e):
+            print(f"(no encontré {e}: no lo pruebo)")
+            if a.motor == "ambos":
+                engines.remove(e)
+    sys.exit(asyncio.run(main(layouts, engines, a.screens)))

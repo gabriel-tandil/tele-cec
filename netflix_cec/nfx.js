@@ -1,5 +1,5 @@
 /*
- * netflix-cec — script inyectado en la página de Netflix por DevTools.
+ * netflix-cec — script inyectado en la página de Netflix (DevTools en Chromium, WebDriver BiDi en Firefox).
  * Expone window.__nfx.cmd(nombre, args) para que el servicio lo use.
  * __NFX_VERSION__ y __NFX_CONFIG__ los reemplaza el servicio al inyectar.
  */

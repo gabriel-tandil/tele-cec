@@ -15,8 +15,9 @@ from pathlib import Path
 
 from . import __version__
 from . import config as config_mod
-from .browser import Browser, find_binary, graphical_env, has_display
-from .cdp import endpoint_alive, http_json, list_pages
+from . import ipc
+from .browser import Browser, graphical_env, has_display
+from .cdp import SessionBusy
 from .cec import CecClientSource, CecFrame, StdinSource
 from .controller import Controller
 from .keys import key_label
@@ -97,6 +98,7 @@ async def cmd_service(args: argparse.Namespace, cfg: config_mod.Config) -> int:
     ctl.source = source
 
     async def main() -> None:
+        server = await ipc.serve(ctl)
         tasks = [asyncio.create_task(ctl.run()), asyncio.create_task(source.run())]
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -106,10 +108,11 @@ async def cmd_service(args: argparse.Namespace, cfg: config_mod.Config) -> int:
         finally:
             for t in tasks:
                 t.cancel()
+            await ipc.close(server)
             await source.stop()
-            await ctl.disconnect()
+            await ctl.disconnect()  # con Firefox, termina la sesión de control (si no, queda tomada)
 
-    log.info("Servicio iniciado (%s)", "modo teclado" if args.teclado else "HDMI-CEC")
+    log.info("Servicio iniciado (%s, %s)", "modo teclado" if args.teclado else "HDMI-CEC", browser.name)
     await _run_until_signal(main())
     log.info("Servicio detenido")
     return 0
@@ -161,19 +164,44 @@ async def cmd_learn(args: argparse.Namespace, cfg: config_mod.Config) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- conexión de los comandos sueltos
+BUSY_HELP = ("{name} ya tiene una sesión de control (Firefox admite una sola): la del servicio u otro cliente.\n"
+             "Sin --directo los comandos se la piden al servicio. Si el servicio no está corriendo, reiniciá {name}.")
+
+
+async def _connect_direct(ctl: Controller) -> bool | None:
+    """Conecta sin pasar por el servicio. None si la sesión está tomada (Firefox)."""
+    try:
+        return await ctl.connect_once()
+    except SessionBusy:
+        print(BUSY_HELP.format(name=ctl.browser.name))
+        return None
+
+
 # ---------------------------------------------------------------- accion
 async def cmd_action(args: argparse.Namespace, cfg: config_mod.Config) -> int:
     browser = Browser(cfg.browser)
-    ctl = Controller(cfg, browser)
     action = args.accion if len(args.accion) == 1 else list(args.accion)
     first = action if isinstance(action, str) else action[0]
-    if not await ctl.connect_once():
+    if not args.directo:
+        resp = await ipc.request({"op": "action", "action": action, "wait": args.esperar})
+        if resp is not None:
+            if not resp.get("ok"):
+                print(f"El servicio no pudo ejecutar la acción: {resp.get('error')}")
+                return 1
+            print(f"Contexto: {resp.get('ctx')}   (lo ejecutó el servicio: el detalle está en su log)")
+            print(f"Contexto después: {resp.get('after')}")
+            return 0
+    ctl = Controller(cfg, browser)
+    connected = await _connect_direct(ctl)
+    if connected is None:
+        return 1
+    if not connected:
         if str(first).startswith("launch"):
-            ok = await browser.launch()
-            if ok:
-                await ctl.connect_once()
-        if not ctl.cdp:
-            print(f"No hay Chromium escuchando en el puerto {browser.port}. Abrilo con:  netflix-cec navegador")
+            if await browser.launch():
+                connected = await _connect_direct(ctl)
+        if not connected:
+            print(f"No hay {browser.name} escuchando en el puerto {browser.port}. Abrilo con:  netflix-cec navegador")
             return 1
     try:
         ctl._ctx = await ctl.context()
@@ -189,18 +217,43 @@ async def cmd_action(args: argparse.Namespace, cfg: config_mod.Config) -> int:
 # ---------------------------------------------------------------- navegador
 async def cmd_browser(args: argparse.Namespace, cfg: config_mod.Config) -> int:
     browser = Browser(cfg.browser)
-    if await endpoint_alive(browser.port):
-        ctl = Controller(cfg, browser)
-        if await ctl.connect_once():
-            try:
-                await ctl.send("Page.bringToFront")
-            finally:
-                await ctl.disconnect()
-        print("Chromium ya estaba abierto: lo traje al frente.")
+    if await browser.alive():
+        resp = await ipc.request({"op": "front"})
+        if resp is None:
+            ctl = Controller(cfg, browser)
+            if await _connect_direct(ctl):
+                try:
+                    await ctl.page.bring_to_front()
+                finally:
+                    await ctl.disconnect()
+        print(f"{browser.name} ya estaba abierto: lo traje al frente.")
         return 0
     ok = await browser.launch(args.url)
-    print("Chromium abierto." if ok else "No pude abrir Chromium (mirá el log de arriba).")
+    if ok and browser.pending_url:
+        # Firefox abrió en blanco (para ocultar navigator.webdriver): alguien tiene que llevarlo a Netflix.
+        await _firefox_first_navigation(cfg, browser, args.url)
+    print(f"{browser.name} abierto." if ok else f"No pude abrir {browser.name} (mirá el log de arriba).")
     return 0 if ok else 1
+
+
+async def _firefox_first_navigation(cfg: config_mod.Config, browser: Browser, url: str | None) -> None:
+    if await ipc.request({"op": "info"}) is not None:
+        # El servicio se conecta solo (en unos segundos) y abre browser.start_url; si se pidió otra
+        # URL, se la mando cuando esté conectado.
+        if not url:
+            return
+        for _ in range(30):
+            info = await ipc.request({"op": "info"})
+            if info and info.get("connected"):
+                await ipc.request({"op": "navigate", "url": url})
+                return
+            await asyncio.sleep(0.5)
+        return
+    ctl = Controller(cfg, browser)
+    try:
+        await _connect_direct(ctl)  # _setup navega a pending_url
+    finally:
+        await ctl.disconnect()
 
 
 # ---------------------------------------------------------------- diagnostico
@@ -220,28 +273,43 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
         _check(os.access(d, os.R_OK | os.W_OK), f"permiso de lectura/escritura en {d}" + ("" if os.access(d, os.R_OK | os.W_OK) else " (agregá tu usuario al grupo video)"))
     _check(_service_active(), "servicio netflix-cec activo" if _service_active() else "servicio netflix-cec no está activo")
 
-    print("\nChromium")
     browser = Browser(cfg.browser)
-    binary = find_binary(cfg.browser.get("binary", ""))
+    print(f"\nNavegador: {browser.name}")
+    binary = browser.binary()
     _check(bool(binary), f"binario: {binary or 'no encontrado'}")
     env = graphical_env()
     _check(has_display(env), f"sesión gráfica: WAYLAND_DISPLAY={env.get('WAYLAND_DISPLAY', '-')} DISPLAY={env.get('DISPLAY', '-')}")
     _check(True, f"perfil: {browser.user_data_dir} ({'existe' if browser.user_data_dir.exists() else 'se crea al abrir'})")
-    alive = await endpoint_alive(browser.port)
-    _check(alive, f"DevTools en 127.0.0.1:{browser.port}" + ("" if alive else " — abrilo con: netflix-cec navegador"))
+    alive = await browser.alive()
+    proto = "WebDriver BiDi" if browser.firefox else "DevTools"
+    _check(alive, f"{proto} en 127.0.0.1:{browser.port}" + ("" if alive else " — abrilo con: netflix-cec navegador"))
     if not alive:
         return 1
-    ver = await http_json(browser.port, "/json/version")
-    _check(True, f"versión: {ver.get('Browser')}")
-    pages = await list_pages(browser.port)
-    for p in pages:
-        print(f"         pestaña: {p.get('url')}")
-    ctl = Controller(cfg, browser)
-    if not await ctl.connect_once():
-        _check(False, "no pude conectarme a la pestaña")
-        return 1
+
+    # Con el servicio corriendo, se le pregunta a él (Firefox admite una sola sesión de control).
+    info = await ipc.request({"op": "info"})
+    ctl: Controller | None = None
+    if info is not None:
+        _check(info.get("connected"), "el servicio está conectado al navegador" if info.get("connected")
+               else "el servicio todavía no se conectó al navegador")
+        if not info.get("connected"):
+            return 1
+        _check(True, f"versión: {info.get('version')}")
+
+        async def js(name: str, *a: object) -> dict:
+            r = await ipc.request({"op": "js", "name": name, "args": list(a)})
+            return (r or {}).get("result") or {}
+    else:
+        ctl = Controller(cfg, browser)
+        connected = await _connect_direct(ctl)
+        if not connected:
+            if connected is False:
+                _check(False, "no pude conectarme a la pestaña")
+            return 1
+        _check(True, f"versión: {ctl.page.version}")
+        js = ctl.js
     try:
-        dump = await ctl.js("dump")
+        dump = await js("dump")
         print("\nNetflix (página actual)")
         _check(True, f"URL: {dump.get('url')}")
         _check(True, f"contexto: {dump.get('ctx')}   modal abierto: {dump.get('modal')}")
@@ -256,9 +324,10 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
             print(json.dumps(dump, indent=2, ensure_ascii=False))
         else:
             print("\n  (usá --detalle para ver los data-uia visibles y los métodos del reproductor)")
-        await ctl.toast("netflix-cec: diagnóstico OK", 2500)
+        await js("toast", "netflix-cec: diagnóstico OK", 2500)
     finally:
-        await ctl.disconnect()
+        if ctl:
+            await ctl.disconnect()
     return 0
 
 
@@ -266,7 +335,7 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="netflix-cec",
-        description="Controla Netflix en Chromium con el control remoto de la TV (HDMI-CEC).",
+        description="Controla Netflix en Chromium o Firefox con el control remoto de la TV (HDMI-CEC).",
     )
     p.add_argument("-c", "--config", help=f"archivo de configuración (por defecto {config_mod.USER_CONFIG})")
     p.add_argument("--debug", action="store_true", help="logs detallados")
@@ -283,11 +352,13 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("accion", aliases=["action"], help="ejecutar una o varias acciones ahora (ej.: nav:down ok)")
     s.add_argument("accion", nargs="+", help="acciones, p. ej. smart_skip  o  profile:1 continue_watching")
     s.add_argument("--esperar", type=float, default=0.5, help="segundos a esperar antes de salir")
+    s.add_argument("--directo", action="store_true",
+                   help="conectarse al navegador aunque el servicio esté corriendo (no sirve con Firefox)")
 
-    s = sub.add_parser("navegador", aliases=["browser"], help="abrir Chromium listo para el control (o traerlo al frente)")
+    s = sub.add_parser("navegador", aliases=["browser"], help="abrir el navegador listo para el control (o traerlo al frente)")
     s.add_argument("url", nargs="?", help="URL inicial (por defecto browser.start_url)")
 
-    s = sub.add_parser("diagnostico", aliases=["doctor"], help="revisar CEC, Chromium y la página de Netflix")
+    s = sub.add_parser("diagnostico", aliases=["doctor"], help="revisar CEC, el navegador y la página de Netflix")
     s.add_argument("--detalle", action="store_true", help="volcar el estado de la página en JSON")
     return p
 

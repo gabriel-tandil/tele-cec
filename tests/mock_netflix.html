@@ -105,6 +105,8 @@
   const params = new URLSearchParams(location.search);
   const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
 
+  // Lo que ve un script de la página al cargar (Firefox con control remoto pone true si no se oculta).
+  log('webdriver:' + navigator.webdriver);
   if (params.get('layout')) sessionStorage.setItem('layout', params.get('layout'));
   const NEW = (sessionStorage.getItem('layout') || 'nuevo') !== 'viejo';
   document.documentElement.dataset.layout = NEW ? 'nuevo' : 'viejo';
