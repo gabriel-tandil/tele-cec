@@ -621,6 +621,21 @@
       dataUia: [...uia].slice(0, 200), playerApi: !!p, playerMethods: p ? methods(p) : [],
       profiles: profileLinks().map(textOf), cwRow: !!cwRowEl(), rows: $$(C.row).length,
       video: !!document.querySelector('video'),
+      player: playerState(p),
+    };
+  }
+
+  // Estado del reproductor (para el diagnóstico): tiempo, pausa, volumen y pistas.
+  function playerState(p) {
+    if (!p) return null;
+    const call = (m) => { try { return has(p, m) ? p[m]() : undefined; } catch (e) { return undefined; } };
+    const tt = call('getTimedTextTrack'); const at = call('getAudioTrack');
+    const t = call('getCurrentTime'); const d = call('getDuration');
+    return {
+      time: typeof t === 'number' && isFinite(t) ? fmt(t / 1000) : null,
+      duration: typeof d === 'number' && isFinite(d) ? fmt(d / 1000) : null,
+      paused: call('isPaused') ?? null, volume: call('getVolume') ?? null, muted: call('isMuted') ?? null,
+      audio: at ? trackName(at, 'audio') : null, subtitles: tt ? trackName(tt, 'text') : null,
     };
   }
 

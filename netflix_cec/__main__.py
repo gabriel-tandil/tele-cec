@@ -319,6 +319,11 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
             _check(True, f"perfiles: {', '.join(dump['profiles'])}")
         if dump.get("video"):
             _check(dump.get("playerApi"), "API interna del reproductor de Netflix" + ("" if dump.get("playerApi") else " no disponible (se usan atajos de teclado)"))
+        pl = dump.get("player")
+        if pl:
+            _check(True, f"reproductor: {pl.get('time')} / {pl.get('duration')}   "
+                         f"{'en pausa' if pl.get('paused') else 'reproduciendo'}   volumen {round((pl.get('volume') or 0) * 100)} %"
+                         f"{' (silencio)' if pl.get('muted') else ''}   audio: {pl.get('audio')}   subtítulos: {pl.get('subtitles')}")
         if args.detalle:
             print("\nDetalle (JSON):")
             print(json.dumps(dump, indent=2, ensure_ascii=False))
