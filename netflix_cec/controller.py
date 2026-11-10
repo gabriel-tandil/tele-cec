@@ -24,6 +24,8 @@ log = logging.getLogger("netflix")
 REPEATABLE = {"nav", "seek", "volume", "key", "type"}
 # Una repetición (botón mantenido) que esperó más que esto en la cola ya no se ejecuta.
 STALE_REPEAT_S = 0.35
+# Tope para los movimientos accesorios del puntero (sacarlo de encima de los títulos, despertar controles).
+SOFT_MOVE_TIMEOUT_S = 3.0
 # Tope de la espera automática a que una fila termine de pasar de página (netflix.page_delay_ms = 0).
 PAGE_WAIT_MAX_MS = 1200
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
@@ -505,13 +507,19 @@ class Controller:
         await self._page().mouse_move(x, y)
 
     async def _soft_move(self, x: float, y: float) -> None:
-        """Movimiento accesorio: si la página está navegando, Firefox lo rechaza y no importa."""
+        """Movimiento accesorio: si la página está navegando, Firefox lo rechaza y no importa.
+
+        Tampoco importa si tarda: con la página ocupada (por ejemplo, cargando el inicio en una Pi lenta)
+        Firefox puede demorar segundos en aceptarlo, y eso no debe cortar la acción que lo pidió.
+        """
         try:
-            await self.mouse_move(x, y)
+            await asyncio.wait_for(self.mouse_move(x, y), SOFT_MOVE_TIMEOUT_S)
         except CDPClosed:
             raise
         except CDPError as exc:
             log.debug("Movimiento del puntero ignorado: %s", str(exc).splitlines()[0][:120])
+        except asyncio.TimeoutError:
+            log.debug("Movimiento del puntero ignorado: la página no respondió en %s s", SOFT_MOVE_TIMEOUT_S)
 
     async def click(self, x: float, y: float) -> None:
         await self._page().mouse_click(x, y)

@@ -77,7 +77,8 @@ async def serve(ctl: Controller) -> asyncio.AbstractServer | None:
                 resp = {"ok": False, "error": str(exc)}
             except Exception as exc:  # noqa: BLE001
                 log.exception("Error atendiendo %s", req)
-                resp = {"ok": False, "error": str(exc)}
+                # Algunos errores (TimeoutError) no traen mensaje: al menos que se vea cuál fue.
+                resp = {"ok": False, "error": str(exc) or type(exc).__name__}
             writer.write(json.dumps(resp, ensure_ascii=False).encode("utf-8") + b"\n")
             await writer.drain()
         except (ValueError, ConnectionError):
