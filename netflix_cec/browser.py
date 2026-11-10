@@ -51,6 +51,10 @@ FIREFOX_PREFS: dict[str, Any] = {
     "datareporting.policy.dataSubmissionPolicyBypassNotification": True,
     "toolkit.telemetry.reportingpolicy.firstRun": False,
     "browser.sessionstore.resume_from_crash": False,
+    # Después de varios cierres bruscos seguidos (cortes de luz, el servicio reiniciando un Firefox colgado)
+    # Firefox arranca preguntando si entrar en "modo seguro" y no sigue hasta que alguien conteste: en la
+    # TV, con el control remoto, no hay forma de hacerlo.
+    "toolkit.startup.max_resumed_crashes": -1,
     "browser.tabs.warnOnClose": False,
     "browser.warnOnQuit": False,
     "browser.translations.automaticallyPopup": False,
@@ -167,6 +171,83 @@ def write_user_js(profile: Path, prefs: dict[str, Any]) -> None:
              "// Para agregar o cambiar preferencias usá [browser.firefox] prefs en config.toml."]
     lines += [f"user_pref({_js_value(k)}, {_js_value(v)});" for k, v in prefs.items()]
     user_js.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# Extensiones que deshabilitó netflix-cec (para volver a habilitarlas si se sacan de la lista).
+EXT_STATE_FILE = "netflix-cec-extensiones.json"
+
+
+def _ext_name(addon: dict) -> str:
+    return (addon.get("defaultLocale") or {}).get("name") or addon.get("id") or "?"
+
+
+def profile_extensions(profile: Path) -> list[dict]:
+    """Extensiones instaladas en el perfil (no las que trae Firefox): id, nombre, activa, nuestra."""
+    try:
+        data = json.loads((profile / "extensions.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    try:
+        ours = set(json.loads((profile / EXT_STATE_FILE).read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        ours = set()
+    return [{"id": a.get("id"), "name": _ext_name(a), "active": bool(a.get("active")) and not a.get("userDisabled"),
+             "ours": a.get("id") in ours}
+            for a in data.get("addons", [])
+            if a.get("type") == "extension" and a.get("location") == "app-profile" and a.get("id") != "newtab@mozilla.org"]
+
+
+def apply_extension_states(profile: Path, disable: list[str]) -> None:
+    """Deshabilita en el perfil las extensiones de [browser.firefox] disable_extensions (por id o por nombre).
+
+    Es lo mismo que apagarlas en about:addons: quedan instaladas. Las que netflix-cec había deshabilitado y
+    ya no están en la lista se vuelven a habilitar; las que apagaste vos a mano no se tocan. Firefox tiene
+    que estar cerrado (al salir reescribe extensions.json).
+    """
+    want = {str(x).strip().lower() for x in (disable or []) if str(x).strip()}
+    mark = profile / EXT_STATE_FILE
+    try:
+        ours = set(json.loads(mark.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        ours = set()
+    if not want and not ours:
+        return
+    db = profile / "extensions.json"
+    try:
+        data = json.loads(db.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return  # perfil nuevo: todavía no hay extensiones
+    changed: list[str] = []
+    found: set[str] = set()
+    new_ours: set[str] = set()
+    for a in data.get("addons", []):
+        aid = a.get("id") or ""
+        keys = {aid.lower(), _ext_name(a).lower()}
+        if keys & want:
+            found |= keys & want
+            if not a.get("userDisabled"):
+                a["userDisabled"], a["active"] = True, False
+                changed.append(f"deshabilito {_ext_name(a)}")
+                new_ours.add(aid)
+            elif aid in ours:
+                new_ours.add(aid)
+        elif aid in ours:
+            a["userDisabled"], a["active"] = False, True
+            changed.append(f"vuelvo a habilitar {_ext_name(a)}")
+    for missing in sorted(want - found):
+        log.warning("disable_extensions: no hay ninguna extensión «%s» en el perfil", missing)
+    if changed:
+        tmp = db.with_suffix(".json.netflix-cec")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(db)
+        # Caché del estado de las extensiones al arrancar: sin ella, Firefox la rearma desde extensions.json.
+        (profile / "addonStartup.json.lz4").unlink(missing_ok=True)
+        log.info("Extensiones del perfil: %s", ", ".join(changed))
+    if new_ours != ours:
+        if new_ours:
+            mark.write_text(json.dumps(sorted(new_ours)), encoding="utf-8")
+        else:
+            mark.unlink(missing_ok=True)
 
 
 class Browser:
@@ -328,6 +409,7 @@ class Browser:
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
         if self.firefox:
             write_user_js(self.user_data_dir, self.firefox_prefs())
+            apply_extension_states(self.user_data_dir, self.fx.get("disable_extensions") or [])
         else:
             self._mark_clean_exit()
 

@@ -144,6 +144,7 @@ Funciona igual que con Chromium (mismas teclas, contextos y acciones). Cambia es
 - **Perfil y preferencias**: el perfil es `~/.config/firefox-netflix`. Cada vez que abre Firefox, netflix-cec le escribe un `user.js` con lo necesario: DRM, reproducción automática, sin carteles de primer inicio ni de restaurar sesión, y sin el botón de imagen en imagen sobre el video. También desactiva las "preferencias recomendadas" del agente remoto, que son para pruebas automáticas (apagan Safe Browsing, el guardado de contraseñas y la protección contra rastreo). Agregá las tuyas en `[browser.firefox] prefs`.
 - **`navigator.webdriver`**: con el control remoto activo, Firefox le avisa a las páginas que está automatizado (Chromium no). netflix-cec lo oculta para que Netflix vea el mismo navegador de siempre. Se puede desactivar con `[browser.firefox] hide_webdriver = false`.
 - **Barra a rayas con un robot**: es el aviso de Firefox de que está bajo control remoto. En modo kiosko no se ve.
+- **Extensiones**: si copiaste tu perfil con `--copiar-perfil`, vinieron tus extensiones (uBlock Origin, h264ify…). En una Pi cada una gasta algo de CPU. `netflix-cec diagnostico` las lista, y con `disable_extensions` se apagan solo en este perfil: quedan instaladas, como deshabilitadas en `about:addons`. Si las sacás de la lista, netflix-cec las vuelve a habilitar; las que apagaste vos a mano no las toca. Se aplica al abrir Firefox, así que después del cambio cerralo y volvé a abrirlo. En una Raspberry Pi conviene dejar **UANaughtyList**: cambia cómo se identifica el navegador ante sitios que rechazan Linux en ARM, y puede ser lo que hace que Netflix te deje entrar.
 
 ```toml
 [browser.firefox]
@@ -152,6 +153,7 @@ profile = "~/.config/firefox-netflix"
 extra_args = []
 prefs = { "media.ffmpeg.vaapi.enabled" = true }
 hide_webdriver = true
+disable_extensions = ["uBlock Origin", "h264ify"]
 ```
 
 ## Configuración
@@ -204,6 +206,7 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `browser.launch` | `"on_key"` | Navegador cerrado: `on_key` (OK lo abre), `always` (siempre abierto), `never` |
 | `browser.user_data_dir` | `~/.config/chromium-netflix` | Perfil de Chromium propio |
 | `browser.firefox.profile` | `~/.config/firefox-netflix` | Perfil de Firefox propio |
+| `browser.firefox.disable_extensions` | `[]` | Extensiones a apagar en ese perfil (por nombre o id) |
 | `browser.extra_args` | `["--password-store=basic"]` | Flags extra de Chromium (por ejemplo tu `--user-agent`) |
 | `browser.kiosk` | `true` | Pantalla completa sin barras |
 | `browser.reduce_effects` | `true` | Sin animaciones, transiciones ni scroll suave (ver [Rendimiento](#rendimiento)) |

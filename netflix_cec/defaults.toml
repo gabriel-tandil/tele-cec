@@ -48,6 +48,11 @@ prefs = {}
 # Con el control remoto activo, Firefox expone navigator.webdriver = true (Chromium no). Esto lo
 # oculta para que Netflix vea el mismo navegador que sin netflix-cec.
 hide_webdriver = true
+# Extensiones a deshabilitar en este perfil (por nombre o id; netflix-cec diagnostico las lista), p. ej.
+# las que vinieron al copiar tu perfil y no hacen falta para Netflix:
+#   disable_extensions = ["uBlock Origin", "h264ify"]
+# Quedan instaladas, como apagadas en about:addons. Si las sacás de la lista se vuelven a habilitar.
+disable_extensions = []
 
 # Avisos en pantalla mientras se ejecuta lo que pediste con el control.
 [feedback]
@@ -63,7 +68,7 @@ volume_step = 0.1               # 0.1 = 10 %
 default_profile = 0             # perfil (1..N) que elige "Seguir viendo" si aparece "¿Quién está viendo?"; 0 = preguntar
 profiles_url = "https://www.netflix.com/ProfilesGate"
 smart_double_press_ms = 4000    # botón inteligente sin nada para saltar: 2.ª pulsación en este lapso = siguiente episodio
-page_delay_ms = 0               # espera tras pasar de página una fila; 0 = auto (250 con reduce_effects, si no 700)
+page_delay_ms = 0               # espera fija tras pasar de página una fila; 0 = auto (espera a que la fila deje de moverse)
 debounce_ms = 700               # ignora repeticiones de teclas "no repetibles" (macros, perfiles…)
 trusted_click = true            # clic con mouse real vía DevTools (más compatible); false = element.click()
 

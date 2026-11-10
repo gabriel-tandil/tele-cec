@@ -17,7 +17,7 @@ from pathlib import Path
 from . import __version__
 from . import config as config_mod
 from . import ipc
-from .browser import Browser, graphical_env, has_display
+from .browser import Browser, graphical_env, has_display, profile_extensions
 from .cdp import SessionBusy
 from .cec import CecClientSource, CecFrame, StdinSource
 from .controller import Controller
@@ -313,6 +313,16 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
     env = graphical_env()
     _check(has_display(env), f"sesión gráfica: WAYLAND_DISPLAY={env.get('WAYLAND_DISPLAY', '-')} DISPLAY={env.get('DISPLAY', '-')}")
     _check(True, f"perfil: {browser.user_data_dir} ({'existe' if browser.user_data_dir.exists() else 'se crea al abrir'})")
+    if browser.firefox:
+        exts = profile_extensions(browser.user_data_dir)
+        if exts:
+            desc = ", ".join(e["name"] + ("" if e["active"] else " (apagada por netflix-cec)" if e["ours"] else " (apagada)")
+                             for e in exts)
+            _check(True, f"extensiones del perfil: {desc}")
+            wanted = [str(x).strip().lower() for x in (browser.fx.get("disable_extensions") or [])]
+            pending = [e["name"] for e in exts if e["active"] and {e["id"].lower(), e["name"].lower()} & set(wanted)]
+            if pending:
+                _check(None, f"{', '.join(pending)}: se apaga{'n' if len(pending) > 1 else ''} la próxima vez que se abra Firefox")
     alive = await browser.alive()
     proto = "WebDriver BiDi" if browser.firefox else "DevTools"
     _check(alive, f"{proto} en 127.0.0.1:{browser.port}" + ("" if alive else " — abrilo con: netflix-cec navegador"))

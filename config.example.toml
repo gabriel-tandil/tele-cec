@@ -1,0 +1,53 @@
+# =============================================================================
+#  netflix-cec — tu configuración  (~/.config/netflix-cec/config.toml)
+#
+#  Acá va SOLO lo que quieras cambiar. Todo lo demás toma el valor por defecto,
+#  que está documentado en:
+#      ~/.local/share/netflix-cec/netflix_cec/defaults.toml
+#  (ahí están el mapeo completo de teclas, las acciones y los selectores).
+#
+#  Después de editar:   systemctl --user restart netflix-cec
+#  Para ver qué manda cada botón del control:   netflix-cec aprender
+# =============================================================================
+
+# log_level = "debug"
+
+[cec]
+# port = "/dev/cec1"          # si la TV está en el HDMI 1 de la Pi 400
+# device_type = "p"           # probá "p" (playback) si la TV no manda las teclas con "r"
+# activate_source = "launch"  # no cambiar la entrada de la TV al arrancar la Pi
+
+[browser]
+# engine = "firefox"          # usar Firefox en vez de Chromium (o instalá con ./install.sh --firefox)
+# launch = "always"           # mantener Netflix siempre abierto (modo "aparato de TV")
+# kiosk = false
+# reduce_effects = false      # volver a las animaciones normales (por defecto están apagadas)
+# stop_previews = false       # dejar que Netflix reproduzca los avances en el inicio
+# extra_args = ["--password-store=basic", "--user-agent=..."]   # solo Chromium
+
+# [browser.firefox]           # solo con engine = "firefox"
+# prefs = { "media.ffmpeg.vaapi.enabled" = true }   # preferencias extra para el user.js
+# disable_extensions = ["uBlock Origin", "h264ify"]  # apagar extensiones en este perfil (no en tu Firefox)
+
+# [feedback]
+# key_echo = true             # mostrar cada tecla que llega (para ver si la TV la manda)
+# cec_osd = true              # probar si tu TV muestra "Netflix..." al abrir el navegador
+# busy = false                # sin indicador "trabajando"
+
+[netflix]
+# default_profile = 1         # "Seguir viendo" elige este perfil si aparece "¿Quién está viendo?"
+# seek_seconds = 10
+
+# --- Ejemplos de cambios de teclas (se fusionan con los de por defecto) ---
+# [keys.player]
+# LEFT = "seek:-30"
+# F3_GREEN = "smart_skip"
+#
+# [keys.browse]
+# NUMBER9 = ["profile:1", "wait:2500", "continue_watching"]   # macro en línea
+# F4_YELLOW = ""                                               # desactivar una tecla
+#
+# [macros]
+# noche = ["profile:2", "wait:2500", "continue_watching"]
+# [keys.global]
+# F1_BLUE = "macro:noche"
