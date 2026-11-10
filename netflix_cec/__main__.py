@@ -325,14 +325,24 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
             _check(True, f"reproductor: {pl.get('time')} / {pl.get('duration')}   "
                          f"{'en pausa' if pl.get('paused') else 'reproduciendo'}   volumen {round((pl.get('volume') or 0) * 100)} %"
                          f"{' (silencio)' if pl.get('muted') else ''}   audio: {pl.get('audio')}   subtítulos: {pl.get('subtitles')}")
-        # Ida y vuelta con la página (cada tecla hace al menos dos: contexto + acción).
-        rtt = []
-        for _ in range(7):
-            t0 = time.perf_counter()
-            await js("viewport")
-            rtt.append((time.perf_counter() - t0) * 1000)
-        rtt.sort()
-        _check(rtt[3] < 50, f"ida y vuelta con la página: {rtt[3]:.0f} ms (mediana; peor {rtt[-1]:.0f} ms)")
+        # Ida y vuelta con la página (cada tecla hace al menos dos: contexto + acción). A través del
+        # servicio se le descuenta lo que cuesta el socket solo (una consulta que no toca la página),
+        # porque las teclas no pasan por ahí.
+        async def median_ms(fn) -> float:
+            out = []
+            for _ in range(9):
+                t0 = time.perf_counter()
+                await fn()
+                out.append((time.perf_counter() - t0) * 1000)
+            return sorted(out)[len(out) // 2]
+        page_ms = await median_ms(lambda: js("viewport"))
+        if info is not None:
+            sock_ms = await median_ms(lambda: ipc.request({"op": "info"}))
+            page_ms = max(0.0, page_ms - sock_ms)
+            extra = f" (sin contar {sock_ms:.0f} ms del socket del servicio)"
+        else:
+            extra = ""
+        _check(page_ms < 30, f"ida y vuelta con la página: {page_ms:.0f} ms{extra}")
         pf = dump.get("perf")
         if pf and pf.get("reduceEffects"):
             _check(pf.get("css") and pf.get("animatePatched"),
