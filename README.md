@@ -140,6 +140,7 @@ Funciona igual que con Chromium (mismas teclas, contextos y acciones). Cambia es
 - **Protocolo**: Firefox ya no tiene DevTools (CDP). Se controla por **WebDriver BiDi**, el estándar que lo reemplaza, por el mismo `--remote-debugging-port`. Los clics y las teclas también llegan como "reales".
 - **Una sola sesión de control**: Firefox admite un solo cliente a la vez, y lo es el servicio. Por eso `accion`, `diagnostico` y `navegador` se lo piden al servicio por su socket local. Si el servicio no está corriendo, se conectan por su cuenta y cierran la sesión al terminar.
 - **Sesión colgada**: si un cliente muere sin cerrar la sesión (por ejemplo, con `kill -9`), Firefox no la libera nunca. El servicio lo detecta y reinicia ese Firefox, el del perfil `firefox-netflix`. Tu sesión de Netflix se conserva porque está en el perfil.
+- **Arranque lento** (Raspberry Pi): Firefox abre el puerto de control enseguida, pero recién acepta la sesión cuando terminó de abrir la ventana, y eso puede tardar. netflix-cec espera hasta 90 s, y si deja de esperar antes, igual cierra esa sesión apenas Firefox responde, para que no quede tomada.
 - **Perfil y preferencias**: el perfil es `~/.config/firefox-netflix`. Cada vez que abre Firefox, netflix-cec le escribe un `user.js` con lo necesario: DRM, reproducción automática, sin carteles de primer inicio ni de restaurar sesión, y sin el botón de imagen en imagen sobre el video. También desactiva las "preferencias recomendadas" del agente remoto, que son para pruebas automáticas (apagan Safe Browsing, el guardado de contraseñas y la protección contra rastreo). Agregá las tuyas en `[browser.firefox] prefs`.
 - **`navigator.webdriver`**: con el control remoto activo, Firefox le avisa a las páginas que está automatizado (Chromium no). netflix-cec lo oculta para que Netflix vea el mismo navegador de siempre. Se puede desactivar con `[browser.firefox] hide_webdriver = false`.
 - **Barra a rayas con un robot**: es el aviso de Firefox de que está bajo control remoto. En modo kiosko no se ve.
@@ -302,8 +303,13 @@ En una Raspberry Pi, Netflix en Chromium puede andar pesado. netflix-cec trae ac
 
 - **`reduce_effects = true`**:
   - Abre Chromium con `--force-prefers-reduced-motion` y `--disable-smooth-scrolling` (en Firefox: `ui.prefersReducedMotion` y `general.smoothScroll` en el `user.js`).
-  - Inyecta CSS que deja todas las transiciones y animaciones de la página en 1 ms y desactiva el desenfoque de fondo (`backdrop-filter`), que es caro para la GPU de la Pi. Las animaciones quedan en 1 ms y no en "nada" para que el código de Netflix que espera el final de una animación (por ejemplo, el paso de página de las filas) siga funcionando.
+  - Inyecta CSS que deja todas las transiciones y animaciones de la página en 1 ms. Las animaciones quedan en 1 ms y no en "nada" para que el código de Netflix que espera el final de una animación (por ejemplo, el paso de página de las filas) siga funcionando.
+  - Ese CSS también saca lo que más le cuesta dibujar a la GPU de la Pi: desenfoques (`backdrop-filter`, `filter`), sombras difusas (`box-shadow`, `text-shadow`), capas extra (`will-change`) y fondos fijos. El marco de foco queda con un contorno sólido, sin resplandor.
+  - Las animaciones que Netflix hace por JavaScript con `element.animate()` (el CSS no las alcanza) también pasan a durar 1 ms.
   - El resaltado y el scroll pasan a ser instantáneos.
+  - `netflix-cec diagnostico` muestra si todo esto está activo y qué animaciones siguen corriendo en la página en ese momento.
+
+Independientemente de esta opción, el marco de foco solo sigue al elemento cuadro a cuadro un instante después de cada tecla o scroll; el resto del tiempo se revisa 4 veces por segundo. Y si mantenés apretado un botón mientras la página viene lenta, las repeticiones que quedaron esperando más de 0,35 s se descartan, para que el foco no siga de largo después de soltarlo.
 - **`stop_previews = true`**: pausa y oculta los videos que Netflix reproduce solos mientras navegás (el avance del inicio y las vistas previas). No afecta al reproductor.
 
 Para volver a los efectos normales, en tu `config.toml`:

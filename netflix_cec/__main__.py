@@ -324,6 +324,15 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
             _check(True, f"reproductor: {pl.get('time')} / {pl.get('duration')}   "
                          f"{'en pausa' if pl.get('paused') else 'reproduciendo'}   volumen {round((pl.get('volume') or 0) * 100)} %"
                          f"{' (silencio)' if pl.get('muted') else ''}   audio: {pl.get('audio')}   subtítulos: {pl.get('subtitles')}")
+        pf = dump.get("perf")
+        if pf and pf.get("reduceEffects"):
+            _check(pf.get("css") and pf.get("animatePatched"),
+                   f"reduce_effects: CSS {'sí' if pf.get('css') else 'NO'} · animate() interceptado "
+                   f"{'sí' if pf.get('animatePatched') else 'NO'} · prefers-reduced-motion "
+                   f"{'sí' if pf.get('reducedMotion') else 'no'} · animaciones corriendo ahora: {pf.get('running')}")
+            for a in (pf.get("sample") or [])[:8]:
+                print(f"         {a.get('kind')} {a.get('name') or ''} en {a.get('target') or '?'}: "
+                      f"{a.get('ms')} ms × {a.get('iterations')}")
         if args.detalle:
             print("\nDetalle (JSON):")
             print(json.dumps(dump, indent=2, ensure_ascii=False))

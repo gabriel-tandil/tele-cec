@@ -15,8 +15,10 @@
     cur: null, lastRect: null, beforeModal: null, path: location.pathname,
     raf: 0, ringKey: '', toastTimer: 0, seekT: null, seekAt: 0,
     pagingRow: null, pagingIndex: -1, navMode: false, navModePath: '',
-    busyTimer: 0, echoTimer: 0, staleAt: 0,
+    busyTimer: 0, echoTimer: 0, staleAt: 0, followUntil: 0, tickTimer: 0, listeners: [],
   };
+  // Escuchas que hay que sacar en destroy() (si no, una versión vieja del script sigue reaccionando).
+  function on(target, type, fn, opts) { target.addEventListener(type, fn, opts); S.listeners.push([target, type, fn, opts]); }
 
   // ------------------------------------------------------------ utilidades
   const $$ = (sel, root) => { if (!sel) return []; try { return Array.from((root || document).querySelectorAll(sel)); } catch (e) { return []; } };
@@ -29,6 +31,7 @@
   const textOf = (el) => ((el && (el.getAttribute('aria-label') || el.innerText || el.textContent || el.getAttribute('title'))) || '')
     .replace(/\s+/g, ' ').trim().slice(0, 80);
   const TEXT_SEL = 'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="range"]), textarea, [contenteditable=""], [contenteditable="true"]';
+  const scrollBehavior = () => (C.smooth_scroll ? 'smooth' : 'auto');
 
   function R(el) {
     const r = el.getBoundingClientRect();
@@ -49,6 +52,8 @@
     if (!el || !el.isConnected) return false;
     const r = el.getBoundingClientRect();
     if (r.width < 4 || r.height < 4) return false;
+    // Lejos de la pantalla (otras filas del inicio): no hace falta revisar si se ve, que es lo caro.
+    if (opts.near && (r.bottom < -vh() * 1.5 || r.top > vh() * 2.5)) return false;
     const visW = Math.min(r.right, vw()) - Math.max(r.left, 0);
     if (visW < Math.min(r.width, vw()) * 0.6) return false;
     if (opts.inView) {
@@ -71,6 +76,7 @@
   // tiene adentro otro enfocable, se usa el de adentro).
   function candidates(root, opts) {
     root = root || document;
+    opts = Object.assign({ near: true }, opts);
     const all = $$(C.focusable, root).filter((el) => !matches(el, C.ignore) && usable(el, opts));
     const set = new Set(all);
     const parents = new Set();
@@ -190,20 +196,39 @@
     }
   }
 
+  // El marco sigue al elemento cuadro a cuadro solo un rato después de que algo se mueve (una tecla, un
+  // scroll, un cambio de tamaño). El resto del tiempo se revisa 4 veces por segundo: un
+  // requestAnimationFrame permanente obligaría al navegador a recalcular la página en cada cuadro.
   function ringLoop() {
     S.raf = 0;
     if (document.hidden) return;
-    staleCheck();          // puede mover el resaltado (y eso ya agenda el próximo cuadro)
-    if (S.raf) return;
-    if (positionRing()) S.raf = requestAnimationFrame(ringLoop);
+    if (positionRing() && performance.now() < S.followUntil) S.raf = requestAnimationFrame(ringLoop);
   }
 
-  function showRing() { ensureStyle(); positionRing(); if (!S.raf) S.raf = requestAnimationFrame(ringLoop); }
+  function follow(ms) {
+    if (!S.cur) return;
+    S.followUntil = Math.max(S.followUntil, performance.now() + (ms || 400));
+    if (!S.raf) S.raf = requestAnimationFrame(ringLoop);
+  }
+
+  function ringTick() {
+    if (document.hidden) return;
+    if (!S.cur) { clearInterval(S.tickTimer); S.tickTimer = 0; return; }
+    staleCheck();          // puede mover el resaltado o apagarlo
+    if (S.cur) positionRing();  // corrimientos sin scroll (imágenes que terminan de cargar, filas nuevas)
+  }
+
+  function showRing() {
+    ensureStyle(); positionRing(); follow(400);
+    if (!S.tickTimer) S.tickTimer = setInterval(ringTick, 250);
+  }
 
   function hideRing() {
     const ring = document.getElementById('nfx-ring');
     if (ring) ring.classList.remove('on');
     S.ringKey = '';
+    cancelAnimationFrame(S.raf); S.raf = 0;
+    clearInterval(S.tickTimer); S.tickTimer = 0;
   }
 
   function toast(text, ms) {
@@ -310,7 +335,7 @@
     if (r.top >= top + margin && r.bottom <= bottom - margin) return;
     if (r.height > bottom - top - 2 * margin && r.top >= top && r.top < bottom) return;
     const delta = Math.round((r.top + r.height / 2) - (top + (bottom - top) / 2));
-    const behavior = C.smooth_scroll ? 'smooth' : 'auto';
+    const behavior = scrollBehavior();
     // No se usa scrollIntoView: desplazaría las filas de Netflix (overflow:hidden) de costado.
     let p = el.parentElement;
     while (p && p !== document.body && p !== document.documentElement) {
@@ -454,8 +479,8 @@
       if (alt) best = alt;
     }
     if (best) { setCur(best); return { moved: true, label: textOf(best) }; }
-    if (dir === 'down') { window.scrollBy({ top: vh() * 0.6, behavior: 'smooth' }); return { scrolled: true }; }
-    if (dir === 'up' && root === document && window.scrollY > 0) { window.scrollTo({ top: 0, behavior: 'smooth' }); return { scrolled: true }; }
+    if (dir === 'down') { window.scrollBy({ top: vh() * 0.6, behavior: scrollBehavior() }); return { scrolled: true }; }
+    if (dir === 'up' && root === document && window.scrollY > 0) { window.scrollTo({ top: 0, behavior: scrollBehavior() }); return { scrolled: true }; }
     return { edge: true };
   }
 
@@ -509,7 +534,7 @@
     if (modal) return { key: 'Escape', restore: true };
     if (/^\/browse\/?$/.test(location.pathname)) {
       if (window.scrollY > 10) {
-        window.scrollTo({ top: 0, behavior: 'smooth' }); setCur(null); S.lastRect = null;
+        window.scrollTo({ top: 0, behavior: scrollBehavior() }); setCur(null); S.lastRect = null;
         return { done: 'top' };
       }
       return { done: 'none' };
@@ -769,6 +794,7 @@
       profiles: profileLinks().map(textOf), cwRow: !!cwRowEl(), rows: $$(C.row).length,
       video: !!document.querySelector('video'),
       player: playerState(p),
+      perf: perfInfo(),
     };
   }
 
@@ -817,10 +843,16 @@
   // ------------------------------------------------------------ rendimiento
   // Transiciones y animaciones a 1 ms (no "none"): así siguen disparándose los
   // eventos transitionend/animationend de los que depende el código de Netflix.
+  // Además, fuera lo que más le cuesta a la GPU de la Pi al dibujar: desenfoques (backdrop-filter, filter),
+  // sombras difusas (box-shadow, text-shadow), capas extra (will-change) y fondos fijos (se redibujan con
+  // cada scroll). El marco de foco conserva un contorno sólido, sin difuminar.
   const PERF_CSS = `
 *,*::before,*::after{transition-duration:1ms!important;transition-delay:0s!important;
   animation-duration:1ms!important;animation-delay:0s!important;animation-iteration-count:1!important;
-  scroll-behavior:auto!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}`;
+  scroll-behavior:auto!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+  filter:none!important;box-shadow:none!important;text-shadow:none!important;will-change:auto!important;
+  background-attachment:scroll!important}
+#nfx-ring{box-shadow:0 0 0 3px #e50914,0 0 0 6px rgba(0,0,0,.55)!important}`;
   const PREVIEW_CSS = `html.nfx-browse video{visibility:hidden!important}`;
 
   function stopPreviews() {
@@ -844,7 +876,68 @@
     (document.head || document.documentElement).appendChild(st);
   }
 
+  // Las animaciones hechas con element.animate() (Web Animations) no las alcanza el CSS: se les fuerza
+  // la misma duración de 1 ms. Las infinitas pasan a una sola vuelta (a 1 ms darían mil vueltas por segundo).
+  function patchAnimate() {
+    const proto = window.Element && Element.prototype;
+    if (!proto || typeof proto.animate !== 'function' || proto.animate.__nfxOrig) return;
+    const orig = proto.animate;
+    const animate = function animate(keyframes, options) {
+      let o = options;
+      if (o && typeof o === 'object') {
+        if (o.timeline) return orig.call(this, keyframes, options);  // atada al scroll, no al reloj
+        o = Object.assign({}, o, { duration: 1, delay: 0, endDelay: 0 });
+        if (!(Number(o.iterations) < Infinity)) o.iterations = 1;
+      } else {
+        o = 1;
+      }
+      return orig.call(this, keyframes, o);
+    };
+    animate.__nfxOrig = orig;
+    proto.animate = animate;
+    // Las que ya estaban corriendo (el script se inyectó con la página ya abierta).
+    try {
+      for (const a of document.getAnimations()) {
+        if (a.constructor.name !== 'Animation' || a.playState !== 'running') continue;
+        const it = a.effect && a.effect.getTiming ? a.effect.getTiming().iterations : 1;
+        if (it < Infinity) a.finish();
+      }
+    } catch (e) { /* nada */ }
+  }
+
+  function unpatchAnimate() {
+    const proto = window.Element && Element.prototype;
+    if (proto && proto.animate && proto.animate.__nfxOrig) proto.animate = proto.animate.__nfxOrig;
+  }
+
+  // Para el diagnóstico: qué sigue animándose en la página pese a reduce_effects.
+  function perfInfo() {
+    let anims = [];
+    try { anims = document.getAnimations().filter((a) => a.playState === 'running'); } catch (e) { /* nada */ }
+    const who = (t) => {
+      if (!t || t.nodeType !== 1) return '';
+      const cls = typeof t.className === 'string' ? t.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+      return t.tagName.toLowerCase() + (t.id ? '#' + t.id : '') + (cls ? '.' + cls : '') + (t.getAttribute('data-uia') ? `[${t.getAttribute('data-uia')}]` : '');
+    };
+    return {
+      reduceEffects: !!C.reduce_effects,
+      css: !!document.getElementById('nfx-perf'),
+      reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      animatePatched: !!(Element.prototype.animate && Element.prototype.animate.__nfxOrig),
+      running: anims.length,
+      sample: anims.slice(0, 15).map((a) => {
+        const tm = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : {};
+        return {
+          kind: a.constructor.name, name: a.animationName || a.transitionProperty || a.id || '',
+          target: who(a.effect && a.effect.target) + (a.effect && a.effect.pseudoElement ? a.effect.pseudoElement : ''),
+          ms: tm.duration, iterations: tm.iterations,
+        };
+      }),
+    };
+  }
+
   function initPerf() {
+    if (C.reduce_effects) patchAnimate();
     // En una página nueva este script corre antes de que exista <html>: esperar a que aparezca.
     if (document.documentElement) addPerfStyle();
     else {
@@ -862,7 +955,10 @@
 
   function destroy() {
     cancelAnimationFrame(S.raf);
+    clearInterval(S.tickTimer);
     clearInterval(S.perfTimer);
+    for (const [t, type, fn, opts] of S.listeners) t.removeEventListener(type, fn, opts);
+    unpatchAnimate();
     if (S.onPlay) document.removeEventListener('play', S.onPlay, true);
     if (document.documentElement) document.documentElement.classList.remove('nfx-browse');
     clearInterval(S.busyTimer); clearTimeout(S.echoTimer);
@@ -870,8 +966,12 @@
     if (S.cur && S.cur.classList) S.cur.classList.remove('nfx-focused');
   }
 
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.cur) showRing(); });
-  document.addEventListener('fullscreenchange', () => { if (S.cur) showRing(); });
+  on(document, 'visibilitychange', () => { if (!document.hidden && S.cur) showRing(); });
+  on(document, 'fullscreenchange', () => { if (S.cur) showRing(); });
+  // Mientras la página (o la ficha abierta) se desplaza, el marco sigue al elemento cuadro a cuadro.
+  const onMove = () => { if (S.cur) follow(300); };
+  on(document, 'scroll', onMove, { capture: true, passive: true });
+  on(window, 'resize', onMove, { passive: true });
 
   window.__nfx = { v: V, cmd, destroy };
   initPerf();

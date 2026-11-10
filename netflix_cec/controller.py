@@ -11,6 +11,7 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
+from . import bidi
 from .browser import Browser
 from .cdp import CDPClosed, CDPError, ContextLost, SessionBusy
 from .cec import OP_STANDBY, CecFrame
@@ -21,6 +22,8 @@ log = logging.getLogger("netflix")
 
 # Acciones que tiene sentido repetir si se mantiene apretado el botón.
 REPEATABLE = {"nav", "seek", "volume", "key", "type"}
+# Una repetición (botón mantenido) que esperó más que esto en la cola ya no se ejecuta.
+STALE_REPEAT_S = 0.35
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
 LONG = {"continue_watching", "profiles", "profile", "home", "launch", "macro", "wait", "reload"}
 PLAY_ACTIONS = {"play", "play_pause"}
@@ -151,8 +154,14 @@ class Controller:
             if code is None:
                 self._released = True
                 continue
-            if time.monotonic() - ts > 3:
+            age = time.monotonic() - ts
+            if age > 3:
                 log.debug("Descarto tecla vieja %s", key_label(code))
+                continue
+            # Repetición de un botón mantenido que quedó esperando porque la página venía lenta: si se
+            # ejecutara, el foco seguiría moviéndose después de soltar el botón.
+            if age > STALE_REPEAT_S and code == self._last_key[0] and not self._released:
+                log.debug("Descarto repetición atrasada %s (%.0f ms en cola)", key_label(code), age * 1000)
                 continue
             try:
                 await self.handle_key(code, ts)
@@ -175,7 +184,10 @@ class Controller:
                 # no la libera nunca, así que la única salida es reiniciar ese Firefox.
                 now = time.monotonic()
                 busy_since = busy_since or now
-                if launch_mode != "never" and self.browser.can_autolaunch():
+                if bidi.late_session_pending():
+                    # Es la nuestra: Firefox la está terminando de crear y se cierra apenas responda.
+                    log.info("%s todavía está abriendo: espero a que libere la sesión de control", self.bname)
+                elif launch_mode != "never" and self.browser.can_autolaunch():
                     log.warning("%s tiene la sesión de control tomada por otro cliente", self.bname)
                     await self.browser.restart()
                 elif now - busy_since > 60:
@@ -185,7 +197,8 @@ class Controller:
                 await asyncio.sleep(2)
                 continue
             except Exception as exc:  # noqa: BLE001
-                log.warning("No pude conectarme a %s: %s", self.bname, exc)
+                log.warning("No pude conectarme a %s: %s", self.bname,
+                            str(exc) or ("no respondió a tiempo" if isinstance(exc, asyncio.TimeoutError) else type(exc).__name__))
                 page = None
                 await asyncio.sleep(2)
                 continue
@@ -240,7 +253,7 @@ class Controller:
             return True
         return False
 
-    async def connect_once(self, timeout: float = 10.0) -> bool:
+    async def connect_once(self, timeout: float = 120.0) -> bool:
         """Para comandos sueltos (accion, diagnostico): conectarse sin bucle de recuperación.
 
         Con Firefox puede lanzar SessionBusy (el servicio u otro cliente tiene la única sesión).
