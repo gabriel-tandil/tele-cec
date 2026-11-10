@@ -17,11 +17,12 @@ from .cdp import CDPClosed, CDPError, ContextLost, SessionBusy
 from .cec import OP_STANDBY, CecFrame
 from .config import PKG_DIR, Config
 from .keys import key_label, key_name
+from .music import BACK, LIKE, SHUFFLE, HighTide
 
 log = logging.getLogger("netflix")
 
 # Acciones que tiene sentido repetir si se mantiene apretado el botón.
-REPEATABLE = {"nav", "seek", "volume", "key", "type"}
+REPEATABLE = {"nav", "seek", "volume", "key", "type", "music"}
 # Una repetición (botón mantenido) que esperó más que esto en la cola ya no se ejecuta.
 STALE_REPEAT_S = 0.35
 # Tope para los movimientos accesorios del puntero (sacarlo de encima de los títulos, despertar controles).
@@ -29,7 +30,11 @@ SOFT_MOVE_TIMEOUT_S = 3.0
 # Tope de la espera automática a que una fila termine de pasar de página (netflix.page_delay_ms = 0).
 PAGE_WAIT_MAX_MS = 1200
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
-LONG = {"continue_watching", "profiles", "profile", "home", "launch", "macro", "wait", "reload"}
+LONG = {"continue_watching", "profiles", "profile", "home", "launch", "macro", "wait", "reload", "app"}
+# Acciones con argumento que también tardan (se reconocen por el texto completo).
+LONG_FULL = {"music:my_tracks"}
+# Apps que se eligen con los colores (acción app:<nombre>).
+APPS = {"netflix": "Netflix", "tidal": "Tidal"}
 PLAY_ACTIONS = {"play", "play_pause"}
 # Indicador "trabajando": texto inicial por acción (las acciones largas lo van actualizando).
 # Las que no figuran usan BUSY_DEFAULT; las de QUIET nunca lo muestran (ya se ve lo que hacen).
@@ -53,9 +58,9 @@ ECHO = {
     "STOP": "Stop", "FORWARD": "⏭", "BACKWARD": "⏮", "FAST_FORWARD": "⏩", "REWIND": "⏪",
     "F1_BLUE": "Azul", "F2_RED": "Rojo", "F3_GREEN": "Verde", "F4_YELLOW": "Amarillo",
 }
-QUIET = REPEATABLE | {"none", "toast", "wait", "nav_mode", "mute", "subtitles", "audio", "pause"}
+QUIET = REPEATABLE | {"none", "toast", "wait", "nav_mode", "mute", "subtitles", "audio", "pause", "app"}
 # Acciones que no necesitan el navegador.
-OFFLINE_OK = {"launch", "wait", "none", "macro"}
+OFFLINE_OK = {"launch", "wait", "none", "macro", "app", "music"}
 
 # Con el control remoto activo Firefox pone navigator.webdriver = true (Chromium no); esto lo oculta.
 HIDE_WEBDRIVER_JS = (
@@ -110,6 +115,10 @@ class Controller:
         self._busy_handoff = False
         self._busy_persist_until = 0.0
         self._busy_timer: asyncio.Task | None = None
+        # Tidal (High Tide): app aparte, sin navegador. Mientras se pasa a Tidal el navegador no se reabre solo.
+        self.music = HighTide(cfg.apps.get("tidal"))
+        self._tidal_nav = False
+        self._tidal_until = 0.0
 
     @property
     def cdp(self) -> Any:
@@ -137,10 +146,15 @@ class Controller:
     def on_frame(self, frame: CecFrame) -> None:
         if frame.opcode == OP_STANDBY:
             log.info("La TV pasó a standby")
-            if self.cfg.cec.get("pause_on_standby", True) and self.page:
+            if self.cfg.cec.get("pause_on_standby", True) and (self.page or self.music.running()):
                 asyncio.get_running_loop().create_task(self._pause_if_playing())
 
     async def _pause_if_playing(self) -> None:
+        if not self.page and self.music.running():
+            if (await self.music.status()).get("status") == "Playing":
+                await self.music.ctl("pause")
+                log.info("Música pausada por standby de la TV")
+            return
         try:
             if await self.context() == "player":
                 await self.js("pause")
@@ -212,7 +226,7 @@ class Controller:
                     log.info("%s no está disponible en el puerto %d (%s)", self.bname, port,
                              {"on_key": "se abre con OK", "always": "lo abro", "never": "esperando"}[launch_mode])
                     warned = True
-                if launch_mode == "always" and self.browser.can_autolaunch():
+                if launch_mode == "always" and self.browser.can_autolaunch() and not self._holding_for_tidal():
                     await self.browser.launch()
                 await asyncio.sleep(2)
                 continue
@@ -282,6 +296,9 @@ class Controller:
     # ================================================================ teclas
     async def context(self) -> str:
         if not self.page:
+            if self.music.running():
+                return "tidal_nav" if self._tidal_nav else "tidal"
+            self._tidal_nav = False
             return "offline"
         try:
             r = await self.js("ctx")
@@ -330,7 +347,8 @@ class Controller:
 
         log.info("Tecla %s [%s] -> %s", label, self._ctx, action if isinstance(action, str) else " + ".join(map(str, action)))
         # En la lista, PLAY abre la ficha y espera su botón: también va en segundo plano.
-        if isinstance(action, list) or name in LONG or (name in PLAY_ACTIONS and self._ctx == "browse"):
+        if (isinstance(action, list) or name in LONG or str(first).strip() in LONG_FULL
+                or (name in PLAY_ACTIONS and self._ctx == "browse")):
             self._macro_task = asyncio.create_task(self._run_bg(action))
         else:
             await self.run_action(action)
@@ -787,6 +805,9 @@ class Controller:
         await self.run_action(macro if isinstance(macro, list) else [macro], depth + 1)
 
     async def a_launch(self, arg: str) -> None:
+        self._tidal_until = 0.0
+        if self.music.running():
+            await self.music.quit()
         if self.page:
             try:
                 await self.page.bring_to_front()
@@ -812,6 +833,89 @@ class Controller:
             log.warning("%s abrió pero no logré conectarme todavía", self.bname)
             return
         await self.wait_ctx(unwanted={"offline"}, timeout=10)
+
+    # ---------------------------------------------------------------- apps (colores) y Tidal
+    def _holding_for_tidal(self) -> bool:
+        """Mientras se pasa a Tidal (o Tidal está abierto) el navegador no se reabre solo (launch = always)."""
+        return self.music.running() or time.monotonic() < self._tidal_until
+
+    def current_app(self) -> str | None:
+        if self.page:
+            return "netflix"
+        return "tidal" if self.music.running() else None
+
+    async def a_app(self, arg: str) -> None:
+        """Color de una app: si es la que está abierta hace su función propia; si no, cierra la otra y la abre."""
+        want = arg.strip().lower()
+        if want not in APPS:
+            log.warning("app:%s desconocida (válidas: %s)", arg, ", ".join(APPS))
+            return
+        if self.current_app() == want:
+            again = (self.cfg.apps.get(want) or {}).get("on_reselect")
+            if again:
+                log.info("%s ya está abierto: %s", APPS[want], again)
+                await self.run_action(again)
+            return
+        log.info("Cambio a %s", APPS[want])
+        if want == "netflix":
+            await self.run_action("launch")
+        else:
+            await self.open_tidal()
+
+    async def open_tidal(self) -> None:
+        if not self.music.installed():
+            log.error("Tidal: High Tide no está instalado (ver README → Tidal)")
+            await self.toast("Tidal no está instalado")
+            return
+        self._tidal_until = time.monotonic() + 120
+        if self.page or await self.browser.alive():
+            if self.page:
+                await self.busy("Abriendo Tidal…", ttl=30)
+                await self._pause_if_playing()
+            await self.browser.close()
+        if self.source and self.cfg.cec.get("activate_source") in ("launch", "both"):
+            await self.source.activate_source()
+        if not await self.music.launch():
+            return
+        if self.music.resume_on_open:
+            await self.music.resume()
+
+    async def a_music(self, arg: str) -> None:
+        """Controles de Tidal (High Tide): music:play_pause, next, previous, volume:+, seek:-10, like, shuffle,
+        my_tracks (Mis canciones), nav (flechas para recorrer la interfaz), key:<Tecla>, back."""
+        cmd, _, rest = arg.strip().partition(":")
+        m = self.music
+        if not m.running():
+            log.info("Tidal no está abierto: no ejecuto music:%s", arg)
+            return
+        mpris = {"play_pause": "play-pause", "play": "play", "pause": "pause", "next": "next",
+                 "previous": "previous", "stop": "stop"}
+        if cmd in mpris:
+            await m.ctl(mpris[cmd])
+        elif cmd == "volume":
+            await m.volume(rest or "+")
+        elif cmd == "seek":
+            try:
+                await m.seek(int(rest or 10))
+            except ValueError:
+                log.warning("music:seek:%s inválido (segundos, p. ej. -10)", rest)
+        elif cmd == "like":
+            await m.press_button(LIKE)
+        elif cmd == "shuffle":
+            await m.press_button(SHUFFLE)
+        elif cmd == "back":
+            await m.press_button(BACK)
+        elif cmd == "my_tracks":
+            ok = await m.my_tracks()
+            log.info("Mis canciones: %s", "reproduciendo" if ok else "no pude abrirlas")
+        elif cmd == "nav":
+            self._tidal_nav = not self._tidal_nav
+            log.info("Tidal: %s", "flechas recorren la interfaz" if self._tidal_nav else "flechas = controles")
+        elif cmd == "key":
+            if rest:
+                await m.key(rest)
+        else:
+            log.warning("music:%s desconocida", arg)
 
     async def a_profiles(self, arg: str) -> None:
         if await self.context() == "profiles":

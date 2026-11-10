@@ -501,6 +501,34 @@ class Browser:
                 pids.append(int(d.name))
         return pids
 
+    async def close(self, timeout: float = 30.0) -> bool:
+        """Cierra ordenadamente el navegador de nuestro perfil (SIGTERM; si no responde, SIGKILL).
+
+        En una Pi lenta Firefox puede tardar bastante más de 10 s en cerrarse prolijo.
+        """
+        pids = self.profile_pids()
+        if not pids:
+            return False
+        log.info("Cierro %s (PID %s)", self.name, ", ".join(map(str, pids)))
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not await self.alive() and not self.profile_pids():
+                return True
+            await asyncio.sleep(0.25)
+        log.warning("%s no se cerró en %.0f s: lo fuerzo", self.name, timeout)
+        for pid in self.profile_pids():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        await asyncio.sleep(1)
+        return True
+
     async def restart(self) -> bool:
         """Cierra el navegador de nuestro perfil y lo vuelve a abrir.
 
@@ -512,21 +540,6 @@ class Browser:
             log.warning("No encontré el proceso de %s con el perfil %s", self.name, self.user_data_dir)
             return False
         log.warning("Reinicio %s (PID %s) para recuperar el control", self.name, ", ".join(map(str, pids)))
-        for pid in pids:
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except OSError:
-                pass
-        for _ in range(40):
-            if not await self.alive() and not self.profile_pids():
-                break
-            await asyncio.sleep(0.25)
-        else:
-            for pid in self.profile_pids():
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
-            await asyncio.sleep(1)
+        await self.close()
         self._last_launch = 0.0
         return await self.launch()

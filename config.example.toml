@@ -25,6 +25,10 @@
 # stop_previews = false       # dejar que Netflix reproduzca los avances en el inicio
 # extra_args = ["--password-store=basic", "--user-agent=..."]   # solo Chromium
 
+# [apps.tidal]                # Tidal (High Tide): ver README → Tidal
+# resume_on_open = false      # al abrir Tidal no seguir reproduciendo solo
+# on_reselect = "music:shuffle"   # qué hace el amarillo con Tidal ya abierto
+
 # [browser.firefox]           # solo con engine = "firefox"
 # prefs = { "media.ffmpeg.vaapi.enabled" = true }   # preferencias extra para el user.js
 # disable_extensions = ["uBlock Origin", "h264ify"]  # apagar extensiones en este perfil (no en tu Firefox)
@@ -41,11 +45,11 @@
 # --- Ejemplos de cambios de teclas (se fusionan con los de por defecto) ---
 # [keys.player]
 # LEFT = "seek:-30"
-# F3_GREEN = "smart_skip"
+# F3_GREEN = "smart_skip"   # el verde viene libre (muchas TVs lo usan); acá le das una función
 #
 # [keys.browse]
 # NUMBER9 = ["profile:1", "wait:2500", "continue_watching"]   # macro en línea
-# F4_YELLOW = ""                                               # desactivar una tecla
+# F1_BLUE = ""                                                 # desactivar una tecla
 #
 # [macros]
 # noche = ["profile:2", "wait:2500", "continue_watching"]

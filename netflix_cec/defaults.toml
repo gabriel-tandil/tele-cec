@@ -84,22 +84,29 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #    player      -> global             reproduciendo
 #    player_menu -> browse -> global   menú abierto sobre el reproductor / pantalla final
 #    text        -> browse -> global   hay un campo de texto enfocado (PIN, búsqueda)
-#    offline                           Chromium cerrado o sin conexión
+#    tidal       -> global             Tidal (High Tide) abierto
+#    tidal_nav   -> tidal -> global    Tidal con las flechas recorriendo su interfaz (0 lo alterna)
+#    offline                           nada abierto (navegador cerrado y Tidal cerrado)
 #
-#  Acciones: nav:up|down|left|right  ok  back  smart_skip  continue_watching
+#  Colores = apps: app:netflix (rojo) y app:tidal (amarillo). Si la app ya está abierta, el color hace
+#  su función propia ([apps.<app>] on_reselect); si no, cierra la otra y abre esa.
+#
+#  Acciones: app:netflix  app:tidal  nav:up|down|left|right  ok  back  smart_skip  continue_watching
 #    profiles  profile:N  home  play_pause  play  pause  seek:+10  seek:-10
 #    volume:+  volume:-  mute  subtitles  audio  next_episode  fullscreen
 #    nav_mode  type:<texto>  key:<Tecla>  toast:<texto>  wait:<ms>  launch  reload
 #    macro:<nombre>  none
+#  Tidal: music:play_pause|play|pause|next|previous|stop  music:volume:+|-  music:seek:+10|-10
+#    music:like  music:shuffle  music:my_tracks (Mis canciones)  music:nav  music:back  music:key:<Tecla>
 # -----------------------------------------------------------------------------
 
 [keys.global]
 EXIT = "back"
 AN_RETURN = "back"
 F1_BLUE = "home"
-F2_RED = "profiles"
-F3_GREEN = "continue_watching"
-F4_YELLOW = "smart_skip"
+F2_RED = "app:netflix"        # rojo = Netflix (ya en Netflix: Seguir viendo)
+F4_YELLOW = "app:tidal"       # amarillo = Tidal (ya en Tidal: Mis canciones)
+# F3_GREEN (verde) queda libre: muchas TVs lo usan para sus propias funciones.
 FORWARD = "smart_skip"
 PLAY = "play"                 # en la lista o en una ficha: reproduce el título resaltado
 PAUSE = "pause"
@@ -112,6 +119,7 @@ LEFT = "nav:left"
 RIGHT = "nav:right"
 SELECT = "ok"
 ENTER = "ok"
+NUMBER0 = "profiles"          # "¿Quién está viendo?"
 
 [keys.profiles]
 NUMBER1 = "profile:1"
@@ -157,9 +165,53 @@ NUMBER8 = "type:8"
 NUMBER9 = "type:9"
 CLEAR = "key:Backspace"
 
-[keys.offline]
-SELECT = "launch"
-F3_GREEN = ["launch", "continue_watching"]
+[keys.offline]                # nada abierto: OK no hace nada; los colores abren cada app
+F2_RED = "app:netflix"
+F4_YELLOW = "app:tidal"
+
+[keys.tidal]
+SELECT = "music:play_pause"
+ENTER = "music:play_pause"
+PLAY = "music:play"
+PAUSE = "music:pause"
+PAUSE_PLAY_FUNCTION = "music:play_pause"
+STOP = "music:pause"
+LEFT = "music:previous"
+RIGHT = "music:next"
+BACKWARD = "music:previous"
+FORWARD = "music:next"
+REWIND = "music:seek:-10"
+FAST_FORWARD = "music:seek:+10"
+UP = "music:volume:+"
+DOWN = "music:volume:-"
+VOLUME_UP = "music:volume:+"
+VOLUME_DOWN = "music:volume:-"
+F1_BLUE = "music:like"        # azul = me gusta (agregar/quitar de favoritos)
+NUMBER0 = "music:nav"         # flechas para recorrer la interfaz de Tidal (otra vez = volver)
+EXIT = ""
+AN_RETURN = ""
+
+[keys.tidal_nav]              # las flechas y OK van a la ventana de Tidal como teclas
+UP = "music:key:Up"
+DOWN = "music:key:Down"
+LEFT = "music:key:Left"
+RIGHT = "music:key:Right"
+SELECT = "music:key:Return"
+ENTER = "music:key:Return"
+EXIT = "music:back"
+AN_RETURN = "music:back"
+
+# Apps que se eligen con los colores.
+[apps.netflix]
+on_reselect = "continue_watching"   # rojo con Netflix ya abierto
+
+[apps.tidal]                         # Tidal con High Tide (Flatpak; ver README → Tidal)
+on_reselect = "music:my_tracks"      # amarillo con Tidal ya abierto: Mis canciones
+flatpak_id = "io.github.nokse22.high-tide"
+resume_on_open = true                # al abrir Tidal, seguir con lo último que estaba sonando
+volume_step = 0.05
+start_timeout = 60                   # segundos para que High Tide termine de abrir (en una Pi tarda)
+gsk_renderer = ""                    # "" = el de GTK; "ngl" si en la Pi se ven fallas de dibujo
 
 # Macros: listas de acciones con nombre, se usan como "macro:<nombre>".
 # Ejemplo:  [keys.browse]  NUMBER9 = "macro:perfil1_seguir"

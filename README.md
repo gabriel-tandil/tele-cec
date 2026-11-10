@@ -1,12 +1,14 @@
 # netflix-cec
 
-Maneja **Netflix en Chromium o Firefox** con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS Bookworm conectada a la TV.
+Maneja **Netflix en Chromium o Firefox** y **Tidal** con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS Bookworm conectada a la TV.
 
 No convierte el control en un teclado, como hace [cec-mini-kb](https://github.com/spleen1981/cec-mini-kb): entiende qué hay en pantalla y hace lo que corresponde.
 
 - **Navegación espacial** con las flechas por perfiles, filas de títulos, fichas y menús, con un **resaltado bien visible** del elemento enfocado. OK = clic, Atrás = volver.
-- **Botón inteligente** (amarillo): salta la intro o el resumen, o pasa al siguiente episodio, según lo que muestre Netflix.
-- **Perfiles y "Seguir viendo"**: elegís el perfil con los números y retomás lo último visto con un botón (verde).
+- **Un color por app**: 🔴 rojo = Netflix, 🟡 amarillo = Tidal. Cierra la que esté abierta y abre la otra; si ya estás en esa app, el color hace su función propia (Seguir viendo · Mis canciones). El verde queda libre para la TV.
+- **Botón inteligente** (⏭): salta la intro o el resumen, o pasa al siguiente episodio, según lo que muestre Netflix.
+- **Perfiles y "Seguir viendo"**: elegís el perfil con los números y retomás lo último visto con el rojo.
+- **Tidal** con [High Tide](#tidal): play/pausa, temas, volumen, "me gusta" y "Mis canciones" con el control.
 - **Reproducción**: play/pausa, ±10 s, volumen, y ciclar subtítulos y audio, con avisos en pantalla.
 - **Modo aprendizaje**: muestra en consola el código y el nombre de cada tecla CEC que llega.
 - **Servicio de usuario de systemd** con logs en journald. Se recupera solo si se cierra el navegador o se cae el adaptador CEC.
@@ -41,6 +43,7 @@ Control remoto ──IR──▶ TV ──HDMI-CEC──▶ cec-client (libcec) 
 | Opción | Qué hace |
 |---|---|
 | `--firefox` | Usa Firefox en vez de Chromium: deja `engine = "firefox"` en `[browser]` de tu configuración. |
+| `--tidal` | Tidal con el amarillo: instala High Tide (Flatpak, para tu usuario), `playerctl`, `wtype` y la accesibilidad (AT-SPI), y configura el portal de secretos (ver [Tidal](#tidal)). |
 | `--copiar-perfil` | Copia tu perfil de Chromium (`~/.config/chromium`) al perfil propio de netflix-cec (`~/.config/chromium-netflix`), así no tenés que volver a iniciar sesión en Netflix. **Cerrá Chromium antes.** Funciona porque usás `--password-store=basic`. Con `--firefox` copia tu perfil de Firefox a `~/.config/firefox-netflix`. |
 | `--sin-apt` | No instala paquetes, solo avisa si falta algo. |
 | `--sin-servicio` | Instala todo pero no habilita el servicio. |
@@ -63,7 +66,7 @@ Si te agrega al grupo `video` para usar `/dev/cec0`, reiniciá la Pi.
    netflix-cec aprender
    ```
    Apretá botones: vas a ver el nombre, el código y qué hace cada uno. Si el servicio estaba corriendo, el comando lo detiene mientras tanto y lo vuelve a iniciar al salir con Ctrl+C.
-3. Abrí Netflix: apretá **OK** en el control (con el navegador cerrado lo abre en pantalla completa) o usá **"Netflix (TV)"** en el menú. La primera vez iniciá sesión, salvo que hayas usado `--copiar-perfil`.
+3. Abrí Netflix: apretá el **rojo** en el control (lo abre en pantalla completa) o usá **"Netflix (TV)"** en el menú. La primera vez iniciá sesión, salvo que hayas usado `--copiar-perfil`.
 4. Verificá que todo esté bien:
    ```bash
    netflix-cec diagnostico
@@ -71,21 +74,42 @@ Si te agrega al grupo `video` para usar `/dev/cec0`, reiniciá la Pi.
 
 ## Teclas por defecto
 
-Si una tecla no está definida en el contexto actual, se busca en el siguiente: `profiles → browse → global`, `player → global`, `player_menu → browse → global`.
+Si una tecla no está definida en el contexto actual, se busca en el siguiente: `profiles → browse → global`, `player → global`, `player_menu → browse → global`, `tidal → global`.
+
+**Colores = apps** (en cualquier contexto, también con todo cerrado):
+
+| Botón | Desde otra app o con nada abierto | Con esa app ya abierta |
+|---|---|---|
+| 🔴 Rojo | Cierra Tidal (si está) y abre **Netflix** | **Seguir viendo** (en el reproductor: ciclar audio) |
+| 🟡 Amarillo | Cierra Netflix (si está) y abre **Tidal**, siguiendo con lo último que sonaba | **Mis canciones** |
+| 🟢 Verde | Sin uso: muchas TVs lo usan para sus propias funciones | — |
+
+Con todo cerrado, **OK no hace nada**: cada app se abre con su color.
+
+**Netflix:**
 
 | Tecla | Inicio / fichas (`browse`) | Reproduciendo (`player`) |
 |---|---|---|
 | Flechas | Moverse (con resaltado) | ◀ ▶ −/+10 s · ▲ ▼ volumen |
 | OK | Clic (la 1.ª vez solo muestra el resaltado) | Play / pausa |
 | Exit / Return | Volver · cerrar ficha · subir al principio | Salir del reproductor |
-| 🟡 Amarillo / ⏭ Forward | Botón inteligente | Botón inteligente |
-| 🟢 Verde | Seguir viendo | Seguir viendo |
-| 🔴 Rojo | Cambiar de perfil | Ciclar audio |
+| ⏭ Forward | Botón inteligente | Botón inteligente |
 | 🔵 Azul | Ir al inicio | Ciclar subtítulos |
 | ▶ Play / ⏯ Play-Pausa | Reproducir el título resaltado o el de la ficha abierta | Play / pausa |
 | ⏪ ⏩ · ⏮ Backward | — | −/+10 s · −10 s |
 | Canal + | — | Siguiente episodio |
-| 0 | — | Modo navegación (flechas para moverse por los controles) |
+| 0 | ¿Quién está viendo? (perfiles) | Modo navegación (flechas para moverse por los controles) |
+
+**Tidal** (`tidal`, ver [Tidal](#tidal)):
+
+| Tecla | Qué hace |
+|---|---|
+| OK · ⏯ · ▶ · ⏸ | Play / pausa |
+| ◀ ▶ · ⏮ ⏭ | Tema anterior / siguiente |
+| ▲ ▼ | Volumen de Tidal |
+| ⏪ ⏩ | −/+10 s |
+| 🔵 Azul | Me gusta (agregar o quitar de favoritos) |
+| 0 | Flechas, OK y Atrás recorren la interfaz de Tidal (otra vez 0 = volver a los controles) |
 
 Al abrirse una ficha, el resaltado pasa solo a su botón **Reproducir/Reanudar** (OK dos veces = abrir y reproducir), y al cerrarla vuelve a la tarjeta.
 
@@ -93,7 +117,7 @@ Otros contextos:
 - **"¿Quién está viendo?"** (`profiles`): los números **1–5** eligen el perfil; también funcionan las flechas + OK.
 - **Menú sobre el reproductor** (`player_menu`): se detecta solo (selector de audio/subtítulos, episodios, pantalla final…) y las flechas navegan. Con **0** se fuerza este modo.
 - **Campo de texto** (`text`, por ejemplo un PIN): los números escriben dígitos.
-- **Navegador cerrado** (`offline`): **OK** abre Netflix y **verde** lo abre y retoma "Seguir viendo".
+- **Nada abierto** (`offline`): **rojo** abre Netflix y **amarillo** abre Tidal.
 
 > Las teclas de **volumen de la TV** casi nunca viajan por CEC: controlan la TV directamente, como siempre. El "volumen" de la tabla es el del reproductor de Netflix.
 
@@ -103,14 +127,14 @@ Busca en pantalla, en orden: **Saltar intro**, **Saltar resumen**, **Saltar** (a
 
 ### Perfiles y "Seguir viendo"
 
-- **Rojo** abre "¿Quién está viendo?" y ahí elegís con los números.
-- **Verde** va al inicio, busca la fila "Seguir viendo" y abre el primer título.
+- **0** (en el inicio) abre "¿Quién está viendo?" y ahí elegís con los números.
+- **Rojo** (con Netflix abierto) va al inicio, busca la fila "Seguir viendo" y abre el primer título.
   - Si aparece "¿Quién está viendo?", te pide que elijas un perfil, o elige solo el de `default_profile` si lo configuraste.
 - Para que un solo botón haga todo, usá una macro (ver abajo).
 
 ### Avisos mientras trabaja
 
-- **Indicador "trabajando"**: si una acción tarda más de un cuarto de segundo (▶ en la lista, verde, perfiles, inicio…), arriba a la derecha aparece un circulito con lo que está haciendo: «Abriendo «Merlina»…» → «Cargando «Merlina»…». No se apaga al cambiar de página: sigue hasta que arranca el video o termina de cargar la pantalla (como máximo 15–20 s). **Atrás** lo cancela.
+- **Indicador "trabajando"**: si una acción tarda más de un cuarto de segundo (▶ en la lista, rojo, perfiles, inicio…), arriba a la derecha aparece un circulito con lo que está haciendo: «Abriendo «Merlina»…» → «Cargando «Merlina»…». No se apaga al cambiar de página: sigue hasta que arranca el video o termina de cargar la pantalla (como máximo 15–20 s). **Atrás** lo cancela.
 - **Pantalla de carga**: al abrir el navegador se ve «Abriendo Netflix…» en vez de una pantalla vacía, y después el indicador hasta que Netflix termina de cargar (`browser.splash`).
 - **Eco de teclas** (apagado): con `feedback.key_echo = true`, cada tecla que llega se muestra un instante arriba a la izquierda. Sirve para saber si la TV no mandó la tecla o si llegó y la acción no hizo nada.
 - **Aviso en la TV** (apagado): con `feedback.cec_osd = true`, al abrir el navegador se le pide a la TV por CEC que muestre "Netflix...". Muchas TVs lo ignoran: probalo con la tuya.
@@ -119,6 +143,27 @@ Busca en pantalla, en orden: **Saltar intro**, **Saltar resumen**, **Saltar** (a
 ### Mantener apretado
 
 Las flechas, los ±10 s y el volumen se repiten mientras mantenés el botón, si tu TV repite la tecla. Las macros, los perfiles y el botón inteligente se ejecutan una sola vez por pulsación. Para distinguir "mantener" de "apretar dos veces" se usa la liberación de la tecla (CEC 0x45); si tu TV no la manda, se usa `debounce_ms`.
+
+## Tidal
+
+Tidal se maneja con **[High Tide](https://github.com/Nokse22/high-tide)**, un cliente de Tidal para Linux que se instala con Flatpak (también para la Pi, aarch64). No es la web de Tidal: la web bloquea el inicio de sesión cuando el navegador está bajo control remoto, y High Tide además es mucho más liviano (en una Pi 400, ~9 % de un núcleo reproduciendo en calidad lossless).
+
+**Instalación:** `./install.sh --tidal` (con `--firefox` si usás Firefox). Instala High Tide para tu usuario, `playerctl`, `wtype` y la accesibilidad, y en labwc (Raspberry Pi OS) agrega el portal de secretos en `~/.config/xdg-desktop-portal/labwc-portals.conf`, sin el cual High Tide se queda en «Cargando…» y no guarda la sesión.
+
+**Una vez, a mano:**
+1. **Llavero sin contraseña**: como la Pi entra sola al escritorio, un llavero con contraseña la pediría en cada arranque, y con el control no se puede contestar. Abrí «Contraseñas y claves» (`sudo apt install seahorse`), **+ → Llavero de contraseñas**, sin contraseña, y **clic derecho → Establecer como predeterminado**. Si había otro llavero bloqueado que no usás, borralo: si no, High Tide puede pedir su contraseña.
+2. **Iniciá sesión en High Tide** (amarillo lo abre; con el teclado de la Pi seguís el enlace de Tidal). Queda guardada.
+3. `netflix-cec diagnostico` → sección **Tidal**: tiene que estar todo en OK.
+
+**Cómo funciona por dentro:** cambiar de app cierra la otra ordenadamente (Firefox con SIGTERM, High Tide por MPRIS) para que nunca corran las dos. Los controles van por **MPRIS** (`playerctl`); "me gusta" y "Mis canciones" aprietan botones de High Tide por **accesibilidad** (AT-SPI); y lo que solo responde al teclado (Enter sobre un tema, las flechas del modo navegación) va con **`wtype`** a la ventana de High Tide, que es la única abierta. "Mis canciones" = Colección → Canciones → primer tema → Enter: reproduce todos tus favoritos.
+
+```toml
+[apps.tidal]
+on_reselect = "music:my_tracks"   # amarillo con Tidal ya abierto
+resume_on_open = true             # al abrir, seguir con lo último que sonaba
+volume_step = 0.05
+gsk_renderer = ""                 # "ngl" si en la Pi se ven fallas de dibujo
+```
 
 ## Firefox
 
@@ -203,7 +248,7 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `cec.activate_source` | `"both"` | Cuándo anunciarse como fuente activa (la TV cambia a la Pi): `start`, `launch`, `both`, `never` |
 | `cec.pause_on_standby` | `true` | Pausar si se apaga la TV |
 | `browser.engine` | `"chromium"` | `chromium` o `firefox` (ver [Firefox](#firefox)) |
-| `browser.launch` | `"on_key"` | Navegador cerrado: `on_key` (OK lo abre), `always` (siempre abierto), `never` |
+| `browser.launch` | `"on_key"` | Navegador cerrado: `on_key` (el rojo lo abre), `always` (siempre abierto, salvo mientras está Tidal), `never` |
 | `browser.user_data_dir` | `~/.config/chromium-netflix` | Perfil de Chromium propio |
 | `browser.firefox.profile` | `~/.config/firefox-netflix` | Perfil de Firefox propio |
 | `browser.firefox.disable_extensions` | `[]` | Extensiones a apagar en ese perfil (por nombre o id) |
@@ -218,6 +263,9 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `netflix.seek_seconds` | `10` | Salto de ◀ ▶ |
 | `netflix.volume_step` | `0.1` | Paso de volumen (10 %) |
 | `netflix.default_profile` | `0` | Perfil para "Seguir viendo" (0 = preguntar) |
+| `apps.netflix.on_reselect` | `"continue_watching"` | Qué hace el rojo con Netflix ya abierto |
+| `apps.tidal.on_reselect` | `"music:my_tracks"` | Qué hace el amarillo con Tidal ya abierto |
+| `apps.tidal.resume_on_open` | `true` | Al abrir Tidal, seguir con lo último que sonaba |
 
 ### Acciones
 
@@ -241,7 +289,13 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `key:Escape` | Mandar una tecla (Escape, Enter, Space, flechas, letras…) |
 | `toast:Hola` | Mostrar un aviso en pantalla |
 | `wait:1500` | Esperar (milisegundos), útil en macros |
-| `launch` | Abrir el navegador en Netflix |
+| `launch` | Abrir el navegador en Netflix (cierra Tidal si está abierto) |
+| `app:netflix` · `app:tidal` | Color de una app: la abre (cerrando la otra) o, si ya está abierta, hace su `on_reselect` |
+| `music:play_pause` `music:play` `music:pause` `music:next` `music:previous` | Tidal: reproducción |
+| `music:volume:+` · `music:seek:-10` | Tidal: volumen · saltar segundos |
+| `music:like` · `music:shuffle` | Tidal: me gusta · aleatorio |
+| `music:my_tracks` | Tidal: reproducir "Mis canciones" (tus favoritos) |
+| `music:nav` · `music:key:Down` · `music:back` | Tidal: alternar flechas en la interfaz · mandar una tecla a High Tide · botón Atrás |
 | `reload` | Recargar la página |
 | `macro:nombre` | Ejecutar una macro de `[macros]` |
 | `none` o `""` | Nada (desactiva la tecla) |
@@ -277,10 +331,13 @@ El log registra cada tecla con su contexto y acción:
 ```
 cec: CEC listo (/dev/cec0)
 netflix: Conectado a Chromium: https://www.netflix.com/browse
-netflix: Tecla F3_GREEN (verde) [browse] -> continue_watching
+netflix: Tecla F2_RED (rojo) [browse] -> app:netflix
+netflix: Netflix ya está abierto: continue_watching
 netflix: Seguir viendo: Merlina
-netflix: Tecla F4_YELLOW (amarillo) [player] -> smart_skip
+netflix: Tecla FORWARD (siguiente) [player] -> smart_skip
 netflix: Botón inteligente: Saltar intro
+netflix: Tecla F4_YELLOW (amarillo) [browse] -> app:tidal
+netflix: Cambio a Tidal
 ```
 
 El servicio arranca con tu sesión (`default.target`). Con el inicio automático de sesión de Raspberry Pi OS, arranca al encender la Pi.

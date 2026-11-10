@@ -22,6 +22,8 @@ from .cdp import SessionBusy
 from .cec import CecClientSource, CecFrame, StdinSource
 from .controller import Controller
 from .keys import key_label
+from .music import HighTide
+from .music import tools_status as music_tools
 
 log = logging.getLogger("netflix-cec")
 SERVICE = "netflix-cec.service"
@@ -294,6 +296,55 @@ def _check_power() -> None:
         _check(True, f"sin baja tensión ni CPU frenada{clock}")
 
 
+def _out(cmd: list[str]) -> tuple[int, str]:
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=graphical_env())  # noqa: S603
+        return p.returncode, p.stdout + p.stderr
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 127, str(exc)
+
+
+async def _check_tidal(cfg: config_mod.Config) -> None:
+    """Tidal con High Tide: lo que tiene que estar para abrirlo y manejarlo con el control."""
+    music = HighTide(cfg.apps.get("tidal"))
+    tools = music_tools()
+    if not tools["flatpak"] and not music.installed():
+        return  # sin Flatpak no hay Tidal: no lo menciono
+    print("\nTidal (High Tide)")
+    if not music.installed():
+        _check(None, f"High Tide no está instalado ({music.app_id}): ./install.sh --tidal")
+        return
+    _check(True, f"High Tide instalado ({music.app_id})")
+    missing = [n for n in ("playerctl", "wtype", "gdbus") if not tools[n]]
+    if not tools["atspi"]:
+        missing.append("gir1.2-atspi-2.0 (accesibilidad)")
+    _check(not missing, "herramientas para manejarlo: " + ("OK" if not missing else "faltan " + ", ".join(missing)))
+    rc, out = _out(["gdbus", "introspect", "--session", "--dest", "org.freedesktop.portal.Desktop",
+                    "--object-path", "/org/freedesktop/portal/desktop"])
+    secret = rc == 0 and "org.freedesktop.portal.Secret" in out
+    _check(secret, "portal de secretos (guarda la sesión de Tidal)" + ("" if secret else
+           ": no está. En labwc: ~/.config/xdg-desktop-portal/labwc-portals.conf con "
+           "org.freedesktop.impl.portal.Secret=gnome-keyring (lo crea ./install.sh --tidal)"))
+    rc, out = _out(["busctl", "--user", "call", "org.freedesktop.secrets", "/org/freedesktop/secrets",
+                    "org.freedesktop.Secret.Service", "ReadAlias", "s", "default"])
+    path = out.split('"')[1] if rc == 0 and '"' in out else ""
+    if path and path != "/":
+        rc, out = _out(["busctl", "--user", "get-property", "org.freedesktop.secrets", path,
+                        "org.freedesktop.Secret.Collection", "Locked"])
+        unlocked = rc == 0 and out.strip().endswith("false")
+        _check(unlocked, "llavero predeterminado abierto" + ("" if unlocked else
+               ": está bloqueado y High Tide se va a quedar esperando la contraseña. Creá uno sin "
+               "contraseña en «Contraseñas y claves» y ponelo como predeterminado"))
+    else:
+        _check(None, "no hay llavero predeterminado (se crea al iniciar sesión en High Tide)")
+    if music.running():
+        st = await music.status()
+        _check(bool(st), f"abierto: {st.get('status', '?')}" + (f" · {st['title']} - {st.get('artist', '')}"
+                                                                 if st.get("title") else ""))
+    else:
+        _check(True, "cerrado (amarillo lo abre)")
+
+
 async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
     print(f"netflix-cec {__version__}\nConfiguración: {cfg.path or 'valores por defecto (no hay config.toml)'}\n")
     print("CEC")
@@ -305,6 +356,7 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
         _check(os.access(d, os.R_OK | os.W_OK), f"permiso de lectura/escritura en {d}" + ("" if os.access(d, os.R_OK | os.W_OK) else " (agregá tu usuario al grupo video)"))
     _check(_service_active(), "servicio netflix-cec activo" if _service_active() else "servicio netflix-cec no está activo")
     _check_power()
+    await _check_tidal(cfg)
 
     browser = Browser(cfg.browser)
     print(f"\nNavegador: {browser.name}")

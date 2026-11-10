@@ -49,6 +49,12 @@ class FakePage:
     async def bring_to_front(self) -> None:
         pass
 
+    async def navigate(self, url: str) -> None:
+        self.log.append(f"navigate:{url}")
+        self.url = url
+        if "ProfilesGate" in url:
+            self.ctx = "profiles"
+
     async def close(self) -> None:
         self.closed.set()
 
@@ -201,7 +207,7 @@ async def main() -> int:
     await press("F2_RED")
     check(cw == ["continue_watching"], f"rojo con Netflix abierto = Seguir viendo: {cw}")
     out = await press("NUMBER0")
-    check(any(x == "js:profiles" or x == "js:ctx" for x in out), "0 en el inicio va a perfiles")
+    check(any(x.startswith("navigate:") and "ProfilesGate" in x for x in out), f"0 en el inicio abre ¿Quién está viendo?: {[x for x in out if x.startswith('navigate:')]}")
 
     print("Netflix → Tidal")
     out = await press("F4_YELLOW")
