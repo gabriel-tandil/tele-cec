@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import __version__
@@ -324,6 +325,14 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
             _check(True, f"reproductor: {pl.get('time')} / {pl.get('duration')}   "
                          f"{'en pausa' if pl.get('paused') else 'reproduciendo'}   volumen {round((pl.get('volume') or 0) * 100)} %"
                          f"{' (silencio)' if pl.get('muted') else ''}   audio: {pl.get('audio')}   subtítulos: {pl.get('subtitles')}")
+        # Ida y vuelta con la página (cada tecla hace al menos dos: contexto + acción).
+        rtt = []
+        for _ in range(7):
+            t0 = time.perf_counter()
+            await js("viewport")
+            rtt.append((time.perf_counter() - t0) * 1000)
+        rtt.sort()
+        _check(rtt[3] < 50, f"ida y vuelta con la página: {rtt[3]:.0f} ms (mediana; peor {rtt[-1]:.0f} ms)")
         pf = dump.get("perf")
         if pf and pf.get("reduceEffects"):
             _check(pf.get("css") and pf.get("animatePatched"),
