@@ -33,6 +33,8 @@ def socket_path() -> Path:
 
 async def _handle_request(ctl: Controller, req: dict[str, Any]) -> dict[str, Any]:
     op = req.get("op")
+    if op == "ping":
+        return {"ok": True}  # no toca la página: sirve para medir lo que cuesta el socket solo
     if op == "info":
         page = ctl.page
         return {"ok": True, "engine": ctl.browser.engine, "name": ctl.browser.name, "port": ctl.browser.port,

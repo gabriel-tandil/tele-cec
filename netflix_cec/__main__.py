@@ -263,6 +263,37 @@ def _check(ok: bool | None, text: str) -> None:
     print(f"  [{mark}] {text}")
 
 
+def _check_power() -> None:
+    """Raspberry Pi: baja tensión o temperatura frenan la CPU (p. ej. de 1800 a 600 MHz) y todo anda lento."""
+    vcgencmd = shutil.which("vcgencmd")
+    if not vcgencmd:
+        return
+    try:
+        out = subprocess.run([vcgencmd, "get_throttled"], capture_output=True, text=True, timeout=5).stdout
+        flags = int(out.strip().split("=", 1)[1], 16)
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return
+    clock = ""
+    try:
+        # La frecuencia real la da el firmware: la del kernel (scaling_cur_freq) no refleja el freno.
+        out = subprocess.run([vcgencmd, "measure_clock", "arm"], capture_output=True, text=True, timeout=5).stdout
+        cur = int(out.strip().split("=", 1)[1]) // 1_000_000
+        top = int(Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq").read_text()) // 1000
+        clock = f" (CPU a {cur} de {top} MHz ahora)"
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        pass
+    print("\nAlimentación (Raspberry Pi)")
+    now = [txt for bit, txt in ((0, "baja tensión"), (2, "CPU frenada"), (3, "límite de temperatura")) if flags & (1 << bit)]
+    past = [txt for bit, txt in ((16, "baja tensión"), (18, "CPU frenada"), (19, "límite de temperatura")) if flags & (1 << bit)]
+    if now:
+        _check(False, f"AHORA: {', '.join(now)}{clock}. Todo va a andar lento: usá la fuente oficial "
+                      "(5,1 V / 3 A USB-C) y un cable corto y grueso")
+    elif past:
+        _check(None, f"desde que arrancó hubo: {', '.join(past)} (ahora no){clock}")
+    else:
+        _check(True, f"sin baja tensión ni CPU frenada{clock}")
+
+
 async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
     print(f"netflix-cec {__version__}\nConfiguración: {cfg.path or 'valores por defecto (no hay config.toml)'}\n")
     print("CEC")
@@ -273,6 +304,7 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
     for d in devs:
         _check(os.access(d, os.R_OK | os.W_OK), f"permiso de lectura/escritura en {d}" + ("" if os.access(d, os.R_OK | os.W_OK) else " (agregá tu usuario al grupo video)"))
     _check(_service_active(), "servicio netflix-cec activo" if _service_active() else "servicio netflix-cec no está activo")
+    _check_power()
 
     browser = Browser(cfg.browser)
     print(f"\nNavegador: {browser.name}")
@@ -337,7 +369,7 @@ async def cmd_doctor(args: argparse.Namespace, cfg: config_mod.Config) -> int:
             return sorted(out)[len(out) // 2]
         page_ms = await median_ms(lambda: js("viewport"))
         if info is not None:
-            sock_ms = await median_ms(lambda: ipc.request({"op": "info"}))
+            sock_ms = await median_ms(lambda: ipc.request({"op": "ping"}))
             page_ms = max(0.0, page_ms - sock_ms)
             extra = f" (sin contar {sock_ms:.0f} ms del socket del servicio)"
         else:

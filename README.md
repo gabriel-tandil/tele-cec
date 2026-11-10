@@ -324,6 +324,8 @@ Los flags se aplican al abrir el navegador y el CSS al reiniciar el servicio, as
 
 Otras cosas que ayudan bastante:
 
+- **Fuente de alimentación**: con una fuente o un cable flojos, la Pi detecta baja tensión y frena la CPU (una Pi 400 pasa de 1800 a 600 MHz), y Netflix se vuelve lentísimo: tarda más de medio minuto en calmarse después de cargar el inicio y las teclas responden con segundos de demora. `netflix-cec diagnostico` lo muestra en "Alimentación". Usá la fuente oficial (5,1 V / 3 A, USB-C) con su cable.
+
 - **Desactivar los avances desde Netflix**: en tu cuenta → Perfiles → (tu perfil) → Configuración de reproducción, destildá "Reproducir avances automáticamente mientras navegas en todos los dispositivos". Es más efectivo que `stop_previews`, porque Netflix ni siquiera los descarga.
 - **Resolución 1080p, no 4K**: si la TV es 4K y el escritorio corre a 3840×2160, la Pi dibuja cuatro veces más píxeles. Configurá 1920×1080 en *Preferencias → Configuración de pantalla*. Netflix en Chromium para Linux reproduce como mucho en 1080p (normalmente 720p), así que no perdés calidad de video.
 - **Aceleración por GPU**: abrí `chrome://gpu` en Chromium y verificá que diga "Hardware accelerated" en la mayoría de los ítems.

@@ -1016,6 +1016,8 @@
     clearInterval(S.busyTimer); clearTimeout(S.echoTimer);
     for (const id of ['nfx-ring', 'nfx-toast', 'nfx-busy', 'nfx-echo', 'nfx-style', 'nfx-perf']) { const e = document.getElementById(id); if (e) e.remove(); }
     if (S.cur && S.cur.classList) S.cur.classList.remove('nfx-focused');
+    // Si no, el servicio ve "__nfx con esta versión" y no vuelve a inyectar el script.
+    if (window.__nfx && window.__nfx.v === V) delete window.__nfx;
   }
 
   on(document, 'visibilitychange', () => { if (!document.hidden && S.cur) showRing(); });
