@@ -24,6 +24,8 @@ log = logging.getLogger("netflix")
 REPEATABLE = {"nav", "seek", "volume", "key", "type"}
 # Una repetición (botón mantenido) que esperó más que esto en la cola ya no se ejecuta.
 STALE_REPEAT_S = 0.35
+# Tope de la espera automática a que una fila termine de pasar de página (netflix.page_delay_ms = 0).
+PAGE_WAIT_MAX_MS = 1200
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
 LONG = {"continue_watching", "profiles", "profile", "home", "launch", "macro", "wait", "reload"}
 PLAY_ACTIONS = {"play", "play_pause"}
@@ -588,10 +590,13 @@ class Controller:
         r = await self.js("nav", direction)
         if r.get("paged"):
             delay = int(self.cfg.netflix.get("page_delay_ms", 0) or 0)
-            if delay <= 0:
-                delay = 250 if self.cfg.browser.get("reduce_effects", True) else 700
-            await asyncio.sleep(delay / 1000)
-            r = await self.js("afterPage", direction)
+            if delay > 0:
+                await asyncio.sleep(delay / 1000)
+                r = await self.js("afterPage", direction)
+            else:
+                # La página espera sola a que la fila termine de moverse (sin animaciones, unos 50-100 ms).
+                r = await self.js("afterPage", direction, PAGE_WAIT_MAX_MS)
+                log.debug("Fila lista en %s ms", r.get("waited"))
         if r.get("label"):
             log.debug("Foco: %s", r["label"])
 
@@ -614,8 +619,9 @@ class Controller:
         if r.get("key"):
             await self.key(r["key"])
         if r.get("restore"):
-            await asyncio.sleep(0.35)  # que el modal termine de cerrarse
-            await self.js("restore")
+            # La página espera sola a que el modal termine de cerrarse (tope 800 ms).
+            r = await self.js("restore", 800)
+            log.debug("Modal cerrado en %s ms", r.get("waited"))
 
     async def a_smart_skip(self, arg: str) -> None:
         r = await self.js("smart")

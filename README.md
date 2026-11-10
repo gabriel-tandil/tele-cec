@@ -309,7 +309,7 @@ En una Raspberry Pi, Netflix en Chromium puede andar pesado. netflix-cec trae ac
   - El resaltado y el scroll pasan a ser instantáneos.
   - `netflix-cec diagnostico` muestra si todo esto está activo y qué animaciones siguen corriendo en la página en ese momento.
 
-Independientemente de esta opción, el marco de foco solo sigue al elemento cuadro a cuadro un instante después de cada tecla o scroll; el resto del tiempo se revisa 4 veces por segundo. Y si mantenés apretado un botón mientras la página viene lenta, las repeticiones que quedaron esperando más de 0,35 s se descartan, para que el foco no siga de largo después de soltarlo.
+Independientemente de esta opción, el marco de foco solo sigue al elemento cuadro a cuadro un instante después de cada tecla o scroll; el resto del tiempo se revisa 4 veces por segundo. Al pasar de página una fila o al cerrar una ficha con Atrás no hay esperas fijas: la página avisa apenas la fila dejó de moverse o la ficha se cerró (sin animaciones, unos 100 ms en vez de 250–350 ms). Si preferís una espera fija para el paso de página, usá `netflix.page_delay_ms`. Y si mantenés apretado un botón mientras la página viene lenta, las repeticiones que quedaron esperando más de 0,35 s se descartan, para que el foco no siga de largo después de soltarlo.
 - **`stop_previews = true`**: pausa y oculta los videos que Netflix reproduce solos mientras navegás (el avance del inicio y las vistas previas). No afecta al reproductor.
 
 Para volver a los efectos normales, en tu `config.toml`:

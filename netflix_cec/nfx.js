@@ -132,7 +132,8 @@
 #nfx-busy.on{opacity:1}
 #nfx-busy span{overflow:hidden;text-overflow:ellipsis}
 #nfx-busy i{flex:none;width:1em;height:1em;box-sizing:border-box;border-radius:50%;border:.17em solid rgba(255,255,255,.25);
-  border-top-color:#e50914;animation:nfx-spin .8s linear infinite!important;animation-duration:.8s!important;
+  border-top-color:#e50914;animation:none!important}
+#nfx-busy.on i{animation:nfx-spin .8s linear infinite!important;animation-duration:.8s!important;
   animation-iteration-count:infinite!important}
 @keyframes nfx-spin{to{transform:rotate(360deg)}}
 #nfx-echo{position:fixed;top:4vh;left:3vw;min-width:1.6em;padding:.25em .6em;box-sizing:border-box;border-radius:8px;
@@ -168,7 +169,8 @@
       ring.style.width = `${Math.round(r.width + 2 * pad)}px`;
       ring.style.height = `${Math.round(r.height + 2 * pad)}px`;
     }
-    ring.classList.add('on');
+    // classList.add() reescribe el atributo aunque la clase ya esté, y eso obliga a recalcular estilos.
+    if (!ring.classList.contains('on')) ring.classList.add('on');
     return true;
   }
 
@@ -441,7 +443,26 @@
     return { focused: !!el, label: textOf(el) };
   }
 
-  function restore() {
+  // Promesa que se cumple cuando cond() da verdadero (se revisa cada ~16 ms) o pasan maxMs.
+  function until(cond, maxMs) {
+    return new Promise((resolve) => {
+      const t0 = performance.now();
+      const step = () => {
+        const ms = Math.round(performance.now() - t0);
+        let ok = false;
+        try { ok = cond(); } catch (e) { /* nada */ }
+        if (ok || ms > maxMs) resolve(ms); else setTimeout(step, 16);
+      };
+      step();
+    });
+  }
+
+  // Con waitMs: primero espera (dentro de la página) a que se cierre la ficha.
+  function restore(waitMs) {
+    if (waitMs > 0) {
+      return until(() => !modalRoot(), waitMs).then((ms) => Object.assign(restore(), { waited: ms }))
+        .catch((e) => ({ error: String((e && e.stack) || e) }));
+    }
     const { root } = current();
     if (!S.cur) { const { el } = recover(root); if (el) setCur(el, false); }
     return { label: textOf(S.cur) };
@@ -465,7 +486,7 @@
       if (best) { setCur(best); return { moved: true, label: textOf(best) }; }
       const handle = $$(dir === 'right' ? C.row_next : C.row_prev, row).find((h) => h.getBoundingClientRect().width > 0);
       if (handle) {
-        S.pagingRow = row; S.pagingIndex = $$(C.row).indexOf(row);
+        S.pagingRow = row; S.pagingIndex = $$(C.row).indexOf(row); S.pageSig = rowSig(row);
         try { handle.click(); } catch (e) { /* nada */ }
         return { paged: true };
       }
@@ -484,7 +505,38 @@
     return { edge: true };
   }
 
-  function afterPage(dir) {
+  // Qué muestra la fila y dónde: cambia cuando la fila pasa de página.
+  function rowSig(row) {
+    return $$(C.focusable, row).map((e) => {
+      const r = e.getBoundingClientRect();
+      return r.width > 0 ? `${e.getAttribute('href') || textOf(e)}@${Math.round(r.left)}` : '';
+    }).join('|');
+  }
+
+  // Espera, dentro de la página, a que la fila termine de pasar de página: cambió lo que muestra y quedó
+  // quieta dos vueltas seguidas. Sin animaciones son unos pocos cuadros; con animaciones, lo que dure la
+  // animación. Si no cambia nada (fin de la fila), sigue igual al cumplirse maxMs.
+  function pageSettled(maxMs) {
+    return new Promise((resolve) => {
+      const t0 = performance.now(); let last = null; let still = 0;
+      const step = () => {
+        let row = S.pagingRow;
+        if (!row || !row.isConnected) row = $$(C.row)[S.pagingIndex] || null;
+        const sig = row ? rowSig(row) : '';
+        still = (sig !== S.pageSig && sig === last) ? still + 1 : 0;
+        last = sig;
+        if (still >= 2 || performance.now() - t0 > maxMs) resolve(Math.round(performance.now() - t0));
+        else setTimeout(step, 16);
+      };
+      step();
+    });
+  }
+
+  function afterPage(dir, waitMs) {
+    if (waitMs > 0) {
+      return pageSettled(waitMs).then((ms) => Object.assign(afterPage(dir), { waited: ms }))
+        .catch((e) => ({ error: String((e && e.stack) || e) }));
+    }
     let row = S.pagingRow;
     if (!row || !row.isConnected) row = $$(C.row)[S.pagingIndex] || null;
     S.pagingRow = null;
