@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import fnmatch
 import glob
+import hashlib
 import logging
 import os
 import shlex
@@ -22,8 +23,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .browser import spawn_scoped
-from .music import Mpris, find_pids, invalidate_procs, wtype_key
+from .browser import LOG_DIR, spawn_scoped
+from .music import Mpris, find_pids, invalidate_procs, xdotool_key
 
 if TYPE_CHECKING:
     from .controller import Controller
@@ -76,6 +77,16 @@ def count_media(folder: Path, exts: set[str], stop_at: int = 1) -> int:
     return found
 
 
+def scan_media(folder: Path, exts: set[str]) -> list[str]:
+    """Todos los archivos con esas extensiones (recorre todo: en una carpeta de red grande tarda)."""
+    out = []
+    for root, dirs, files in os.walk(folder, onerror=lambda e: None):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        out += [os.path.join(root, f) for f in sorted(files)
+                if not f.startswith(".") and os.path.splitext(f)[1].lower() in exts and "\n" not in f]
+    return out
+
+
 def find_media_folder(patterns: list[str] | str, exts: set[str]) -> Path | None:
     """La primera carpeta de la lista que tenga archivos de ese tipo (los pendrives van primero)."""
     for folder in expand_folders(patterns):
@@ -84,8 +95,30 @@ def find_media_folder(patterns: list[str] | str, exts: set[str]) -> Path | None:
     return None
 
 
+NETWORK_FS = {"cifs", "smb3", "nfs", "nfs4", "fuse.sshfs", "fuse.rclone", "autofs", "davfs"}
+
+
+def _fs_type(folder: Path) -> str:
+    """Tipo de sistema de archivos donde está la carpeta (el montaje más largo que la contiene)."""
+    best, fstype = "", ""
+    try:
+        with open("/proc/self/mounts", encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                mnt = parts[1].replace("\\040", " ")
+                if (str(folder) == mnt or str(folder).startswith(mnt.rstrip("/") + "/")) and len(mnt) >= len(best):
+                    best, fstype = mnt, parts[2]
+    except OSError:
+        pass
+    return fstype
+
+
 def describe_folder(folder: Path) -> str:
     s = str(folder)
+    if _fs_type(folder) in NETWORK_FS:
+        return f"En red: {folder.name}"
     if s.startswith(("/media/", "/mnt/")):
         return f"Pendrive {folder.name}"
     home = str(Path.home())
@@ -440,6 +473,7 @@ class PhotosActivity(MediaActivity):
     def __init__(self, cfg: dict[str, Any] | None = None):
         super().__init__(cfg)
         self._render_task: asyncio.Task | None = None
+        self._refresh_task: asyncio.Future | None = None
         self.reset_view()
 
     def reset_view(self) -> None:
@@ -455,29 +489,75 @@ class PhotosActivity(MediaActivity):
     def installed(self) -> bool:
         return self._have("feh")
 
-    def default_args(self, folder: Path) -> list[str]:
+    def default_args(self, folder: Path, filelist: Path | None = None) -> list[str]:
         delay = float(self.cfg.get("delay_s", 8))
         step = int(self.cfg.get("scroll_step", 150))
-        args = ["feh", "--fullscreen", "--hide-pointer", "--auto-zoom", "--recursive", "--quiet",
+        args = ["feh", "--fullscreen", "--hide-pointer", "--auto-zoom", "--quiet",
                 "--image-bg", "black", "--slideshow-delay", f"{delay:g}", "--scroll-step", str(step),
                 "--title", "netflix-cec fotos"]
         if self.cfg.get("zoom_step"):
             args += ["--zoom-step", f"{float(self.cfg['zoom_step']):g}"]
         # Sin --auto-rotate: con Imlib2 ≥ 1.7.5 (Debian trixie) las fotos ya salen derechas según el EXIF.
         args.append("--randomize" if self.shuffle else "--sort=filename")
-        return args + [str(folder)]
+        if filelist is not None:
+            return args + ["--filelist", str(filelist)]
+        return args + ["--recursive", str(folder)]
+
+    # ------------------------------------------------------------ lista de fotos guardada
+    # feh con --recursive recorre toda la carpeta antes de mostrar la primera foto: en una carpeta de red
+    # con decenas de miles de fotos son 15-20 s de pantalla vacía. Por eso la lista se arma una vez (con el
+    # menú mostrando «Abriendo Fotos…»), se guarda en ~/.cache/netflix-cec y feh arranca con --filelist al
+    # instante; después de cada apertura se actualiza en segundo plano.
+    def list_file(self, folder: Path) -> Path:
+        return LOG_DIR / f"fotos-{hashlib.md5(str(folder).encode()).hexdigest()[:10]}.lst"
+
+    def write_list(self, folder: Path) -> int:
+        t0 = time.monotonic()
+        files = scan_media(folder, self.exts)
+        if not files:
+            return 0
+        dest = self.list_file(folder)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".tmp")
+        tmp.write_text("\n".join(files) + "\n", encoding="utf-8")
+        tmp.replace(dest)
+        log.info("Fotos: lista de %s actualizada (%d fotos, %.1f s)", describe_folder(folder), len(files),
+                 time.monotonic() - t0)
+        return len(files)
 
     async def open(self) -> bool:
         self.reset_view()
-        return await super().open()
+        if self.command:
+            return await super().open()
+        folder = await asyncio.to_thread(self.folder)
+        if folder is None:
+            log.warning("%s: no hay contenido en %s", self.name, ", ".join(map(str, self.folders)) or "(sin carpetas)")
+            return False
+        saved = self.list_file(folder)
+        had_list = saved.is_file() and saved.stat().st_size > 0
+        if not had_list:
+            log.info("Fotos: armo la lista de %s (solo la primera vez tarda)", describe_folder(folder))
+            if not await asyncio.to_thread(self.write_list, folder):
+                return False
+        # feh reescribe su --filelist al cerrarse: se le da una copia para que no pise la actualización.
+        for_feh = saved.with_suffix(".feh.lst")
+        try:
+            await asyncio.to_thread(shutil.copyfile, saved, for_feh)
+        except OSError as exc:
+            log.warning("Fotos: no pude preparar la lista (%s): uso la carpeta directamente", exc)
+            return await self.spawn(self.default_args(folder))
+        ok = await self.spawn(self.default_args(folder, for_feh))
+        if ok and had_list:
+            self._refresh_task = asyncio.get_running_loop().create_task(asyncio.to_thread(self.write_list, folder))
+        return ok
 
     async def close(self) -> None:
         self.reset_view()
         await super().close()
 
     async def key(self, name: str) -> bool:
-        """Un atajo de teclado de feh (wtype: le llega a la ventana con el foco)."""
-        return await wtype_key(name)
+        """Un atajo de teclado de feh. feh es X11 (Xwayland): va con xdotool; con wtype le llega Escape y se cierra."""
+        return await xdotool_key(name)
 
     async def next(self) -> bool:
         return self.send_signal(signal.SIGUSR1)  # feh, en modo presentación: siguiente
