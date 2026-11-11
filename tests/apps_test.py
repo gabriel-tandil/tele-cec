@@ -160,6 +160,10 @@ class FakeMusic:
         self.log.append(f"move:{direction}")
         return True
 
+    async def tab(self, back: bool = False) -> bool:
+        self.log.append("tab:back" if back else "tab")
+        return True
+
     async def toggle_lyrics(self) -> bool:
         self.log.append("letras")
         return True
@@ -391,8 +395,10 @@ async def main() -> int:
     await press("NUMBER0")
     check(await ctl.context() == "tidal_nav", "0 activa el modo navegación de Tidal")
     out = await press("DOWN", "LEFT", "SELECT", "EXIT")
-    check(out == ["move:Down", "move:Left", "wtype:Return", "boton:Atrás"],
-          f"en modo navegación: flechas (con Tab de respaldo), OK y Atrás van a la app: {out}")
+    check(out == ["wtype:Down", "wtype:Left", "wtype:Return", "boton:Atrás"],
+          f"en modo navegación: flechas, OK y Atrás van tal cual a la app (sin seguir el foco): {out}")
+    out = await press("FORWARD", "BACKWARD", "CHANNEL_UP")
+    check(out == ["tab", "tab:back", "tab"], f"⏭ ⏮ y Canal+ saltan al elemento siguiente / anterior: {out}")
     out = await press("NUMBER3", "NUMBER1")
     check(out == ["boton:Colección", "boton:Inicio"], f"3 = Colección, 1 = Inicio: {out}")
     out = await press("ROOT_MENU")

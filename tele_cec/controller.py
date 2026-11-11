@@ -1625,7 +1625,7 @@ class Controller:
         mpris = {"play_pause": "play-pause", "play": "play", "pause": "pause", "next": "next",
                  "previous": "previous", "stop": "stop"}
         # Lo que cambia la pantalla de High Tide: después de eso ya no se sabe si sigue en «Mis canciones».
-        if cmd in ("back", "nav", "move", "page", "key"):
+        if cmd in ("back", "nav", "move", "page", "key", "tab"):
             self._tidal_view = ""
         if cmd in mpris:
             await m.ctl(mpris[cmd])
@@ -1662,6 +1662,8 @@ class Controller:
                 await m.stop_nav()
         elif cmd == "move":
             await m.move(rest.capitalize() or "Down")
+        elif cmd == "tab":
+            await m.tab(back=rest.lower() in ("back", "atras", "atrás", "prev"))
         elif cmd == "lyrics":
             await m.toggle_lyrics()
         elif cmd == "page":

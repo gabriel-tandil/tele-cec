@@ -1,0 +1,435 @@
+# =============================================================================
+#  tele-cec — configuración
+#  Archivo del usuario: ~/.config/tele-cec/config.toml
+#  Solo hace falta dejar lo que quieras cambiar: lo que falte toma el valor
+#  por defecto. Después de editar:  systemctl --user restart tele-cec
+# =============================================================================
+
+log_level = "info"            # "debug" muestra cada tecla y cada acción
+
+[cec]
+cec_client = "cec-client"     # binario de libcec (paquete cec-utils)
+port = ""                     # "" = autodetectar. Pi 400: "/dev/cec0" (HDMI 0) o "/dev/cec1" (HDMI 1)
+device_type = "r"             # "r" = recording (como cec-mini-kb), "p" = playback
+osd_name = "Tele-CEC"         # nombre que muestra la TV para esta entrada (máx. 14 caracteres)
+# Cuándo anunciarse como fuente activa (hace que la TV cambie a la entrada de la Pi
+# y le mande las teclas): "start" (al arrancar el servicio), "launch" (al abrir
+# Chromium desde el control), "both" o "never".
+activate_source = "both"
+pause_on_standby = true       # pausar Netflix si la TV se apaga
+
+[browser]
+engine = "firefox"                            # "firefox" (por defecto) o "chromium" (ver [browser.firefox] más abajo)
+binary = ""                                   # "" = buscar chromium-browser / chromium
+user_data_dir = "~/.config/chromium-netflix"  # perfil propio (Chromium no permite depurar el perfil por defecto)
+debug_port = 9222                             # puerto de control (DevTools / WebDriver BiDi); solo escucha en 127.0.0.1
+start_url = "https://www.netflix.com/browse"
+kiosk = true                                  # pantalla completa sin barras
+# Qué hacer si Chromium no está abierto:
+#   "on_key" = abrirlo al apretar una tecla del contexto [keys.offline] (por defecto OK)
+#   "always" = mantenerlo siempre abierto (lo reabre si se cierra o se cae)
+#   "never"  = no abrirlo nunca desde el servicio
+launch = "on_key"
+extra_args = ["--password-store=basic"]       # agregá acá tu --user-agent si usás uno para Netflix
+# Rendimiento (útil en Raspberry Pi):
+reduce_effects = true    # sin animaciones, transiciones ni scroll suave (flags de Chromium o prefs de Firefox + CSS)
+stop_previews = true     # pausar y ocultar los avances que Netflix reproduce solos en el inicio
+
+# Solo con engine = "firefox". Firefox se controla por WebDriver BiDi, que admite UNA sola
+# sesión: la tiene el servicio, y los comandos sueltos (accion, diagnostico) se la piden a él.
+[browser.firefox]
+binary = ""                                   # "" = buscar firefox / firefox-esr
+profile = "~/.config/firefox-netflix"         # perfil propio (tele-cec le escribe un user.js)
+extra_args = []                               # argumentos extra para Firefox
+# Preferencias extra para el user.js (pisan las de tele-cec), p. ej.:
+#   prefs = { "media.ffmpeg.vaapi.enabled" = true }
+prefs = {}
+# Con el control remoto activo, Firefox expone navigator.webdriver = true (Chromium no). Esto lo
+# oculta para que Netflix vea el mismo navegador que sin tele-cec.
+hide_webdriver = true
+# Extensiones a deshabilitar en este perfil (por nombre o id; tele-cec diagnostico las lista), p. ej.
+# las que vinieron al copiar tu perfil y no hacen falta para Netflix:
+#   disable_extensions = ["uBlock Origin", "h264ify"]
+# Quedan instaladas, como apagadas en about:addons. Si las sacás de la lista se vuelven a habilitar.
+disable_extensions = []
+
+# Avisos en pantalla mientras se ejecuta lo que pediste con el control.
+[feedback]
+busy = true                   # indicador "trabajando" (circulito + texto arriba a la derecha) en las acciones que tardan
+busy_delay_ms = 250           # mostrarlo solo si la acción tarda más que esto (así no parpadea en las rápidas)
+key_echo = false              # diagnóstico: mostrar un instante cada tecla recibida (arriba a la izquierda)
+cec_osd = false               # al abrir el navegador, pedirle a la TV que muestre un texto (CEC; muchas TVs lo ignoran)
+cec_osd_text = "Netflix..."   # máx. 13 caracteres, sin acentos
+
+[netflix]
+seek_seconds = 10
+volume_step = 0.1               # 0.1 = 10 %
+default_profile = 0             # perfil (1..N) que elige "Seguir viendo" si aparece "¿Quién está viendo?"; 0 = preguntar
+profiles_url = "https://www.netflix.com/ProfilesGate"
+my_list_url = "https://www.netflix.com/browse/my-list"
+smart_double_press_ms = 4000    # botón inteligente sin nada para saltar: 2.ª pulsación en este lapso = siguiente episodio
+page_delay_ms = 0               # espera fija tras pasar de página una fila; 0 = auto (espera a que la fila deje de moverse)
+debounce_ms = 700               # ignora repeticiones de teclas "no repetibles" (macros, perfiles…)
+trusted_click = true            # clic con mouse real vía DevTools (más compatible); false = element.click()
+
+# -----------------------------------------------------------------------------
+#  Mapeo de teclas por contexto.
+#  Tecla: nombre libcec (UP, SELECT, F2_RED, NUMBER1…), decimal ("113") o hex ("0x71").
+#  Usá  tele-cec aprender  para ver qué manda cada botón de tu control.
+#  Valor: una acción ("nav:up"), o una lista de acciones (macro), o "" para desactivar.
+#
+#  Contextos (si una tecla no está en el contexto actual se busca en el siguiente):
+#    profiles    -> browse -> global   pantalla "¿Quién está viendo?"
+#    browse      -> global             inicio, grillas, ficha de un título
+#    player      -> global             reproduciendo
+#    player_menu -> browse -> global   menú abierto sobre el reproductor / pantalla final
+#    text        -> browse -> global   hay un campo de texto enfocado (PIN, búsqueda)
+#    tidal       -> global             Tidal (High Tide) abierto
+#    tidal_nav   -> tidal -> global    Tidal con las flechas recorriendo su interfaz (0 lo alterna)
+#    videos      -> global             Videos (VLC) abierto
+#    fotos       -> global             Fotos (feh) abierto
+#    fotos_zoom  -> fotos -> global    Fotos con zoom (▲ lo activa): las flechas recorren la foto
+#    app         -> global             un programa de [activities.<id>] abierto
+#    menu                              el menú de actividades está abierto (captura todas las teclas)
+#    offline                           nada abierto
+#
+#  Actividades: el botón Menú abre un menú en el centro de la pantalla para elegir Netflix, Tidal,
+#  Videos, Fotos u otras ([menu] items). Elegir una cierra la que está abierta y abre esa.
+#  app:<id> la abre directo (sirve para ponerla en un color); si ya está abierta hace su on_reselect.
+#
+#  Acciones: menu  menu:up|down|ok|close|pick:N  app:<actividad>
+#    nav:up|down|left|right  ok  back  smart_skip  continue_watching
+#    profiles  profile:N  home  play_pause  play  pause  seek:+10  seek:-10
+#    volume:+  volume:-  mute  subtitles  audio  next_episode  fullscreen
+#    nav_mode  type:<texto>  key:<Tecla>  toast:<texto>  wait:<ms>  launch  reload
+#    macro:<nombre>  none
+#  Tidal: music:play_pause|play|pause|next|previous|stop  music:volume:+|-  music:seek:+10|-10
+#    music:like  music:shuffle  music:my_tracks (Mis canciones)  music:nav  music:move:<Flecha>
+#    music:page:inicio|explorar|coleccion  music:back  music:key:<Tecla>
+#  Videos: video:play_pause|play|pause|next|previous|stop  video:seek:+10|-10  video:volume:+|-
+#    video:subtitles  video:audio
+#  Fotos: fotos:next  fotos:previous  fotos:pause  fotos:rotate  fotos:random  fotos:info  fotos:filename
+#    fotos:zoom_in  fotos:zoom_out  fotos:fit (sin zoom)  fotos:scroll:left|right|up|down
+#  Netflix: my_list (Mi lista)   Tidal: music:lyrics (letras)   Videos: video:aspect (proporción)
+#  YouTube: yt:key:<Tecla> (Up, Down, Left, Right, Return, Escape)  yt:play_pause|play|pause  yt:seek:+10|-10
+# -----------------------------------------------------------------------------
+
+[keys.global]
+# Botón Menú del control: abre el menú de actividades. Cada TV lo manda con un código distinto
+# (tele-cec aprender te muestra cuál): por eso van los tres.
+ROOT_MENU = "menu"
+CONTENTS_MENU = "menu"
+SETUP_MENU = "menu"
+HELP = "help"                 # ayuda: qué hace cada tecla (también está al final del menú de actividades)
+DISPLAY_INFORMATION = "help"
+EXIT = "back"
+AN_RETURN = "back"
+F1_BLUE = "home"
+# F2_RED (rojo), F3_GREEN (verde) y F4_YELLOW (amarillo) quedan para cada app (o libres: muchas TVs
+# usan el verde para sus propias funciones).
+FORWARD = "smart_skip"
+PLAY = "play"                 # en la lista o en una ficha: reproduce el título resaltado
+PAUSE = "pause"
+PAUSE_PLAY_FUNCTION = "play_pause"
+
+[keys.browse]
+UP = "nav:up"
+DOWN = "nav:down"
+LEFT = "nav:left"
+RIGHT = "nav:right"
+SELECT = "ok"
+ENTER = "ok"
+NUMBER0 = "profiles"          # "¿Quién está viendo?"
+F2_RED = "continue_watching"  # rojo = retomar lo último de «Seguir viendo»
+F4_YELLOW = "my_list"         # amarillo = Mi lista
+
+[keys.profiles]
+NUMBER1 = "profile:1"
+NUMBER2 = "profile:2"
+NUMBER3 = "profile:3"
+NUMBER4 = "profile:4"
+NUMBER5 = "profile:5"
+
+[keys.player]
+SELECT = "play_pause"
+ENTER = "play_pause"
+LEFT = "seek:-10"
+RIGHT = "seek:+10"
+REWIND = "seek:-10"
+FAST_FORWARD = "seek:+10"
+BACKWARD = "seek:-10"
+UP = "volume:+"
+DOWN = "volume:-"
+VOLUME_UP = "volume:+"
+VOLUME_DOWN = "volume:-"
+MUTE = "mute"
+F1_BLUE = "subtitles"
+F2_RED = "audio"
+F4_YELLOW = "smart_skip"      # amarillo = botón inteligente (para controles sin la tecla ⏭)
+CHANNEL_UP = "next_episode"
+NUMBER0 = "nav_mode"          # fuerza navegación con flechas dentro del reproductor (otra vez = volver)
+STOP = "back"
+
+[keys.player_menu]
+F1_BLUE = "subtitles"
+F2_RED = "audio"
+F4_YELLOW = "smart_skip"
+NUMBER0 = "nav_mode"
+
+[keys.text]
+NUMBER0 = "type:0"
+NUMBER1 = "type:1"
+NUMBER2 = "type:2"
+NUMBER3 = "type:3"
+NUMBER4 = "type:4"
+NUMBER5 = "type:5"
+NUMBER6 = "type:6"
+NUMBER7 = "type:7"
+NUMBER8 = "type:8"
+NUMBER9 = "type:9"
+CLEAR = "key:Backspace"
+
+[keys.offline]                # nada abierto: OK o Menú abren el menú de actividades
+SELECT = "menu"
+ENTER = "menu"
+ROOT_MENU = "menu"
+CONTENTS_MENU = "menu"
+SETUP_MENU = "menu"
+HELP = "help"
+DISPLAY_INFORMATION = "help"
+
+[keys.menu]                   # menú de actividades abierto
+UP = "menu:up"
+DOWN = "menu:down"
+LEFT = "menu:left"            # en el selector de carpetas: subir a la carpeta de arriba
+RIGHT = "menu:right"          # sobre Videos o Fotos: elegir otra carpeta; en una carpeta: entrar
+SELECT = "menu:ok"
+ENTER = "menu:ok"
+EXIT = "menu:back"            # cierra el menú (en el selector de carpetas: vuelve atrás)
+AN_RETURN = "menu:back"
+ROOT_MENU = "menu"            # Menú otra vez = siguiente opción
+CONTENTS_MENU = "menu"
+SETUP_MENU = "menu"
+NUMBER1 = "menu:pick:1"       # los números eligen directo
+NUMBER2 = "menu:pick:2"
+NUMBER3 = "menu:pick:3"
+NUMBER4 = "menu:pick:4"
+NUMBER5 = "menu:pick:5"
+NUMBER6 = "menu:pick:6"
+NUMBER7 = "menu:pick:7"
+NUMBER8 = "menu:pick:8"
+NUMBER9 = "menu:pick:9"
+HELP = "menu:help"
+DISPLAY_INFORMATION = "menu:help"
+
+[keys.tidal]
+SELECT = "music:play_pause"
+ENTER = "music:play_pause"
+PLAY = "music:play"
+PAUSE = "music:pause"
+PAUSE_PLAY_FUNCTION = "music:play_pause"
+STOP = "music:pause"
+LEFT = "music:previous"
+RIGHT = "music:next"
+BACKWARD = "music:previous"
+FORWARD = "music:next"
+REWIND = "music:seek:-10"
+FAST_FORWARD = "music:seek:+10"
+UP = "music:volume:+"
+DOWN = "music:volume:-"
+VOLUME_UP = "music:volume:+"
+VOLUME_DOWN = "music:volume:-"
+F1_BLUE = "music:like"        # azul = me gusta (agregar/quitar de favoritos)
+F2_RED = "music:lyrics"       # rojo = mostrar las letras (otra vez = volver al reproductor)
+F4_YELLOW = "music:my_tracks" # amarillo = Mis canciones
+NUMBER0 = "music:nav"         # flechas para recorrer la interfaz de Tidal (otra vez = volver)
+NUMBER1 = "music:page:inicio"     # páginas de High Tide (la barra de abajo)
+NUMBER2 = "music:page:explorar"
+NUMBER3 = "music:page:coleccion"
+EXIT = ""
+AN_RETURN = ""
+
+[keys.tidal_nav]              # las flechas mueven el foco por la interfaz de Tidal y OK aprieta
+# Las flechas van tal cual. Donde se traban (la barra de progreso, dentro de una fila de la lista), ⏭ y ⏮
+# saltan al elemento siguiente o anterior (Tab / Shift+Tab).
+# music:move:<Flecha> (experimental) sigue el foco por accesibilidad y usa Tab solo donde hace falta, pero
+# escuchar esos eventos puede cerrar High Tide (error de GTK 4): por eso no se usa por defecto.
+UP = "music:key:Up"
+DOWN = "music:key:Down"
+LEFT = "music:key:Left"
+RIGHT = "music:key:Right"
+FORWARD = "music:tab"
+BACKWARD = "music:tab:back"
+CHANNEL_UP = "music:tab"
+CHANNEL_DOWN = "music:tab:back"
+SELECT = "music:key:Return"
+ENTER = "music:key:Return"
+EXIT = "music:back"
+AN_RETURN = "music:back"
+
+[keys.youtube]                # YouTube para TV: flechas, OK y Atrás van tal cual a su interfaz
+UP = "yt:key:Up"
+DOWN = "yt:key:Down"
+LEFT = "yt:key:Left"
+RIGHT = "yt:key:Right"
+SELECT = "yt:key:Return"
+ENTER = "yt:key:Return"
+EXIT = "yt:key:Escape"
+AN_RETURN = "yt:key:Escape"
+PLAY = "yt:play"
+PAUSE = "yt:pause"
+PAUSE_PLAY_FUNCTION = "yt:play_pause"
+STOP = "yt:pause"
+FAST_FORWARD = "yt:seek:+10"
+REWIND = "yt:seek:-10"
+FORWARD = ""
+F1_BLUE = ""
+
+[keys.videos]                 # Videos (VLC)
+SELECT = "video:play_pause"
+ENTER = "video:play_pause"
+PLAY = "video:play"
+PAUSE = "video:pause"
+PAUSE_PLAY_FUNCTION = "video:play_pause"
+STOP = "video:pause"
+LEFT = "video:seek:-10"
+RIGHT = "video:seek:+10"
+REWIND = "video:seek:-10"
+FAST_FORWARD = "video:seek:+10"
+UP = "video:volume:+"
+DOWN = "video:volume:-"
+VOLUME_UP = "video:volume:+"
+VOLUME_DOWN = "video:volume:-"
+FORWARD = "video:next"
+BACKWARD = "video:previous"
+CHANNEL_UP = "video:next"
+CHANNEL_DOWN = "video:previous"
+F1_BLUE = "video:subtitles"   # azul = subtítulos
+F2_RED = "video:audio"        # rojo = idioma de audio
+F4_YELLOW = "video:aspect"    # amarillo = proporción de la imagen (16:9, 4:3…)
+EXIT = ""
+AN_RETURN = ""
+
+[keys.fotos]                  # Fotos (feh)
+LEFT = "fotos:previous"
+RIGHT = "fotos:next"
+BACKWARD = "fotos:media_previous"
+FORWARD = "fotos:media_next"
+CHANNEL_DOWN = "fotos:previous"
+CHANNEL_UP = "fotos:next"
+SELECT = "fotos:pause"        # pausar o seguir la presentación
+ENTER = "fotos:pause"
+# Con Tidal sonando de fondo (abrir Fotos no la cierra), ⏯ ⏭ ⏮ manejan la música; sin música, las fotos.
+PLAY = "fotos:media_play_pause"
+PAUSE = "fotos:media_play_pause"
+PAUSE_PLAY_FUNCTION = "fotos:media_play_pause"
+EXIT = ""
+AN_RETURN = ""
+F1_BLUE = "fotos:info"        # azul = qué foto es: carpeta, archivo y número (en el panel)
+F2_RED = "fotos:rotate"       # rojo = girar la foto
+F4_YELLOW = "fotos:random"    # amarillo = una foto al azar
+UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
+
+[keys.fotos_zoom]             # Fotos con zoom: las flechas mueven la foto, OK acerca y Atrás aleja
+UP = "fotos:scroll:up"
+DOWN = "fotos:scroll:down"
+LEFT = "fotos:scroll:left"
+RIGHT = "fotos:scroll:right"
+SELECT = "fotos:zoom_in"
+ENTER = "fotos:zoom_in"
+CHANNEL_UP = "fotos:zoom_in"
+EXIT = "fotos:zoom_out"       # desde el primer paso vuelve a la foto entera y sigue la presentación
+AN_RETURN = "fotos:zoom_out"
+CHANNEL_DOWN = "fotos:zoom_out"
+PLAY = "fotos:fit"            # ⏯ = foto entera de una y sigue la presentación
+PAUSE = "fotos:fit"
+PAUSE_PLAY_FUNCTION = "fotos:fit"
+
+[keys.app]                    # programas de [activities.<id>]: las teclas no se usan (salvo Menú)
+EXIT = ""
+AN_RETURN = ""
+F1_BLUE = ""
+FORWARD = ""
+PLAY = ""
+PAUSE = ""
+PAUSE_PLAY_FUNCTION = ""
+
+# Reposo automático: si no sale sonido y nadie toca el control, la Raspberry Pi descansa (antes avisa en
+# pantalla; cualquier tecla lo cancela) y apaga la TV por CEC.
+#   mode = "reposo": guarda lo que estaba abierto, lo pausa y lo cierra. Vuelve al apretar una tecla o al
+#                    prenderse la TV, y restaura todo en pausa.
+#   mode = "apagar": apaga la Pi. El control no la vuelve a prender (en una Pi 400: Fn+F10, o desenchufar y
+#                    enchufar), y hace falta una regla de polkit (./install.sh --apagado-automatico).
+[power]
+enabled = false
+mode = "reposo"
+idle_minutes = 180            # sin sonido ni teclas del control (una presentación de fotos sin música no cuenta)
+tv_off_minutes = 15           # si la TV avisó por CEC que se apagó (standby): alcanza con menos
+warn_seconds = 60             # cuenta regresiva en pantalla antes
+tv_standby = true             # apagar también la TV por CEC
+wake_on_tv = true             # en reposo: volver cuando se prende la TV (sin cambiarle la entrada)
+off_after_hours = 72          # en reposo tantas horas seguidas sin que nadie la despierte: apagarla de verdad
+                              # (0 = nunca). Apagada, el control no la prende: Fn+F10 en la Pi 400 o desenchufar.
+command = ["systemctl", "poweroff"]   # para mode = "apagar"
+
+# Menú de actividades.
+[menu]
+items = ["netflix", "youtube", "tidal", "videos", "fotos"]   # orden; las no instaladas no aparecen. Las de
+                                                  # [activities.<id>] se agregan al final si no están acá.
+timeout_s = 10                # se cierra solo si no tocás nada (sin cambiar de actividad)
+
+[apps.netflix]
+on_reselect = "continue_watching"   # app:netflix con Netflix ya abierto
+
+[apps.tidal]                         # Tidal con High Tide (Flatpak; ver README → Tidal)
+on_reselect = "music:my_tracks"      # app:tidal con Tidal ya abierto: Mis canciones
+flatpak_id = "io.github.nokse22.high-tide"
+resume_on_open = true                # al abrir Tidal, seguir con lo último que estaba sonando
+volume_step = 0.05
+start_timeout = 60                   # segundos para que High Tide termine de abrir (en una Pi tarda)
+# Cómo dibuja High Tide (GTK 4). En la Pi, con Vulkan (el de GTK) se queda sin memoria del driver y se
+# cierra solo al cambiar de vista (por ejemplo, al abrir las letras): con OpenGL ("ngl") no pasa.
+gsk_renderer = "ngl"                 # "" = el que elija GTK
+
+[apps.youtube]                       # YouTube para TV, en un Firefox aparte (perfil propio)
+url = "https://www.youtube.com/tv"
+profile = "~/.config/firefox-youtube"
+force_h264 = true                    # como h264ify: la Pi decodifica H.264 por hardware (VP9/AV1 van por CPU)
+user_agent = ""                      # "" = el de una consola (YouTube muestra la versión para TV solo a TVs)
+open_wait_s = 10                     # Firefox tarda en abrir: el menú muestra «Abriendo YouTube…» este tiempo
+
+[apps.videos]                        # Videos con VLC: reproduce la carpeta entera en pantalla completa
+# Se usa la primera carpeta que tenga videos: los pendrives van primero.
+folders = ["/media/*/*", "~/Vídeos", "~/Videos"]
+shuffle = false                      # orden aleatorio
+volume_step = 0.05
+command = []                         # otro comando en vez de VLC; {carpeta} = la carpeta elegida, p. ej.
+                                     #   ["vlc", "--qt-minimal-view", "--fullscreen", "{carpeta}"]
+
+[apps.fotos]                         # Fotos con feh: presentación en pantalla completa
+folders = ["/media/*/*", "~/Imágenes", "~/Pictures"]
+delay_s = 8                          # segundos por foto
+shuffle = false
+scroll_step = 150                    # píxeles que se mueve la foto con zoom por cada flecha
+zoom_step = 25                       # % que acerca o aleja cada paso de zoom
+command = []                         # otro visor en vez de feh ({carpeta} = la carpeta elegida)
+
+# Otras actividades: cualquier programa. Aparecen al final del menú (o donde las pongas en [menu] items).
+# Al elegir otra actividad se cierra con SIGTERM. Mientras está abierta, las teclas usan [keys.app].
+#   [activities.juegos]
+#   name = "Juegos"
+#   icon = "juegos.svg"              # juegos/musica/peliculas.svg vienen incluidos; o un archivo, un ícono del tema o un emoji
+#   command = ["mame", "-rompath", "~/mame/roms"]
+#   process = "mame"                 # nombre del proceso, si no es el del comando
+
+# Macros: listas de acciones con nombre, se usan como "macro:<nombre>".
+# Ejemplo:  [keys.browse]  NUMBER9 = "macro:perfil1_seguir"
+[macros]
+perfil1_seguir = ["profile:1", "wait:2500", "continue_watching"]
+
+# -----------------------------------------------------------------------------
+#  Selectores CSS de Netflix. Netflix cambia su web cada tanto: si algo deja de
+#  andar, corré  tele-cec diagnostico  y ajustá acá. Lo que pongas reemplaza
+#  al valor por defecto de esa clave.
+# -----------------------------------------------------------------------------
+[selectors]
