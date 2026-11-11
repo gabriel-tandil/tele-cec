@@ -142,7 +142,7 @@ class Activity:
 class NetflixActivity(Activity):
     id = "netflix"
     name = "Netflix"
-    icon = "video-display"
+    icon = "netflix.svg"
     context = "browse"
 
     def __init__(self, ctl: Controller, cfg: dict[str, Any] | None = None):
@@ -176,7 +176,7 @@ class NetflixActivity(Activity):
 class TidalActivity(Activity):
     id = "tidal"
     name = "Tidal"
-    icon = "audio-x-generic"
+    icon = "tidal.svg"
     context = "tidal"
 
     def __init__(self, ctl: Controller, cfg: dict[str, Any] | None = None):
@@ -330,7 +330,7 @@ class MediaActivity(ProcActivity):
 class VideosActivity(MediaActivity):
     id = "videos"
     name = "Videos"
-    icon = "video-x-generic"
+    icon = "videos.svg"
     context = "videos"
     procs = {"vlc", "cvlc"}
     exts = VIDEO_EXT
@@ -366,7 +366,7 @@ class VideosActivity(MediaActivity):
 class PhotosActivity(MediaActivity):
     id = "fotos"
     name = "Fotos"
-    icon = "image-x-generic"
+    icon = "fotos.svg"
     context = "fotos"
     procs = {"feh"}
     exts = IMAGE_EXT - {".heic"}  # feh (imlib2) no abre HEIC

@@ -25,14 +25,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import threading
+from pathlib import Path
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango  # noqa: E402
 
 try:
     gi.require_version("GtkLayerShell", "0.1")
@@ -40,12 +43,15 @@ try:
 except (ValueError, ImportError):
     GtkLayerShell = None
 
+# Íconos que vienen con netflix-cec (baldosas SVG): "netflix.svg" en la configuración busca acá.
+ICONS_DIR = Path(__file__).resolve().parent / "icons"
+
 DEMO_ITEMS = [
-    {"name": "Netflix", "icon": "video-display", "sub": "", "enabled": True, "current": True},
-    {"name": "Tidal", "icon": "audio-x-generic", "sub": "", "enabled": True},
-    {"name": "Videos", "icon": "video-x-generic", "sub": "Pendrive KINGSTON", "enabled": True},
-    {"name": "Fotos", "icon": "image-x-generic", "sub": "Sin fotos: conectá un pendrive", "enabled": False},
-    {"name": "Juegos", "icon": "applications-games", "sub": "", "enabled": True},
+    {"name": "Netflix", "icon": "netflix.svg", "sub": "", "enabled": True, "current": True},
+    {"name": "Tidal", "icon": "tidal.svg", "sub": "", "enabled": True},
+    {"name": "Videos", "icon": "videos.svg", "sub": "Pendrive KINGSTON", "enabled": True},
+    {"name": "Fotos", "icon": "fotos.svg", "sub": "Sin fotos: conectá un pendrive", "enabled": False},
+    {"name": "Juegos", "icon": "juegos.svg", "sub": "", "enabled": True},
 ]
 DEFAULT_HINT = "▲ ▼ elegir · OK abrir · Atrás cerrar"
 
@@ -102,7 +108,7 @@ class Panel:
         width, height = _monitor_geometry()
         self.font = max(18, round(height * 0.028))       # 30 px en 1080p
         self.width = max(round(self.font * 17), round(width * 0.34))
-        self.icon_px = round(self.font * 1.5)
+        self.icon_px = round(self.font * 1.7)
         self.rows: list[Gtk.Box] = []
         self.items: list[dict] = []
         self.selected = 0
@@ -209,6 +215,16 @@ class Panel:
             pass
 
     def _icon(self, icon: str, name: str) -> Gtk.Widget:
+        """Un archivo (SVG/PNG; sin carpeta = de netflix_cec/icons), un ícono del tema, un emoji o la inicial."""
+        if icon.lower().endswith((".svg", ".png", ".jpg", ".jpeg")):
+            path = Path(os.path.expanduser(icon))
+            if not path.is_absolute():
+                path = ICONS_DIR / path
+            try:
+                pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), self.icon_px, self.icon_px, True)
+                return Gtk.Image.new_from_pixbuf(pix)
+            except GLib.Error as exc:
+                print(f"menu_ui: no pude cargar el ícono {path}: {exc.message}", file=sys.stderr, flush=True)
         theme = Gtk.IconTheme.get_default()
         if icon and icon.isascii() and theme.has_icon(icon):
             img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DIALOG)

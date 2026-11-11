@@ -1,7 +1,9 @@
-"""Cliente del panel en pantalla (menu_ui.py): lo lanza, lo mantiene vivo y le manda órdenes.
+"""Procesos auxiliares con su propio bucle de GLib (panel del menú, foco de Tidal) y el cliente del panel.
 
-El panel es un proceso aparte con su propio bucle de GTK. Se abre una sola vez y queda oculto, así en una
-Raspberry Pi aparece al instante cuando se aprieta Menú. Si se cae, se vuelve a lanzar en el próximo uso.
+El panel (menu_ui.py) es un proceso aparte con su propio bucle de GTK. Se abre una sola vez y queda
+oculto, así en una Raspberry Pi aparece al instante cuando se aprieta Menú. Si se cae, se vuelve a lanzar
+en el próximo uso. HelperProcess es lo común: lanzarlo, esperar su {"ready": true} y mandarle órdenes en
+JSON por stdin.
 """
 
 from __future__ import annotations
@@ -23,10 +25,14 @@ READY_TIMEOUT = 20.0   # GTK tarda en arrancar en una Pi
 RETRY_AFTER = 30.0     # tras un fallo, no reintentar en cada tecla
 
 
-class Overlay:
+class HelperProcess:
+    module = ""          # p. ej. "netflix_cec.menu_ui"
+    what = "el auxiliar"
+    logger = log
+
     def __init__(self) -> None:
         self.proc: asyncio.subprocess.Process | None = None
-        self.layer_shell: bool | None = None
+        self.info: dict[str, Any] = {}
         self.error = ""
         self._lock = asyncio.Lock()
         self._failed_at = -1e9
@@ -49,36 +55,38 @@ class Overlay:
         env["PYTHONPATH"] = root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         try:
             self.proc = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "netflix_cec.menu_ui", env=env,
+                sys.executable, "-m", self.module, env=env,
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         except OSError as exc:
-            return self._fail(f"no pude abrir el panel: {exc}")
+            return self._fail(f"no pude abrir {self.what}: {exc}")
         assert self.proc.stdout is not None and self.proc.stderr is not None
         self._tasks = [asyncio.create_task(self._drain(self.proc.stderr, "stderr"))]
         try:
             line = await asyncio.wait_for(self.proc.stdout.readline(), READY_TIMEOUT)
         except asyncio.TimeoutError:
             self.proc.kill()
-            return self._fail(f"el panel no respondió en {READY_TIMEOUT:.0f} s")
+            return self._fail(f"{self.what} no respondió en {READY_TIMEOUT:.0f} s")
         try:
             info = json.loads(line.decode() or "{}")
         except ValueError:
             info = {}
         if not info.get("ready"):
             await asyncio.sleep(0.3)  # que el drenaje de stderr alcance a registrar el motivo
-            return self._fail("el panel no arrancó (¿faltan python3-gi / gir1.2-gtk-3.0?)")
-        self.layer_shell = bool(info.get("layer_shell"))
+            return self._fail(f"{self.what} no arrancó (¿faltan python3-gi / gir1.2-gtk-3.0?)")
+        self.info = info
         self.error = ""
         self._tasks.append(asyncio.create_task(self._drain(self.proc.stdout, "stdout")))
-        log.info("Panel del menú listo (%s)", "layer-shell: encima de todo, sin tomar el foco" if self.layer_shell
-                 else "sin layer-shell: ventana común siempre encima")
+        self.on_ready(info)
         return True
+
+    def on_ready(self, info: dict[str, Any]) -> None:
+        self.logger.info("%s listo", self.what[:1].upper() + self.what[1:])
 
     def _fail(self, why: str) -> bool:
         self.error = why
         self._failed_at = time.monotonic()
         self.proc = None
-        log.warning("Menú: %s", why)
+        self.logger.warning("%s", why)
         return False
 
     async def _drain(self, stream: asyncio.StreamReader, name: str) -> None:
@@ -88,7 +96,7 @@ class Overlay:
                 return
             text = line.decode("utf-8", "replace").rstrip()
             if text and "Failed to load module" not in text:
-                log.debug("panel %s: %s", name, text)
+                self.logger.debug("%s: %s", self.module.rpartition(".")[2], text)
 
     async def send(self, msg: dict[str, Any]) -> bool:
         data = (json.dumps(msg, ensure_ascii=False) + "\n").encode()
@@ -103,31 +111,13 @@ class Overlay:
                     return True
                 except (BrokenPipeError, ConnectionResetError, RuntimeError) as exc:
                     if not attempt:
-                        log.warning("Se cerró el panel del menú (%s): lo vuelvo a abrir", exc)
+                        self.logger.warning("Se cerró %s (%s): lo vuelvo a abrir", self.what, exc)
                     self.proc = None
                     self._failed_at = -1e9
         return False
 
-    # ------------------------------------------------------------ órdenes
-    async def show(self, items: list[dict], selected: int, title: str = "Actividades", hint: str = "") -> bool:
-        return await self.send({"op": "show", "items": items, "selected": selected, "title": title, "hint": hint})
-
-    async def select(self, index: int) -> bool:
-        return await self.send({"op": "select", "index": index})
-
-    async def busy(self, text: str) -> bool:
-        return await self.send({"op": "busy", "text": text})
-
-    async def toast(self, text: str, ms: int = 2000) -> bool:
-        return await self.send({"op": "toast", "text": text, "ms": ms})
-
-    async def hide(self) -> bool:
-        if not self.running():
-            return True
-        return await self.send({"op": "hide"})
-
     async def warm(self) -> None:
-        """Al arrancar el servicio: abrir el panel (oculto) apenas haya sesión gráfica."""
+        """Al arrancar el servicio: abrirlo (oculto) apenas haya sesión gráfica."""
         for _ in range(40):
             if await self._start_quiet():
                 return
@@ -153,6 +143,39 @@ class Overlay:
         for t in self._tasks:
             t.cancel()
         self.proc = None
+
+
+class Overlay(HelperProcess):
+    """El panel del menú de actividades."""
+
+    module = "netflix_cec.menu_ui"
+    what = "el panel del menú"
+
+    @property
+    def layer_shell(self) -> bool | None:
+        return self.info.get("layer_shell") if self.info else None
+
+    def on_ready(self, info: dict[str, Any]) -> None:
+        log.info("Panel del menú listo (%s)", "layer-shell: encima de todo, sin tomar el foco"
+                 if info.get("layer_shell") else "sin layer-shell: ventana común siempre encima")
+
+    # ------------------------------------------------------------ órdenes
+    async def show(self, items: list[dict], selected: int, title: str = "Actividades", hint: str = "") -> bool:
+        return await self.send({"op": "show", "items": items, "selected": selected, "title": title, "hint": hint})
+
+    async def select(self, index: int) -> bool:
+        return await self.send({"op": "select", "index": index})
+
+    async def busy(self, text: str) -> bool:
+        return await self.send({"op": "busy", "text": text})
+
+    async def toast(self, text: str, ms: int = 2000) -> bool:
+        return await self.send({"op": "toast", "text": text, "ms": ms})
+
+    async def hide(self) -> bool:
+        if not self.running():
+            return True
+        return await self.send({"op": "hide"})
 
 
 def available() -> tuple[bool, bool, str]:
