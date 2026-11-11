@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .browser import LOG_DIR, spawn_scoped
-from .music import Mpris, find_pids, invalidate_procs, xdotool_key
+from .music import Mpris, find_pids, invalidate_procs, run_cmd, xdotool_key
 
 if TYPE_CHECKING:
     from .controller import Controller
@@ -85,6 +85,22 @@ def scan_media(folder: Path, exts: set[str]) -> list[str]:
         out += [os.path.join(root, f) for f in sorted(files)
                 if not f.startswith(".") and os.path.splitext(f)[1].lower() in exts and "\n" not in f]
     return out
+
+
+def _natural_key(name: str) -> list:
+    """Orden natural: «2» antes que «10», sin importar mayúsculas."""
+    import re  # noqa: PLC0415
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", name)]
+
+
+def list_subfolders(folder: Path, limit: int = 300) -> list[Path]:
+    """Subcarpetas (no ocultas) en orden natural, para elegir una desde el menú."""
+    try:
+        with os.scandir(folder) as it:
+            dirs = [e.name for e in it if not e.name.startswith(".") and e.is_dir(follow_symlinks=True)]
+    except OSError:
+        return []
+    return [folder / d for d in sorted(dirs, key=_natural_key)[:limit]]
 
 
 def find_media_folder(patterns: list[str] | str, exts: set[str]) -> Path | None:
@@ -347,11 +363,21 @@ class MediaActivity(ProcActivity):
     def unavailable_text(self) -> str:
         return self.empty_text
 
+    # Texto de la opción que abre la carpeta elegida en el selector de carpetas del menú (y si está vacía).
+    play_label = "▶ Abrir esta carpeta"
+    empty_in_folder = "No hay nada para mostrar acá"
+
+    def roots(self) -> list[Path]:
+        """Las carpetas configuradas que existen (punto de partida para elegir otra desde el menú)."""
+        return expand_folders(self.folders)
+
     def default_args(self, folder: Path) -> list[str]:
         raise NotImplementedError
 
-    async def open(self) -> bool:
-        folder = await asyncio.to_thread(self.folder)
+    async def open(self, folder: Path | None = None) -> bool:
+        """Abre la carpeta predeterminada (la primera de `folders` con contenido) o la elegida en el menú."""
+        if folder is None:
+            folder = await asyncio.to_thread(self.folder)
         if folder is None:
             log.warning("%s: no hay contenido en %s", self.name, ", ".join(map(str, self.folders)) or "(sin carpetas)")
             return False
@@ -367,6 +393,8 @@ class VideosActivity(MediaActivity):
     procs = {"vlc", "cvlc"}
     exts = VIDEO_EXT
     empty_text = "Sin videos: conectá un pendrive"
+    play_label = "▶ Reproducir esta carpeta"
+    empty_in_folder = "No hay videos en esta carpeta"
 
     def __init__(self, cfg: dict[str, Any] | None = None):
         super().__init__(cfg)
@@ -464,6 +492,12 @@ class PhotosActivity(MediaActivity):
     procs = {"feh"}
     exts = IMAGE_EXT - {".heic"}  # feh (imlib2) no abre HEIC
     empty_text = "Sin fotos: conectá un pendrive"
+    play_label = "▶ Ver las fotos de esta carpeta"
+    empty_in_folder = "No hay fotos en esta carpeta"
+    # feh pone en el título de su ventana qué foto muestra (%u = número, %l = total, %f = archivo):
+    # así se puede mostrar en el panel con letra grande (azul).
+    TITLE = "netflix-cec fotos"
+    TITLE_FORMAT = TITLE + "|%u|%l|%f"
 
     ZOOM_MAX = 12          # pasos de zoom (cada uno +25 % en feh): ~14 veces la foto ajustada
     RENDER_DELAY = 0.6     # s sin moverse antes de redibujar suavizado
@@ -474,6 +508,7 @@ class PhotosActivity(MediaActivity):
         super().__init__(cfg)
         self._render_task: asyncio.Task | None = None
         self._refresh_task: asyncio.Future | None = None
+        self.current_folder: Path | None = None
         self.reset_view()
 
     def reset_view(self) -> None:
@@ -494,7 +529,7 @@ class PhotosActivity(MediaActivity):
         step = int(self.cfg.get("scroll_step", 150))
         args = ["feh", "--fullscreen", "--hide-pointer", "--auto-zoom", "--quiet",
                 "--image-bg", "black", "--slideshow-delay", f"{delay:g}", "--scroll-step", str(step),
-                "--title", "netflix-cec fotos"]
+                "--title", self.TITLE_FORMAT]
         if self.cfg.get("zoom_step"):
             args += ["--zoom-step", f"{float(self.cfg['zoom_step']):g}"]
         # Sin --auto-rotate: con Imlib2 ≥ 1.7.5 (Debian trixie) las fotos ya salen derechas según el EXIF.
@@ -525,11 +560,12 @@ class PhotosActivity(MediaActivity):
                  time.monotonic() - t0)
         return len(files)
 
-    async def open(self) -> bool:
+    async def open(self, folder: Path | None = None) -> bool:
         self.reset_view()
         if self.command:
-            return await super().open()
-        folder = await asyncio.to_thread(self.folder)
+            return await super().open(folder)
+        if folder is None:
+            folder = await asyncio.to_thread(self.folder)
         if folder is None:
             log.warning("%s: no hay contenido en %s", self.name, ", ".join(map(str, self.folders)) or "(sin carpetas)")
             return False
@@ -547,6 +583,8 @@ class PhotosActivity(MediaActivity):
             log.warning("Fotos: no pude preparar la lista (%s): uso la carpeta directamente", exc)
             return await self.spawn(self.default_args(folder))
         ok = await self.spawn(self.default_args(folder, for_feh))
+        if ok:
+            self.current_folder = folder
         if ok and had_list:
             self._refresh_task = asyncio.get_running_loop().create_task(asyncio.to_thread(self.write_list, folder))
         return ok
@@ -554,6 +592,34 @@ class PhotosActivity(MediaActivity):
     async def close(self) -> None:
         self.reset_view()
         await super().close()
+
+    async def photo_info(self) -> dict[str, Any] | None:
+        """Qué foto se ve: {"path", "index", "total"}, leído del título de la ventana de feh."""
+        rc, out = await run_cmd(["xdotool", "search", "--name", "^" + self.TITLE + r"\|", "getwindowname"], 5)
+        line = next((ln for ln in out.splitlines() if ln.startswith(self.TITLE + "|")), "")
+        if rc != 0 or not line:
+            log.warning("Fotos: no pude leer qué foto se ve (xdotool: %s)", out.strip()[:120] or rc)
+            return None
+        _t, index, total, path = (line.split("|", 3) + ["", "", ""])[:4]
+        return {"path": path, "index": int(index) if index.isdigit() else 0,
+                "total": int(total) if total.isdigit() else 0}
+
+    def describe_photo(self, info: dict[str, Any]) -> str:
+        """Texto del aviso: dónde está (carpeta base › subcarpetas), el archivo y el número de foto."""
+        path = Path(info["path"])
+        # La ruta se cuenta desde la carpeta configurada que la contiene (aunque se haya elegido una subcarpeta).
+        base = next((r for r in self.roots() if path.is_relative_to(r)), None) or self.current_folder
+        where = describe_folder(base) if base else str(path.parent)
+        try:
+            rel = path.parent.relative_to(base) if base else None
+        except ValueError:
+            rel, where = None, str(path.parent)
+        if rel is not None and str(rel) != ".":
+            where += " › " + " › ".join(rel.parts)
+        lines = [where, path.name]
+        if info.get("total"):
+            lines.append(f"Foto {info['index']:,} de {info['total']:,}".replace(",", "."))
+        return "\n".join(lines)
 
     async def key(self, name: str) -> bool:
         """Un atajo de teclado de feh. feh es X11 (Xwayland): va con xdotool; con wtype le llega Escape y se cierra."""

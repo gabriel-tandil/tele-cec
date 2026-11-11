@@ -54,6 +54,7 @@ DEMO_ITEMS = [
     {"name": "Juegos", "icon": "juegos.svg", "sub": "", "enabled": True},
 ]
 DEFAULT_HINT = "▲ ▼ elegir · OK abrir · Atrás cerrar"
+MAX_ROWS = 7   # filas visibles a la vez: las listas largas (carpetas) se desplazan
 
 
 def _monitor_geometry() -> tuple[int, int]:
@@ -96,10 +97,11 @@ def _css(font: int) -> bytes:
     }}
     .row.sel .badge {{ background-color: rgba(0, 0, 0, 0.12); }}
     .hint {{ font-size: {px(0.6)}; opacity: 0.62; }}
+    .more {{ font-size: {px(0.55)}; opacity: 0.55; }}
     .msg {{ font-size: {px(0.7)}; font-weight: bold; color: #ffd166; }}
     .row.sel .msg {{ color: #8a5a00; }}
     .busy {{ font-size: {px(1)}; font-weight: bold; }}
-    .toast {{ font-size: {px(0.9)}; }}
+    .toast {{ font-size: {px(1.1)}; }}
     """.encode()
 
 
@@ -112,6 +114,8 @@ class Panel:
         self.rows: list[Gtk.Box] = []
         self.items: list[dict] = []
         self.selected = 0
+        self.top = 0              # primera fila visible
+        self.numbers = True       # números 1-9 a la izquierda (en el menú de actividades sí, en carpetas no)
         self.mode = "hidden"
         self._hint = DEFAULT_HINT
         self._toast_id = 0
@@ -172,8 +176,14 @@ class Panel:
         self.title.get_style_context().add_class("title")
         self.title.set_margin_bottom(round(self.font * 0.35))
         menu.pack_start(self.title, False, False, 0)
+        self.more_up = Gtk.Label(label="▲ más arriba")
+        self.more_up.get_style_context().add_class("more")
+        menu.pack_start(self.more_up, False, False, 0)
         self.list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=round(self.font * 0.15))
         menu.pack_start(self.list_box, False, False, 0)
+        self.more_down = Gtk.Label(label="▼ más abajo")
+        self.more_down.get_style_context().add_class("more")
+        menu.pack_start(self.more_down, False, False, 0)
         self.hint = Gtk.Label(label=DEFAULT_HINT, xalign=0.5)
         self.hint.get_style_context().add_class("hint")
         self.hint.set_line_wrap(True)
@@ -198,7 +208,8 @@ class Panel:
         self.toast_label = Gtk.Label(label="")
         self.toast_label.get_style_context().add_class("toast")
         self.toast_label.set_line_wrap(True)
-        self.toast_label.set_max_width_chars(40)
+        self.toast_label.set_justify(Gtk.Justification.CENTER)
+        self.toast_label.set_max_width_chars(48)
         self.stack.add_named(self.toast_label, "toast")
 
         self.panel.show_all()
@@ -246,10 +257,11 @@ class Panel:
             ctx.add_class("row")
             if not it.get("enabled", True):
                 ctx.add_class("off")
-            num = Gtk.Label(label=str(i + 1) if i < 9 else "")
-            num.get_style_context().add_class("num")
-            num.set_width_chars(2)
-            row.pack_start(num, False, False, 0)
+            if self.numbers:  # en el selector de carpetas no van (y no dejan el hueco)
+                num = Gtk.Label(label=str(i + 1) if i < 9 else "")
+                num.get_style_context().add_class("num")
+                num.set_width_chars(2)
+                row.pack_start(num, False, False, 0)
             row.pack_start(self._icon(str(it.get("icon") or ""), str(it.get("name") or "")), False, False, 0)
             texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             texts.set_valign(Gtk.Align.CENTER)
@@ -271,12 +283,26 @@ class Panel:
             self.list_box.pack_start(row, False, False, 0)
             self.rows.append(row)
         self.list_box.show_all()
+        self.top = 0
         self._paint_selection()
 
     def _paint_selection(self) -> None:
+        n = len(self.rows)
+        # Ventana de MAX_ROWS filas que sigue a la selección.
+        if self.selected < self.top:
+            self.top = self.selected
+        elif self.selected >= self.top + MAX_ROWS:
+            self.top = self.selected - MAX_ROWS + 1
+        self.top = max(0, min(self.top, max(0, n - MAX_ROWS)))
         for i, row in enumerate(self.rows):
             ctx = row.get_style_context()
             (ctx.add_class if i == self.selected else ctx.remove_class)("sel")
+            row.set_visible(self.top <= i < self.top + MAX_ROWS)
+        long_list = n > MAX_ROWS
+        self.more_up.set_visible(long_list)
+        self.more_down.set_visible(long_list)
+        self.more_up.set_opacity(1 if self.top > 0 else 0)          # sin cambiar el tamaño del panel
+        self.more_down.set_opacity(1 if self.top + MAX_ROWS < n else 0)
 
     def _present(self, page: str) -> None:
         self.stack.set_visible_child_name(page)
@@ -307,6 +333,7 @@ class Panel:
             self.items = list(msg.get("items") or [])
             self.selected = max(0, min(int(msg.get("selected") or 0), len(self.items) - 1))
             self.title.set_text(str(msg.get("title") or "Actividades"))
+            self.numbers = bool(msg.get("numbers", True))
             self._hint = str(msg.get("hint") or DEFAULT_HINT)
             self._set_hint(self._hint)
             self._msg_id += 1

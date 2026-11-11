@@ -160,8 +160,10 @@ class Overlay(HelperProcess):
                  if info.get("layer_shell") else "sin layer-shell: ventana común siempre encima")
 
     # ------------------------------------------------------------ órdenes
-    async def show(self, items: list[dict], selected: int, title: str = "Actividades", hint: str = "") -> bool:
-        return await self.send({"op": "show", "items": items, "selected": selected, "title": title, "hint": hint})
+    async def show(self, items: list[dict], selected: int, title: str = "Actividades", hint: str = "",
+                   numbers: bool = True) -> bool:
+        return await self.send({"op": "show", "items": items, "selected": selected, "title": title, "hint": hint,
+                                "numbers": numbers})
 
     async def select(self, index: int) -> bool:
         return await self.send({"op": "select", "index": index})
