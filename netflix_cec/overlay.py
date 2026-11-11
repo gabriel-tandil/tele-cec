@@ -165,6 +165,10 @@ class Overlay(HelperProcess):
         return await self.send({"op": "show", "items": items, "selected": selected, "title": title, "hint": hint,
                                 "numbers": numbers})
 
+    async def help(self, title: str, rows: list[tuple[str, str]], top: int, page: str, hint: str) -> bool:
+        return await self.send({"op": "help", "title": title, "rows": [list(r) for r in rows], "top": top,
+                                "page": page, "hint": hint})
+
     async def select(self, index: int) -> bool:
         return await self.send({"op": "select", "index": index})
 

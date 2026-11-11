@@ -55,6 +55,9 @@ DEMO_ITEMS = [
 ]
 DEFAULT_HINT = "▲ ▼ elegir · OK abrir · Atrás cerrar"
 MAX_ROWS = 7   # filas visibles a la vez: las listas largas (carpetas) se desplazan
+MAX_HELP_ROWS = 10
+# En la ayuda, los colores del control se muestran con un punto de su color.
+KEY_COLORS = {"Rojo": "#ef4444", "Verde": "#22c55e", "Amarillo": "#eab308", "Azul": "#3b82f6"}
 
 
 def _monitor_geometry() -> tuple[int, int]:
@@ -98,6 +101,9 @@ def _css(font: int) -> bytes:
     .row.sel .badge {{ background-color: rgba(0, 0, 0, 0.12); }}
     .hint {{ font-size: {px(0.6)}; opacity: 0.62; }}
     .more {{ font-size: {px(0.55)}; opacity: 0.55; }}
+    .help-keys {{ font-size: {px(0.88)}; font-weight: bold; }}
+    .help-desc {{ font-size: {px(0.88)}; }}
+    .help-page {{ font-size: {px(0.62)}; opacity: 0.6; }}
     .msg {{ font-size: {px(0.7)}; font-weight: bold; color: #ffd166; }}
     .row.sel .msg {{ color: #8a5a00; }}
     .busy {{ font-size: {px(1)}; font-weight: bold; }}
@@ -191,6 +197,33 @@ class Panel:
         menu.pack_start(self.hint, False, False, 0)
         self.stack.add_named(menu, "menu")
 
+        # Página "help": tabla tecla → qué hace
+        helpbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=round(self.font * 0.25))
+        width, _h = _monitor_geometry()
+        helpbox.set_size_request(min(round(width * 0.8), round(self.width * 1.6)), -1)
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.help_title = Gtk.Label(label="Ayuda", xalign=0)
+        self.help_title.get_style_context().add_class("title")
+        head.pack_start(self.help_title, True, True, 0)
+        self.help_page = Gtk.Label(label="", xalign=1)
+        self.help_page.get_style_context().add_class("help-page")
+        head.pack_end(self.help_page, False, False, 0)
+        head.set_margin_bottom(round(self.font * 0.3))
+        helpbox.pack_start(head, False, False, 0)
+        self.help_up = Gtk.Label(label="▲ más arriba")
+        self.help_up.get_style_context().add_class("more")
+        helpbox.pack_start(self.help_up, False, False, 0)
+        self.help_grid = Gtk.Grid(column_spacing=round(self.font * 1.0), row_spacing=round(self.font * 0.3))
+        helpbox.pack_start(self.help_grid, False, False, 0)
+        self.help_down = Gtk.Label(label="▼ más abajo")
+        self.help_down.get_style_context().add_class("more")
+        helpbox.pack_start(self.help_down, False, False, 0)
+        self.help_hint = Gtk.Label(label="", xalign=0.5)
+        self.help_hint.get_style_context().add_class("hint")
+        self.help_hint.set_margin_top(round(self.font * 0.4))
+        helpbox.pack_start(self.help_hint, False, False, 0)
+        self.stack.add_named(helpbox, "help")
+
         # Página "busy": spinner + texto
         busy = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=round(self.font * 0.6))
         busy.set_halign(Gtk.Align.CENTER)
@@ -275,8 +308,8 @@ class Panel:
             texts.pack_start(sub, False, False, 0)
             sub.set_no_show_all(not it.get("sub"))
             row.pack_start(texts, True, True, 0)
-            if it.get("current"):
-                badge = Gtk.Label(label="en uso")
+            if it.get("current") or it.get("badge"):
+                badge = Gtk.Label(label=str(it.get("badge") or "en uso"))
                 badge.get_style_context().add_class("badge")
                 badge.set_valign(Gtk.Align.CENTER)
                 row.pack_end(badge, False, False, 0)
@@ -320,6 +353,42 @@ class Panel:
         self.win.hide()
         self.mode = "hidden"
 
+    def _keys_markup(self, keys: str) -> str:
+        out = []
+        for part in keys.split("  "):
+            esc = GLib.markup_escape_text(part)
+            color = KEY_COLORS.get(part)
+            out.append(f'<span foreground="{color}">●</span> {esc}' if color else esc)
+        return "   ".join(out)
+
+    def _show_help(self, msg: dict) -> None:
+        rows = [tuple(r) for r in (msg.get("rows") or [])]
+        top = max(0, min(int(msg.get("top") or 0), max(0, len(rows) - MAX_HELP_ROWS)))
+        self.help_title.set_text(str(msg.get("title") or "Ayuda"))
+        self.help_page.set_text(str(msg.get("page") or ""))
+        self.help_hint.set_text(str(msg.get("hint") or ""))
+        for child in self.help_grid.get_children():
+            self.help_grid.remove(child)
+        for i, (keys, desc) in enumerate(rows[top:top + MAX_HELP_ROWS]):
+            k = Gtk.Label(xalign=0)
+            k.set_markup(self._keys_markup(str(keys)))
+            k.get_style_context().add_class("help-keys")
+            d = Gtk.Label(label=str(desc), xalign=0)
+            d.get_style_context().add_class("help-desc")
+            # Una sola línea: con ajuste de línea GTK pide una altura enorme y el panel se sale de la pantalla.
+            d.set_ellipsize(Pango.EllipsizeMode.END)
+            d.set_hexpand(True)
+            self.help_grid.attach(k, 0, i, 1, 1)
+            self.help_grid.attach(d, 1, i, 1, 1)
+        long_list = len(rows) > MAX_HELP_ROWS
+        self.help_up.set_visible(long_list)
+        self.help_down.set_visible(long_list)
+        self.help_up.set_opacity(1 if top > 0 else 0)
+        self.help_down.set_opacity(1 if top + MAX_HELP_ROWS < len(rows) else 0)
+        self.help_grid.show_all()
+        self._toast_id += 1
+        self._present("help")
+
     def _set_hint(self, text: str, is_msg: bool = False) -> None:
         self.hint.set_text(text)
         ctx = self.hint.get_style_context()
@@ -343,6 +412,8 @@ class Panel:
         elif op == "select":
             self.selected = max(0, min(int(msg.get("index") or 0), len(self.items) - 1))
             self._paint_selection()
+        elif op == "help":
+            self._show_help(msg)
         elif op == "busy":
             self._toast_id += 1
             self.busy_label.set_text(str(msg.get("text") or "Un momento…"))
