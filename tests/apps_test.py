@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Prueba de la lógica de apps (colores = apps, Tidal con High Tide) con navegador y High Tide simulados.
+"""Prueba del menú de actividades (Netflix, Tidal, Videos, Fotos) con navegador, High Tide, VLC, feh y
+panel simulados.
 
-No abre nada: verifica qué hace cada tecla según qué app está abierta.
+No abre nada: verifica qué hace cada tecla según qué actividad está abierta y si el menú está abierto.
 
     python3 tests/apps_test.py
 """
@@ -17,9 +18,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from netflix_cec import config as config_mod  # noqa: E402
-from netflix_cec.controller import Controller  # noqa: E402
-from netflix_cec.keys import parse_key  # noqa: E402
+from tele_cec import activities as activities_mod  # noqa: E402
+from tele_cec import config as config_mod  # noqa: E402
+from tele_cec import controller as controller_mod  # noqa: E402
+from tele_cec.controller import Controller  # noqa: E402
+from tele_cec.keys import parse_key  # noqa: E402
 
 results: list[tuple[bool, str]] = []
 
@@ -54,6 +57,8 @@ class FakePage:
         self.url = url
         if "ProfilesGate" in url:
             self.ctx = "profiles"
+        elif "/watch/" in url:
+            self.ctx = "player"
 
     async def close(self) -> None:
         self.closed.set()
@@ -100,6 +105,7 @@ class FakeMusic:
     def __init__(self, log: list[str]):
         self.log = log
         self.on = False
+        self.can_resume = True
 
     def installed(self) -> bool:
         return True
@@ -107,13 +113,21 @@ class FakeMusic:
     def running(self) -> bool:
         return self.on
 
+    def pids(self, fresh: bool = False) -> list[int]:
+        return [self.launches] if self.on else []
+
     async def launch(self) -> bool:
         self.log.append("music:launch")
         self.on = True
+        self.launches = getattr(self, "launches", 0) + 1
         return True
 
-    async def resume(self) -> None:
+    async def resume(self) -> bool:
         self.log.append("music:resume")
+        return self.can_resume
+
+    def saved_index(self) -> int:
+        return 11
 
     async def quit(self, timeout: float = 15.0) -> None:
         self.log.append("music:quit")
@@ -142,26 +156,181 @@ class FakeMusic:
         self.log.append(f"boton:{names[0]}")
         return True
 
-    async def my_tracks(self) -> bool:
-        self.log.append("music:my_tracks")
+    async def move(self, direction: str) -> bool:
+        self.log.append(f"move:{direction}")
         return True
+
+    async def toggle_lyrics(self) -> bool:
+        self.log.append("letras")
+        return True
+
+    async def stop_nav(self) -> None:
+        self.log.append("nav:stop")
+
+    async def my_tracks(self, start: int = 0) -> bool:
+        self.log.append("music:my_tracks" + (f"@{start}" if start else ""))
+        return True
+
+
+class FakeOverlay:
+    """Panel del menú simulado: anota lo que se le pide."""
+
+    error = ""
+
+    def __init__(self, log: list[str]):
+        self.log = log
+        self.visible = False
+        self.items: list[dict] = []
+        self.sel = -1
+
+    async def show(self, items, selected, title="Actividades", hint="", numbers=True) -> bool:
+        self.items, self.sel, self.visible = items, selected, True
+        self.log.append(f"ov:show:{selected}")
+        return True
+
+    async def help(self, title, rows, top, page, hint) -> bool:
+        self.help_rows = rows
+        self.log.append(f"ov:help:{title}")
+        return True
+
+    async def select(self, index: int) -> bool:
+        self.sel = index
+        self.log.append(f"ov:select:{index}")
+        return True
+
+    async def busy(self, text: str) -> bool:
+        self.log.append(f"ov:busy:{text}")
+        return True
+
+    async def toast(self, text: str, ms: int = 2000) -> bool:
+        self.log.append(f"ov:toast:{text}")
+        return True
+
+    async def hide(self) -> bool:
+        self.visible = False
+        self.log.append("ov:hide")
+        return True
+
+    async def close(self) -> None:
+        pass
+
+
+class FakeMpris:
+    def __init__(self, log: list[str], name: str):
+        self.log, self.name = log, name
+
+    async def ctl(self, *args: str) -> bool:
+        self.log.append(f"{self.name}:" + " ".join(args))
+        return True
+
+    async def volume(self, sign: str) -> bool:
+        self.log.append(f"{self.name}:volume{sign}")
+        return True
+
+    async def seek(self, seconds: int) -> bool:
+        self.log.append(f"{self.name}:seek{seconds:+d}")
+        return True
+
+    async def quit(self) -> bool:
+        return True
+
+
+class FakeProcMixin:
+    """Actividad de proceso simulada (VLC o feh)."""
+
+    def setup(self, log: list[str]) -> None:
+        self.log = log
+        self.on = False
+        self.content = True
+
+    def installed(self) -> bool:
+        return True
+
+    def running(self) -> bool:
+        return self.on
+
+    def source(self):
+        return ("Pendrive TEST", True) if self.content else (self.empty_text, False)
+
+    async def open(self, folder=None) -> bool:
+        self.log.append(f"{self.id}:open" + (f":{Path(folder).name}" if folder else ""))
+        self.on = True
+        if hasattr(self, "reset_view"):  # como el real: abrir Fotos empieza sin zoom
+            self.reset_view()
+        if folder:
+            self.current_folder = Path(folder)
+        return True
+
+    async def close(self) -> None:
+        self.log.append(f"{self.id}:close")
+        self.on = False
+
+
+class FakeVideos(FakeProcMixin, activities_mod.VideosActivity):
+    def __init__(self, log: list[str]):
+        activities_mod.VideosActivity.__init__(self, {})
+        self.setup(log)
+        self.mpris = FakeMpris(log, "vlc")
+
+    async def pause(self) -> None:
+        await self.mpris.ctl("pause")
+
+    async def cycle(self, kind: str) -> str:
+        self.log.append(f"vlc:{kind}")
+        return {"strack": "Español", "atrack": "Inglés", "vratio": "4:3"}[kind]
+
+
+class FakePhotos(FakeProcMixin, activities_mod.PhotosActivity):
+    def __init__(self, log: list[str]):
+        activities_mod.PhotosActivity.__init__(self, {})
+        self.setup(log)
+
+    async def next(self) -> bool:
+        self.log.append("feh:next")
+        return True
+
+    async def previous(self) -> bool:
+        self.log.append("feh:previous")
+        return True
+
+    async def key(self, name: str) -> bool:
+        self.log.append(f"feh:{name}")
+        return True
+
+    async def photo_info(self):
+        base = self.current_folder or Path("/mnt/fotosRemotas")
+        return {"path": str(base / "2017" / "07" / "IMG_0001.jpg"), "index": 12, "total": 49403}
+
+
+def help_rows(ctl, ctx):
+    from tele_cec import help as help_mod
+    return help_mod.rows(ctl.cfg, ctx)
 
 
 async def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="nfx-apps-"))
     cfg_file = tmp / "config.toml"
-    cfg_file.write_text('[browser]\nengine = "firefox"\nlaunch = "on_key"\n[feedback]\nbusy = false\n')
+    cfg_file.write_text('[browser]\nengine = "firefox"\nlaunch = "on_key"\n[feedback]\nbusy = false\n'
+                        '[menu]\nitems = ["netflix", "tidal", "videos", "fotos"]\n')  # YouTube se prueba aparte
     cfg = config_mod.load(cfg_file)
     log: list[str] = []
     browser = FakeBrowser(log)
     ctl = Controller(cfg, browser)  # type: ignore[arg-type]
     browser.ctl = ctl
     ctl.music = FakeMusic(log)  # type: ignore[assignment]
+    ctl.overlay = FakeOverlay(log)  # type: ignore[assignment]
+    videos, fotos = FakeVideos(log), FakePhotos(log)
+    ctl.activities["videos"], ctl.activities["fotos"] = videos, fotos
     cw: list[str] = []
 
     async def fake_cw(arg: str) -> None:
         cw.append("continue_watching")
     ctl.a_continue_watching = fake_cw  # type: ignore[method-assign]
+
+    async def fake_wtype(name: str) -> bool:
+        log.append(f"wtype:{name}")
+        return True
+    controller_mod.wtype_key = fake_wtype  # type: ignore[assignment]
 
     async def press(*names: str) -> list[str]:
         start = len(log)
@@ -173,52 +342,498 @@ async def main() -> int:
                 ctl._macro_task = None
         return log[start:]
 
+    def opened(out: list[str]) -> list[str]:
+        return [x for x in out if x.split(":")[0] in ("browser", "music", "videos", "fotos")
+                and x.split(":")[1] in ("launch", "open", "close", "quit")]
+
+    names = lambda: [it["name"] for it in ctl.overlay.items]  # noqa: E731
+
     print("Nada abierto")
-    check(await ctl.context() == "offline", "sin navegador ni Tidal: contexto 'offline'")
+    check(await ctl.context() == "offline", "sin nada abierto: contexto 'offline'")
+    out = await press("F2_RED", "F4_YELLOW")
+    check(not opened(out), f"rojo y amarillo ya no abren apps: {out}")
     out = await press("SELECT")
-    check(not any(x.startswith(("browser:", "music:")) for x in out), f"OK no abre nada: {out}")
-    out = await press("F4_YELLOW")
-    check(out[:2] == ["music:launch", "music:resume"], f"amarillo abre Tidal y sigue lo último: {out}")
-    check(await ctl.context() == "tidal", "contexto 'tidal'")
+    check(out == ["ov:show:0"] and names() == ["Netflix", "Tidal", "Videos", "Fotos", "Ayuda"],
+          f"OK abre el menú con las 4 actividades y la ayuda: {out} {names()}")
+    check(await ctl.context() == "menu", "contexto 'menu'")
+    check(not any(it["current"] for it in ctl.overlay.items), "ninguna marcada «en uso»")
+    out = await press("DOWN", "ROOT_MENU", "UP", "DOWN")
+    check(out == ["ov:select:1", "ov:select:2", "ov:select:1", "ov:select:2"], f"▼, Menú y ▲ mueven: {out}")
+    out = await press("DOWN", "DOWN", "DOWN")
+    check(out[-1] == "ov:select:0", f"después de la última vuelve a la primera: {out}")
+    out = await press("EXIT")
+    check(out == ["ov:hide"] and await ctl.context() == "offline", f"Atrás cierra el menú sin abrir nada: {out}")
+
+    print("Menú → Tidal (número)")
+    out = await press("ROOT_MENU", "NUMBER2")
+    check(out[:2] == ["ov:show:0", "ov:select:1"] and "ov:busy:Abriendo Tidal…" in out,
+          f"Menú y 2 eligen Tidal y muestran «Abriendo…»: {out[:3]}")
+    check(opened(out) == ["music:launch"] and "music:resume" in out, f"abre Tidal y sigue lo último: {opened(out)}")
+    check(out[-1] == "ov:hide" and await ctl.context() == "tidal", "al terminar se oculta el panel: contexto 'tidal'")
 
     print("Tidal abierto")
     out = await press("F4_YELLOW")
-    check(out == ["music:my_tracks"], f"amarillo otra vez = Mis canciones: {out}")
+    check(out == ["music:my_tracks"], f"amarillo = Mis canciones: {out}")
+    out = await press("F4_YELLOW")
+    check(out == ["boton:Inicio"], f"amarillo otra vez (sigue en Mis canciones) = Inicio: {out}")
+    out = await press("F4_YELLOW")
+    check(out == ["music:my_tracks"], f"y otra vez, de nuevo Mis canciones: {out}")
+    await press("NUMBER0", "DOWN", "NUMBER0")  # se movió por la interfaz
+    out = await press("F4_YELLOW")
+    check(out == ["music:my_tracks"], f"si se movió con las flechas, el amarillo vuelve a Mis canciones: {out}")
     out = await press("SELECT", "FORWARD", "BACKWARD", "UP", "DOWN", "F1_BLUE")
     check(out == ["mpris:play-pause", "mpris:next", "mpris:previous", "mpris:volume+", "mpris:volume-",
                   "boton:Agregar/Eliminar de favoritos"], f"OK, ⏭, ⏮, ▲, ▼, azul: {out}")
     out = await press("EXIT", "F3_GREEN")
     check(out == [], f"Atrás y verde no hacen nada en Tidal: {out}")
-    out = await press("NUMBER0")
-    check(await ctl.context() == "tidal_nav", "0 activa el modo navegación de Tidal")
-    out = await press("DOWN", "SELECT", "EXIT")
-    check(out == ["wtype:Down", "wtype:Return", "boton:Atrás"], f"en modo navegación: flechas, OK y Atrás van a la app: {out}")
-    await press("NUMBER0")
-    check(await ctl.context() == "tidal", "0 otra vez vuelve a los controles")
-    check(ctl._holding_for_tidal(), "con Tidal abierto el navegador no se reabre solo (launch = always)")
-
-    print("Tidal → Netflix")
     out = await press("F2_RED")
-    check(out[:2] == ["music:quit", "browser:launch"], f"rojo cierra Tidal y abre Netflix: {out[:2]}")
+    check(out == ["letras"], f"rojo = letras: {out}")
+    await press("NUMBER0")
+    check(await ctl.context() == "tidal_nav", "0 activa el modo navegación de Tidal")
+    out = await press("DOWN", "LEFT", "SELECT", "EXIT")
+    check(out == ["move:Down", "move:Left", "wtype:Return", "boton:Atrás"],
+          f"en modo navegación: flechas (con Tab de respaldo), OK y Atrás van a la app: {out}")
+    out = await press("NUMBER3", "NUMBER1")
+    check(out == ["boton:Colección", "boton:Inicio"], f"3 = Colección, 1 = Inicio: {out}")
+    out = await press("ROOT_MENU")
+    check(await ctl.context() == "menu", "Menú también se abre en el modo navegación")
+    await press("EXIT")
+    out = await press("NUMBER0")
+    check(await ctl.context() == "tidal" and out == ["nav:stop"],
+          f"0 otra vez vuelve a los controles (y deja de seguir el foco): {out}")
+    check(ctl._holding_for_activity(), "con Tidal abierto el navegador no se reabre solo (launch = always)")
+
+    print("Menú sobre Tidal")
+    out = await press("ROOT_MENU")
+    check(out == ["ov:show:1"] and ctl.overlay.items[1]["current"], f"abre con Tidal seleccionada y «en uso»: {out}")
+    out = await press("PLAY", "F4_YELLOW", "NUMBER0", "FORWARD")
+    check(out == [], f"con el menú abierto ninguna tecla llega a Tidal: {out}")
+    out = await press("SELECT")
+    check(out == ["ov:hide"], f"OK sobre la actual solo cierra el menú: {out}")
+
+    print("Tidal → Videos")
+    out = await press("ROOT_MENU", "DOWN", "SELECT")
+    check(opened(out) == ["music:quit", "videos:open"], f"cierra Tidal y abre VLC: {opened(out)}")
+    check(await ctl.context() == "videos", "contexto 'videos'")
+    out = await press("SELECT", "RIGHT", "LEFT", "UP", "FORWARD", "CHANNEL_DOWN", "F1_BLUE", "F2_RED", "F4_YELLOW", "EXIT")
+    check(out == ["vlc:play-pause", "vlc:seek+10", "vlc:seek-10", "vlc:volume+", "vlc:next", "vlc:previous",
+                  "vlc:strack", "ov:toast:Subtítulos: Español", "vlc:atrack", "ov:toast:Audio: Inglés",
+                  "vlc:vratio", "ov:toast:Proporción: 4:3"],
+          f"OK, ▶, ◀, ▲, ⏭, Canal−, azul (subtítulos), rojo (audio), amarillo (proporción), Atrás nada: {out}")
+
+    print("Fotos sin contenido")
+    fotos.content = False
+    out = await press("ROOT_MENU")
+    check(ctl.overlay.items[3]["enabled"] is False and "Sin fotos" in ctl.overlay.items[3]["sub"],
+          f"Fotos aparece en gris: {ctl.overlay.items[3]}")
+    out = await press("NUMBER4")
+    check(not opened(out) and any(x.startswith("ov:toast:Sin fotos") for x in out),
+          f"elegirla avisa y no abre nada: {out}")
+    check(await ctl.context() == "menu", "el menú sigue abierto")
+    await press("EXIT")
+
+    print("Videos → Fotos")
+    fotos.content = True
+    out = await press("ROOT_MENU", "NUMBER4")
+    check(opened(out) == ["videos:close", "fotos:open"], f"cierra VLC y abre feh: {opened(out)}")
+    check(await ctl.context() == "fotos", "contexto 'fotos'")
+    out = await press("RIGHT", "LEFT", "SELECT", "EXIT")
+    check(out == ["feh:next", "feh:previous", "feh:h"], f"▶, ◀, OK (Atrás nada): {out}")
+    check(fotos.paused, "queda en pausa")
+    await press("SELECT")
+    fotos.current_folder = Path("/mnt/fotosRemotas")
+    out = await press("F2_RED", "F4_YELLOW", "F1_BLUE")
+    where = activities_mod.describe_folder(Path("/mnt/fotosRemotas"))  # «En red: …» o «Pendrive …» según la máquina
+    check(out == ["feh:greater", "feh:z", f"ov:toast:{where} › 2017 › 07\nIMG_0001.jpg\nFoto 12 de 49.403"],
+          f"rojo gira, amarillo al azar, azul = qué foto es (carpeta, archivo, número): {out}")
+
+    print("Fotos: zoom")
+    fotos.RENDER_DELAY = 0.05
+    out = await press("DOWN")
+    check(out == [] and await ctl.context() == "fotos", f"▼ sin zoom no hace nada: {out}")
+    out = await press("UP")
+    check(out[:2] == ["feh:h", "feh:Up"] and any(x.startswith("ov:toast:Zoom") for x in out),
+          f"▲ pausa la presentación, acerca y avisa: {out}")
+    check(await ctl.context() == "fotos_zoom" and fotos.zoom == 1, "contexto 'fotos_zoom'")
+    out = await press("SELECT", "CHANNEL_UP", "LEFT", "UP", "RIGHT", "DOWN")
+    check(out == ["feh:Up", "feh:Up", "feh:KP_Left", "feh:KP_Up", "feh:KP_Right", "feh:KP_Down"],
+          f"OK y Canal+ acercan, flechas mueven la foto: {out}")
+    await asyncio.sleep(0.15)
+    check(log[-1] == "feh:R", f"al dejar de moverla se redibuja suavizada: {log[-1]}")
+    out = await press("EXIT", "EXIT")
+    check(out == ["feh:Down", "feh:Down"] and fotos.zoom == 1, f"Atrás aleja: {out}")
+    out = await press("EXIT")
+    check(out == ["feh:KP_Divide", "feh:h"], f"desde el primer paso: foto entera y sigue la presentación: {out}")
+    check(await ctl.context() == "fotos" and not fotos.paused, "vuelve a 'fotos' y la presentación anda")
+    await press("SELECT")  # pausa a mano
+    out = await press("UP", "PLAY")
+    check([x for x in out if x.startswith("feh:")] == ["feh:Up", "feh:KP_Divide"],
+          f"si ya estaba en pausa no la toca; ⏯ = foto entera: {out}")
+    check(fotos.paused and await ctl.context() == "fotos", "y sigue en pausa")
+    await press("SELECT")
+    out = await press("UP", "FORWARD")
+    check([x for x in out if x.startswith("feh:")] == ["feh:h", "feh:Up", "feh:next", "feh:h"],
+          f"⏭ con zoom: otra foto, sin zoom, sigue la presentación: {out}")
+    check(await ctl.context() == "fotos" and not fotos.paused, "vuelve a 'fotos'")
+    await press("UP")
+
+    print("Fotos → Netflix")
+    out = await press("ROOT_MENU", "NUMBER1")
+    check(opened(out) == ["fotos:close", "browser:launch"], f"cierra feh y abre Netflix: {opened(out)}")
     check(await ctl.context() == "browse" and ctl.current_app() == "netflix", "queda Netflix (contexto 'browse')")
-    check(not ctl._holding_for_tidal(), "y el navegador vuelve a poder abrirse solo")
+    check(not ctl._holding_for_activity(), "y el navegador vuelve a poder abrirse solo")
 
     print("Netflix abierto")
     await press("F2_RED")
-    check(cw == ["continue_watching"], f"rojo con Netflix abierto = Seguir viendo: {cw}")
-    out = await press("NUMBER0")
-    check(any(x.startswith("navigate:") and "ProfilesGate" in x for x in out), f"0 en el inicio abre ¿Quién está viendo?: {[x for x in out if x.startswith('navigate:')]}")
-
-    print("Netflix → Tidal")
+    check(cw == ["continue_watching"], f"rojo en el inicio = Seguir viendo: {cw}")
     out = await press("F4_YELLOW")
+    check(not opened(out) and "navigate:https://www.netflix.com/browse/my-list" in out,
+          f"amarillo en el inicio = Mi lista (ya no abre Tidal): {[x for x in out if not x.startswith('js:')]}")
+    out = await press("NUMBER0")
+    check(any(x.startswith("navigate:") and "ProfilesGate" in x for x in out), "0 en el inicio abre ¿Quién está viendo?")
+    out = await press("ROOT_MENU")
+    check(out[-1] == "ov:show:0" and ctl.overlay.items[0]["current"], f"Menú sobre Netflix abre el panel: {out}")
+    out = await press("DOWN", "UP", "DOWN")
+    check(out == ["ov:select:1", "ov:select:0", "ov:select:1"],
+          f"con el menú abierto las teclas no tocan la página de Netflix: {out}")
+    out = await press("SELECT")
     check("browser:close" in out and out.index("browser:close") < out.index("music:launch"),
-          f"amarillo cierra el navegador y después abre Tidal: {[x for x in out if not x.startswith('js:')]}")
-    check(await ctl.context() == "tidal", "queda Tidal")
+          f"Netflix → Tidal: cierra el navegador y después abre Tidal: {opened(out)}")
 
-    print("Standby de la TV con Tidal sonando")
+    print("Retomar cuando High Tide no puede (lo último fue «Mis canciones»)")
+    await press("ROOT_MENU", "NUMBER1")
+    ctl.music.can_resume = False
+    out = await press("ROOT_MENU", "NUMBER2")
+    check([x for x in out if x.startswith("music:")][-3:] == ["music:launch", "music:resume", "music:my_tracks@11"],
+          f"abre Tidal y retoma «Mis canciones» en el tema guardado: {[x for x in out if x.startswith('music:')]}")
+    ctl.music.can_resume = True
+
+    print("Autocierre y teclas durante el cambio")
+    ctl._menu_timeout = 0.2
+    await press("ROOT_MENU")
+    await asyncio.sleep(0.4)
+    check(not ctl._menu_open and log[-1] == "ov:hide", "sin teclas, el menú se cierra solo")
+    ctl._menu_timeout = 10
+    ctl._switching = True
+    out = await press("ROOT_MENU", "DOWN", "SELECT")
+    check(out == [], f"mientras se cambia de actividad, las teclas se ignoran: {out}")
+    ctl._switching = False
+
+    print("Elegir otra carpeta (▶ sobre Videos)")
+    usb = tmp / "pick" / "media" / "gaby" / "USB"
+    for d in ("Series/T1", "Series/T2", "Pelis", ".oculta"):
+        (usb / d).mkdir(parents=True)
+    (usb / "Pelis" / "a.mp4").write_bytes(b"")
+    (usb / "Series" / "T1" / "e1.mkv").write_bytes(b"")
+    (tmp / "pick" / "Vídeos").mkdir()
+    videos.folders = [str(tmp / "pick" / "media" / "*" / "*"), str(tmp / "pick" / "Vídeos")]
+    await ctl.menu_close()
+    out = await press("ROOT_MENU")
+    vid = next(i for i, it in enumerate(ctl.overlay.items) if it["id"] == "videos")
+    for _ in range(6):
+        if ctl._menu_mode == "activities" and ctl._menu_sel == vid:
+            break
+        await press("DOWN")
+    out = await press("RIGHT")
+    names = [it["name"] for it in ctl.overlay.items]
+    check(ctl._menu_mode == "folders" and len(names) == 2 and ctl.overlay.items[0]["sub"] == "predeterminada",
+          f"▶ sobre Videos: las carpetas configuradas, con la predeterminada marcada: {names}")
+    out = await press("RIGHT")
+    names = [it["name"] for it in ctl.overlay.items]
+    check(names == ["▶ Reproducir esta carpeta", "Pelis", "Series"], f"▶ entra: primero reproducir, después subcarpetas (sin ocultas): {names}")
+    await press("DOWN", "DOWN")
+    out = await press("SELECT")
+    check([it["name"] for it in ctl.overlay.items] == ["▶ Reproducir esta carpeta", "T1", "T2"], "OK sobre una subcarpeta también entra")
+    out = await press("LEFT")
+    check(ctl._menu_sel == 2 and [it["name"] for it in ctl.overlay.items][2] == "Series",
+          f"◀ sube y vuelve a la misma fila: {ctl._menu_sel}")
+    await press("RIGHT", "DOWN", "RIGHT")  # Series → T1
+    check(ctl.overlay.items[0]["kind"] == "play" and ctl._menu_sel == 0, "en T1, la primera opción es reproducir")
+    out = await press("SELECT")
+    check(opened(out)[-1:] == ["videos:open:T1"] and not ctl._menu_open,
+          f"Reproducir abre VLC en esa carpeta y cierra el menú: {opened(out)}")
+    await press("ROOT_MENU")
+    for _ in range(6):
+        if ctl._menu_mode == "activities" and ctl._menu_sel == vid:
+            break
+        await press("DOWN")
+    await press("RIGHT", "RIGHT", "SELECT")
+    out = log[-6:]
+    check("videos:close" in out and out.index("videos:close") < out.index("videos:open:USB"),
+          f"con Videos ya abierto, otra carpeta lo reabre: {opened(out)}")
+    await press("ROOT_MENU")
+    for _ in range(6):
+        if ctl._menu_mode == "activities" and ctl._menu_sel == vid:
+            break
+        await press("DOWN")
+    await press("RIGHT", "DOWN", "RIGHT")  # ~/Vídeos (vacía)
+    check(ctl.overlay.items[0]["enabled"] is False and "No hay videos" in ctl.overlay.items[0]["sub"],
+          f"en una carpeta sin videos, «Reproducir» aparece en gris: {ctl.overlay.items[0]}")
+    out = await press("SELECT")
+    check(not opened(out) and any(x.startswith("ov:toast:No hay videos") for x in out) and ctl._menu_open,
+          f"elegirla avisa y no abre nada: {out}")
+    await press("LEFT")
+    out = await press("EXIT")
+    check(ctl._menu_mode == "activities" and out[-1] == f"ov:show:{vid}",
+          f"Atrás en las carpetas configuradas vuelve al menú, en Videos: {out}")
+    out = await press("EXIT")
+    check(out == ["ov:hide"] and not ctl._menu_open, "Atrás otra vez cierra el menú")
+
+    print("app:<actividad> (para ponerla en un color)")
+    await ctl.run_action("app:tidal")
+    start = len(log)
+    await ctl.run_action("app:videos")
+    check(opened(log[start:]) == ["music:quit", "videos:open"], f"app:videos cambia directo: {opened(log[start:])}")
+
+    print("Standby de la TV")
     log.clear()
     await ctl._pause_if_playing()
-    check(log == ["mpris:pause"], f"pausa la música: {log}")
+    check(log == ["vlc:pause"], f"con Videos: pausa VLC: {log}")
+    await ctl.run_action("app:tidal")
+    log.clear()
+    await ctl._pause_if_playing()
+    check(log == ["mpris:pause"], f"con Tidal sonando: pausa la música: {log}")
+
+    print("Música de fondo mientras pasan las fotos")
+    fotos.content = True
+    out = await press("ROOT_MENU", "NUMBER4")
+    check("music:quit" not in out and opened(out) == ["fotos:open"],
+          f"abrir Fotos con Tidal sonando no cierra la música: {opened(out)}")
+    check(await ctl.context() == "fotos" and ctl.current_app() == "fotos",
+          "las teclas van a Fotos (la que está en pantalla)")
+    out = await press("PAUSE_PLAY_FUNCTION", "FORWARD", "BACKWARD")
+    check([x for x in out if x.startswith("mpris:")] == ["mpris:play-pause", "mpris:next", "mpris:previous"]
+          and any(x.startswith("ov:toast:♪") for x in out),
+          f"⏯ ⏭ ⏮ manejan la música (y avisan qué suena): {out}")
+    out = await press("SELECT", "RIGHT")
+    check(out == ["feh:h", "feh:next"], f"OK pausa las fotos y ▶ pasa de foto: {out}")
+    await press("SELECT")
+    await press("ROOT_MENU")
+    tid = next(it for it in ctl.overlay.items if it["id"] == "tidal")
+    check(tid.get("badge") == "sonando", f"en el menú Tidal figura «sonando»: {tid}")
+    await press("EXIT")
+    log.clear()
+    await ctl._pause_if_playing()
+    check(log == ["mpris:pause"], f"standby con fotos y música: pausa la música: {log}")
+    out = await press("ROOT_MENU", "NUMBER1")
+    check("fotos:close" in out and "music:quit" in out and "browser:launch" in out,
+          f"ir a Netflix cierra las fotos y la música: {opened(out)}")
+    fotos.on = False
+    out = await press("ROOT_MENU", "NUMBER4")
+    out = await press("PAUSE_PLAY_FUNCTION", "FORWARD")
+    check(out == ["feh:h", "feh:next"], f"sin música, ⏯ pausa las fotos y ⏭ pasa de foto: {out}")
+
+    print("Ayuda")
+    out = await press("ROOT_MENU")
+    for _ in range(6):
+        if ctl.overlay.items[ctl._menu_sel]["id"] == "_help":
+            break
+        await press("UP")
+    out = await press("SELECT")
+    check(out == ["ov:help:Ayuda · Fotos"] and await ctl.context() == "menu",
+          f"«Ayuda» en el menú empieza por la app que se estaba usando: {out}")
+    check(any(k.startswith("Rojo") and "Girar" in d for k, d in ctl.overlay.help_rows),
+          f"y lista las teclas de esa app: {ctl.overlay.help_rows[:4]}")
+    out = await press("RIGHT")
+    check(out and out[-1].startswith("ov:help:Ayuda · Fotos · con zoom"), f"▶ pasa a la página siguiente: {out}")
+    out = await press("PLAY")
+    check(out == [], f"en la ayuda las demás teclas no hacen nada: {out}")
+    out = await press("EXIT")
+    check(out and out[-1].startswith("ov:show:") and ctl._menu_mode == "activities",
+          f"Atrás vuelve al menú: {out}")
+    await press("EXIT")
+    await ctl.run_action("app:tidal")
+    ctl._ctx = await ctl.context()
+    out = await press("HELP")
+    check(out == ["ov:help:Ayuda · Tidal"], f"la tecla Ayuda abre la ayuda de la app actual: {out}")
+    out = await press("EXIT")
+    check(out == ["ov:hide"] and not ctl._menu_open, f"Atrás la cierra: {out}")
+
+    print("YouTube")
+    class FakeYouTube(FakeProcMixin, activities_mod.YouTubeActivity):
+        def __init__(self, log):
+            activities_mod.YouTubeActivity.__init__(self, {})
+            self.setup(log)
+            self.mpris = FakeMpris(log, "firefox")
+    yt = FakeYouTube(log)
+    ctl.activities["youtube"] = yt
+    out = await ctl.run_action("app:youtube") or log[-3:]
+    check(ctl.current_app() == "youtube" and await ctl.context() == "youtube", "app:youtube abre YouTube (contexto 'youtube')")
+    out = await press("DOWN", "RIGHT", "SELECT", "EXIT", "PAUSE_PLAY_FUNCTION", "FAST_FORWARD", "F1_BLUE")
+    check(out == ["wtype:Down", "wtype:Right", "wtype:Return", "wtype:Escape", "firefox:play-pause", "firefox:seek+10"],
+          f"flechas, OK y Atrás van tal cual a YouTube; ⏯ y ⏩ por MPRIS; azul nada: {out}")
+    rows = dict((d, k) for k, d in help_rows(ctl, "youtube"))
+    check("Elegir / OK" in rows and "Volver" in rows, f"la ayuda tiene página de YouTube: {list(rows)[:5]}")
+    await ctl.run_action("app:tidal")
+    check(not yt.on, "abrir otra app cierra YouTube")
+    del ctl.activities["youtube"]
+
+    print("Apagado automático")
+    from tele_cec import power as power_mod
+    from tele_cec.cec import CecFrame
+    pw = power_mod.IdleShutdown(ctl, {"enabled": True, "mode": "apagar", "idle_minutes": 180, "tv_off_minutes": 15,
+                                      "warn_seconds": 2, "command": ["true"]})
+    ctl.power = pw
+    power_mod.audio_playing = lambda: False  # type: ignore[assignment]  # que no dependa del sonido de esta máquina
+    now = pw.last_activity
+    check(pw.reason(now + 179 * 60) is None and pw.reason(now + 181 * 60), "a las 3 h sin sonido ni teclas: apagar")
+    pw.on_frame(CecFrame(initiator=0, destination=15, opcode=0x36))
+    check(pw.tv_off_since is not None and pw.reason(pw.tv_off_since + 16 * 60), "TV en standby: a los 15 min")
+    pw.on_frame(CecFrame(initiator=0, destination=15, opcode=0x86))
+    check(pw.tv_off_since is None and pw.reason(now + 16 * 60) is None, "la TV vuelve a avisar que está en uso")
+    await press("EXIT")
+    check(pw.last_activity > now, "una tecla reinicia la cuenta")
+    sent: list[str] = []
+
+    class FakeSource:
+        async def send(self, cmd: str) -> bool:
+            sent.append(cmd)
+            return True
+
+        async def activate_source(self) -> None:
+            sent.append("as")
+    ctl.source = FakeSource()
+    task = asyncio.create_task(pw._count_and_rest("prueba"))
+    pw._countdown = task
+    await asyncio.sleep(0.3)
+    start = len(log)
+    await press("EXIT")
+    await asyncio.sleep(0.1)
+    check(task.cancelled() or task.done(), "una tecla durante la cuenta regresiva cancela el apagado")
+    check("ov:toast:Cancelado" in log[start:], f"y avisa: {log[start:]}")
+    check(sent == [], f"sin apagar la TV: {sent}")
+    pw.tv_standby = True
+    real_sleep = asyncio.sleep
+
+    async def fast_sleep(t, *a):
+        await real_sleep(0)
+    power_mod.asyncio.sleep = fast_sleep  # type: ignore[assignment]
+    try:
+        start = len(log)
+        await pw._count_and_rest("prueba")
+    finally:
+        power_mod.asyncio.sleep = real_sleep  # type: ignore[assignment]
+    check(sent == ["standby 0"], f"al apagar: primero la TV por CEC: {sent}")
+    check(any("se apaga en 2 s" in x for x in log[start:]) and "ov:toast:Apagando…" in log[start:],
+          f"con cuenta regresiva en pantalla: {[x for x in log[start:] if x.startswith('ov:')]}")
+
+    print("Reposo")
+    rp = power_mod.IdleShutdown(ctl, {"enabled": True, "warn_seconds": 2})
+    ctl.power = rp
+    check(rp.mode == "reposo" and rp.verb == "entra en reposo", "el modo por defecto es reposo")
+    await ctl.run_action("app:tidal")
+    await ctl.switch_to("fotos", tmp / "pick" / "media" / "gaby" / "USB")
+    check(ctl.current_app() == "fotos" and ctl.music.running(), "fotos en pantalla con música de fondo")
+    sent.clear()
+    start = len(log)
+    await rp.sleep("prueba")
+    out = log[start:]
+    check(rp.asleep and rp.saved.get("app") == "fotos" and rp.saved.get("music") and rp.saved.get("folder", "").endswith("USB"),
+          f"guarda qué estaba abierto: {rp.saved}")
+    check("mpris:pause" in out and "fotos:close" in out and "music:quit" in out and sent == ["standby 0"],
+          f"pausa, cierra todo y apaga la TV: {[x for x in out if not x.startswith('ov:')]} {sent}")
+    start = len(log)
+    out = await press("RIGHT")
+    check(not any(x.startswith("feh:") for x in out), f"la tecla que despierta no hace nada más: {out}")
+    await rp._wake_task
+    out = log[start:]
+    check("music:launch" in out and "music:resume" not in out and "fotos:open:USB" in out,
+          f"al volver: la música (sin ponerla) y las fotos en la misma carpeta: {opened(out)}")
+    check(sent[-1:] == ["as"] and ctl.current_app() == "fotos", f"despertada con el control: la TV cambia a la Pi: {sent}")
+    check(any(x.startswith("ov:busy:Volviendo a Fotos") for x in out), "muestra «Volviendo a Fotos…»")
+
+    print("Tecla mientras entra en reposo")
+    real_sleep_apps = ctl.sleep_apps
+    entering_seen: list[bool] = []
+
+    async def slow_sleep_apps():
+        entering_seen.append(rp.entering)
+        out = await press("LEFT")  # alguien aprieta una tecla a mitad de camino
+        entering_seen.append(bool(out))
+        await real_sleep_apps()
+    ctl.sleep_apps = slow_sleep_apps  # type: ignore[method-assign]
+    start = len(log)
+    await rp.sleep("prueba")
+    ctl.sleep_apps = real_sleep_apps  # type: ignore[method-assign]
+    if rp._wake_task:
+        await rp._wake_task
+    out = log[start:]
+    check(entering_seen == [True, False] and "fotos:close" in out and "fotos:open:USB" in out and not rp.asleep,
+          f"no se corta a la mitad: termina de entrar y vuelve enseguida: {entering_seen} {opened(out)}")
+
+    print("Varios días en reposo: apagarla de verdad")
+    lp = power_mod.IdleShutdown(ctl, {"enabled": True, "command": ["true"]})
+    check(lp.off_after == 72 * 3600, f"por defecto, a las 72 h seguidas en reposo: {lp.off_after / 3600:g} h")
+    lp.asleep, lp._asleep_at = True, 0.0
+    sent.clear()
+    start = len(log)
+    await lp.long_rest_off()
+    check("standby 0" not in sent and "ov:toast:Apagando…" in log[start:],
+          f"se apaga sin tocar la TV (puede estar mirando otra entrada): {sent} {log[start:]}")
+    lp.command = ["false"]
+    before = lp._asleep_at
+    await lp.long_rest_off()
+    check(lp._asleep_at > before, "si no puede apagar, reintenta recién dentro de otro período")
+
+    print("Reposo con Netflix y despertar al prender la TV")
+    await ctl.run_action("app:netflix")
+    await ctl.page.navigate("https://www.netflix.com/watch/80001?trackId=1")
+    sent.clear()
+    await rp.sleep("prueba")
+    check(rp.saved == {"app": "netflix", "url": "https://www.netflix.com/watch/80001?trackId=1"},
+          f"guarda la página de Netflix: {rp.saved}")
+    check(ctl.page is None, "cerró el navegador")
+    rp.on_frame(CecFrame(initiator=0, destination=1, opcode=0x90, params=[0x00]))
+    check(rp.asleep, "recién dormida, un «prendida» de la TV se ignora")
+    rp._asleep_at -= 60
+    rp.on_frame(CecFrame(initiator=0, destination=1, opcode=0x90, params=[0x01]))
+    check(rp.asleep, "«en standby» no la despierta")
+    start = len(log)
+    rp.on_frame(CecFrame(initiator=0, destination=1, opcode=0x90, params=[0x00]))
+    check(not rp.asleep, "la TV prendida la despierta")
+    await rp._wake_task
+    out = log[start:]
+    check("browser:launch" in out and "navigate:https://www.netflix.com/watch/80001?trackId=1" in out and "js:pause" in out,
+          f"vuelve al mismo título y lo pausa: {[x for x in out if not x.startswith(('js:ctx', 'ov:'))]}")
+    check("as" not in sent, f"despertada por la TV: no le cambia la entrada: {sent}")
+    ctl.power = power_mod.IdleShutdown(ctl, {})
+
+    print("Carpetas de contenido")
+    usb = tmp / "media" / "gaby" / "KINGSTON"
+    local = tmp / "Vídeos"
+    (local / "serie").mkdir(parents=True)
+    (local / "serie" / "cap1.MKV").write_bytes(b"")
+    usb.mkdir(parents=True)
+    (usb / "notas.txt").write_text("x")
+    pats = [str(tmp / "media" / "*" / "*"), str(local)]
+    found = activities_mod.find_media_folder(pats, activities_mod.VIDEO_EXT)
+    check(found == local, f"pendrive sin videos: usa la carpeta local: {found}")
+    (usb / "peli.mp4").write_bytes(b"")
+    found = activities_mod.find_media_folder(pats, activities_mod.VIDEO_EXT)
+    check(found == usb and activities_mod.describe_folder(Path("/media/gaby/KINGSTON")) == "Pendrive KINGSTON",
+          f"con videos en el pendrive, va primero: {found}")
+    check(activities_mod.find_media_folder(pats, activities_mod.IMAGE_EXT) is None, "sin fotos en ninguna: None")
+    v = activities_mod.VideosActivity({"folders": pats, "command": ["vlc", "--qt-minimal-view", "{carpeta}"]})
+    check(activities_mod._custom_command(v.command, usb) == ["vlc", "--qt-minimal-view", str(usb)]
+          and v.procs == {"vlc"}, "command propio: {carpeta} se reemplaza")
+    fotos_dir = tmp / "fotos" / "2020"
+    fotos_dir.mkdir(parents=True)
+    for n in ("b.jpg", "a.JPG", ".oculta.jpg", "nota.txt"):
+        (fotos_dir / n).write_bytes(b"")
+    ph = activities_mod.PhotosActivity({"folders": [str(tmp / "fotos")]})
+    ph_list = ph.list_file(tmp / "fotos")
+    ph.list_file = lambda folder: tmp / "cache" / "fotos.lst"  # type: ignore[method-assign]  # en la prueba, fuera de la caché
+    n = ph.write_list(tmp / "fotos")
+    lines = (tmp / "cache" / "fotos.lst").read_text().split()
+    check(n == 2 and [Path(x).name for x in lines] == ["a.JPG", "b.jpg"] and ph_list.name.startswith("fotos-"),
+          f"lista de fotos guardada (sin ocultos ni otros archivos): {[Path(x).name for x in lines]}")
+    fargs = ph.default_args(tmp / "fotos", tmp / "cache" / "fotos.feh.lst")
+    check(fargs[-2:] == ["--filelist", str(tmp / "cache" / "fotos.feh.lst")] and "--recursive" not in fargs,
+          f"feh arranca con la lista (--filelist), sin recorrer la carpeta: {fargs[-2:]}")
+    args = activities_mod.VideosActivity({}).default_args(usb)
+    check(args[:3] == ["vlc", "-I", "dummy"] and "--extraintf=dbus:oldrc" in args
+          and any(a.startswith("--rc-unix=") for a in args) and args[-1] == str(usb),
+          f"VLC por defecto sin interfaz, con MPRIS y la carpeta al final: {args}")
 
     bad = [t for ok, t in results if not ok]
     print(f"\n{len(results) - len(bad)}/{len(results)} verificaciones OK")
