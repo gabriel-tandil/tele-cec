@@ -18,7 +18,6 @@ import os
 import shlex
 import shutil
 import signal
-import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -228,7 +227,7 @@ class ProcActivity(Activity):
     async def spawn(self, args: list[str]) -> bool:
         log.info("Abriendo %s: %s", self.name, shlex.join(args))
         try:
-            await spawn_scoped(args, f"netflix-cec-{self.id}")
+            await spawn_scoped(args, f"netflix-cec-{self.id}", log=self.id)
         except OSError as exc:
             log.error("No pude abrir %s: %s", self.name, exc)
             return False
@@ -339,13 +338,19 @@ class VideosActivity(MediaActivity):
     def __init__(self, cfg: dict[str, Any] | None = None):
         super().__init__(cfg)
         self.mpris = Mpris(str(self.cfg.get("mpris_player") or "vlc"), float(self.cfg.get("volume_step", 0.05)))
+        runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+        self.rc_socket = Path(runtime) / "netflix-cec-vlc.sock"
 
     def installed(self) -> bool:
         return self._have("vlc")
 
     def default_args(self, folder: Path) -> list[str]:
-        # -I dummy = sin ventana de VLC (solo el video). dbus = controles por MPRIS (playerctl).
-        args = ["vlc", "-I", "dummy", "--extraintf=dbus", "--fullscreen", "--play-and-exit",
+        # -I dummy = sin ventana de VLC (solo el video). dbus = controles por MPRIS (playerctl). oldrc = comandos
+        # por un socket local para pistas y proporción (en Wayland el video de VLC no recibe teclas).
+        with contextlib.suppress(OSError):
+            self.rc_socket.unlink()
+        args = ["vlc", "-I", "dummy", "--extraintf=dbus:oldrc", f"--rc-unix={self.rc_socket}", "--rc-fake-tty",
+                "--fullscreen", "--play-and-exit",
                 "--video-title-timeout=3000", "--no-video-title-show" if self.cfg.get("hide_title") else "--video-title-show"]
         args.append("--random" if self.shuffle else "--no-random")
         return args + [str(folder)]
@@ -362,6 +367,60 @@ class VideosActivity(MediaActivity):
         await self.mpris.ctl("pause")
         log.info("Video pausado por standby de la TV")
 
+    async def rc(self, command: str, timeout: float = 1.5) -> str:
+        """Un comando a la interfaz de comandos de VLC (socket UNIX); devuelve lo que contesta."""
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(str(self.rc_socket)), timeout)
+        except (OSError, asyncio.TimeoutError) as exc:
+            log.warning("VLC no responde en %s: %s", self.rc_socket, exc)
+            return ""
+        out = b""
+        try:
+            writer.write((command + "\n").encode())
+            await writer.drain()
+            # Al conectarse VLC manda primero mensajes de estado; la respuesta termina con «<comando>: returned».
+            deadline = time.monotonic() + timeout
+            while b"returned" not in out and time.monotonic() < deadline:
+                try:
+                    chunk = await asyncio.wait_for(reader.read(4096), max(0.05, deadline - time.monotonic()))
+                except asyncio.TimeoutError:
+                    break
+                if not chunk:
+                    break
+                out += chunk
+        finally:
+            writer.close()
+        return out.decode("utf-8", "replace")
+
+    PAUSED = "\0pausa"  # cycle(): VLC no cambia pistas en pausa
+
+    async def cycle(self, kind: str) -> str:
+        """Pasa a la siguiente pista de audio (atrack), de subtítulos (strack) o proporción (vratio).
+
+        VLC contesta la lista con la actual marcada con «*»: «| 2 - Español *». Devuelve el nombre de la
+        elegida ("" si no hay lista, por ejemplo en pausa: VLC no cambia pistas así).
+        """
+        items: list[tuple[str, str, bool]] = []
+        reply = await self.rc(kind)
+        for line in reply.splitlines():
+            line = line.rstrip()
+            if not line.startswith("|") or " - " not in line:
+                continue
+            # «|  - Predeterminado *»: el valor puede estar vacío, así que se parte antes de recortar.
+            ident, _, name = line[1:].partition(" - ")
+            current = name.endswith(" *")
+            items.append((ident.strip(), name.removesuffix(" *").strip(), current))
+        if kind == "vratio":
+            items = [it for it in items if it[0]]  # «Predeterminado» no tiene valor para volver a elegirlo
+        elif kind == "atrack":
+            items = [it for it in items if it[0] != "-1"]  # «Deshabilitar» = sin sonido: no va en el ciclo
+        if not items:
+            return self.PAUSED if "paus" in reply.lower() else ""
+        idx = next((i for i, it in enumerate(items) if it[2]), -1)
+        ident, name, _ = items[(idx + 1) % len(items)]
+        await self.rc(f"{kind} {ident}")
+        return name
+
 
 class PhotosActivity(MediaActivity):
     id = "fotos"
@@ -371,28 +430,15 @@ class PhotosActivity(MediaActivity):
     procs = {"feh"}
     exts = IMAGE_EXT - {".heic"}  # feh (imlib2) no abre HEIC
     empty_text = "Sin fotos: conectá un pendrive"
-    _exif: bool | None = None
 
     def installed(self) -> bool:
         return self._have("feh")
-
-    @classmethod
-    def feh_has_exif(cls) -> bool:
-        """--auto-rotate solo existe si feh se compiló con EXIF (con otra opción desconocida no abre)."""
-        if cls._exif is None:
-            try:
-                out = subprocess.run(["feh", "--version"], capture_output=True, text=True, timeout=5).stdout  # noqa: S603, S607
-            except (OSError, subprocess.SubprocessError):
-                out = ""
-            cls._exif = "exif" in out
-        return cls._exif
 
     def default_args(self, folder: Path) -> list[str]:
         delay = float(self.cfg.get("delay_s", 8))
         args = ["feh", "--fullscreen", "--hide-pointer", "--auto-zoom", "--recursive", "--quiet",
                 "--image-bg", "black", "--slideshow-delay", f"{delay:g}", "--title", "netflix-cec fotos"]
-        if self.feh_has_exif():
-            args.append("--auto-rotate")
+        # Sin --auto-rotate: con Imlib2 ≥ 1.7.5 (Debian trixie) las fotos ya salen derechas según el EXIF.
         args.append("--randomize" if self.shuffle else "--sort=filename")
         return args + [str(folder)]
 
