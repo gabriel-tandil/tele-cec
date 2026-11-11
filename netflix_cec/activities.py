@@ -423,24 +423,61 @@ class VideosActivity(MediaActivity):
 
 
 class PhotosActivity(MediaActivity):
+    """Presentación con feh. Con ▲ se hace zoom: la presentación se pausa y las flechas recorren la foto."""
+
     id = "fotos"
     name = "Fotos"
     icon = "fotos.svg"
-    context = "fotos"
     procs = {"feh"}
     exts = IMAGE_EXT - {".heic"}  # feh (imlib2) no abre HEIC
     empty_text = "Sin fotos: conectá un pendrive"
+
+    ZOOM_MAX = 12          # pasos de zoom (cada uno +25 % en feh): ~14 veces la foto ajustada
+    RENDER_DELAY = 0.6     # s sin moverse antes de redibujar suavizado
+    # Atajos de feh: el teclado numérico desplaza la foto (las flechas solas cambian de foto o hacen zoom).
+    SCROLL_KEYS = {"left": "KP_Left", "right": "KP_Right", "up": "KP_Up", "down": "KP_Down"}
+
+    def __init__(self, cfg: dict[str, Any] | None = None):
+        super().__init__(cfg)
+        self._render_task: asyncio.Task | None = None
+        self.reset_view()
+
+    def reset_view(self) -> None:
+        self.paused = False         # la presentación, según lo que le mandamos (feh arranca andando)
+        self.zoom = 0               # pasos de zoom sobre la foto ajustada a la pantalla (0 = sin zoom)
+        self._zoom_paused = False   # la pausó el zoom: se retoma al salir
+        self._cancel_render()
+
+    @property  # type: ignore[override]
+    def context(self) -> str:
+        return "fotos_zoom" if self.zoom else "fotos"
 
     def installed(self) -> bool:
         return self._have("feh")
 
     def default_args(self, folder: Path) -> list[str]:
         delay = float(self.cfg.get("delay_s", 8))
+        step = int(self.cfg.get("scroll_step", 150))
         args = ["feh", "--fullscreen", "--hide-pointer", "--auto-zoom", "--recursive", "--quiet",
-                "--image-bg", "black", "--slideshow-delay", f"{delay:g}", "--title", "netflix-cec fotos"]
+                "--image-bg", "black", "--slideshow-delay", f"{delay:g}", "--scroll-step", str(step),
+                "--title", "netflix-cec fotos"]
+        if self.cfg.get("zoom_step"):
+            args += ["--zoom-step", f"{float(self.cfg['zoom_step']):g}"]
         # Sin --auto-rotate: con Imlib2 ≥ 1.7.5 (Debian trixie) las fotos ya salen derechas según el EXIF.
         args.append("--randomize" if self.shuffle else "--sort=filename")
         return args + [str(folder)]
+
+    async def open(self) -> bool:
+        self.reset_view()
+        return await super().open()
+
+    async def close(self) -> None:
+        self.reset_view()
+        await super().close()
+
+    async def key(self, name: str) -> bool:
+        """Un atajo de teclado de feh (wtype: le llega a la ventana con el foco)."""
+        return await wtype_key(name)
 
     async def next(self) -> bool:
         return self.send_signal(signal.SIGUSR1)  # feh, en modo presentación: siguiente
@@ -449,7 +486,76 @@ class PhotosActivity(MediaActivity):
         return self.send_signal(signal.SIGUSR2)  # anterior
 
     async def toggle_pause(self) -> bool:
-        return await wtype_key("h")  # h = pausar o seguir la presentación
+        ok = await self.key("h")  # h = pausar o seguir la presentación
+        if ok:
+            self.paused = not self.paused
+            self._zoom_paused = False
+        return ok
+
+    # ------------------------------------------------------------ zoom
+    async def zoom_in(self) -> bool:
+        """Acerca un paso. El primero pausa la presentación (si andaba) para que no cambie de foto."""
+        if self.zoom >= self.ZOOM_MAX:
+            return False
+        if not self.zoom and not self.paused:
+            if not await self.key("h"):
+                return False
+            self.paused = self._zoom_paused = True
+        if not await self.key("Up"):  # Up = zoom_in
+            return False
+        self.zoom += 1
+        return True
+
+    async def zoom_out(self) -> bool:
+        """Aleja un paso; desde el primero vuelve a la foto entera (y sigue la presentación si el zoom la pausó)."""
+        if not self.zoom:
+            return False
+        if self.zoom == 1:
+            return await self.fit()
+        if not await self.key("Down"):  # Down = zoom_out
+            return False
+        self.zoom -= 1
+        return True
+
+    async def fit(self) -> bool:
+        """Sale del zoom: la foto entera, ajustada a la pantalla."""
+        if not self.zoom:
+            return False
+        await self.key("KP_Divide")  # zoom_fit
+        await self.photo_changed()
+        return True
+
+    async def scroll(self, direction: str) -> bool:
+        """Mueve la parte de la foto que se ve (solo con zoom)."""
+        name = self.SCROLL_KEYS.get(direction)
+        if not self.zoom or not name:
+            return False
+        ok = await self.key(name)
+        # feh desplaza sin suavizado (más rápido); cuando se deja de mover, R la redibuja bien.
+        self._cancel_render()
+        self._render_task = asyncio.get_running_loop().create_task(self._render_later())
+        return ok
+
+    async def photo_changed(self) -> None:
+        """Otra foto (o la misma girada o ajustada): feh la muestra entera, así que se termina el zoom."""
+        self._cancel_render()
+        if not self.zoom and not self._zoom_paused:
+            return
+        self.zoom = 0
+        if self._zoom_paused and self.paused and await self.key("h"):
+            self.paused = False
+        self._zoom_paused = False
+
+    async def _render_later(self) -> None:
+        await asyncio.sleep(self.RENDER_DELAY)
+        self._render_task = None
+        if self.zoom:
+            await self.key("R")  # render
+
+    def _cancel_render(self) -> None:
+        if self._render_task and not self._render_task.done():
+            self._render_task.cancel()
+        self._render_task = None
 
 
 class CommandActivity(ProcActivity):
