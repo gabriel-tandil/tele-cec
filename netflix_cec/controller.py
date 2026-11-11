@@ -877,8 +877,11 @@ class Controller:
             await self.source.activate_source()
         if not await self.music.launch():
             return
-        if self.music.resume_on_open:
-            await self.music.resume()
+        if self.music.resume_on_open and not await self.music.resume():
+            # High Tide no retoma "Mis canciones" por sí solo (solo guarda el número de tema).
+            start = self.music.saved_index()
+            log.info("Retomo «Mis canciones» desde el tema %d", start + 1)
+            await self.music.my_tracks(start=start)
 
     async def a_music(self, arg: str) -> None:
         """Controles de Tidal (High Tide): music:play_pause, next, previous, volume:+, seek:-10, like, shuffle,

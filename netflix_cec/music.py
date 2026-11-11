@@ -102,17 +102,46 @@ class HighTide:
         log.error("High Tide no publicó sus controles (MPRIS) en %.0f s", self.start_timeout)
         return False
 
-    async def resume(self) -> None:
-        """Al abrir: seguir con lo último que estaba sonando, si High Tide lo recuerda."""
-        for _ in range(15):
+    def saved(self) -> dict[str, str]:
+        """Lo que High Tide guardó de la última vez (last-playing-index, last-playing-thing-id…).
+
+        Está en la configuración GSettings del Flatpak, un archivo de texto que se puede leer desde afuera.
+        Las claves que tienen su valor por defecto no aparecen.
+        """
+        out: dict[str, str] = {}
+        f = Path.home() / ".var" / "app" / self.app_id / "config" / "glib-2.0" / "settings" / "keyfile"
+        try:
+            text = f.read_text(encoding="utf-8")
+        except OSError:
+            return out
+        for line in text.splitlines():
+            k, sep, v = line.partition("=")
+            if sep and k.strip().startswith("last-"):
+                out[k.strip()] = v.strip().strip("'\"")
+        return out
+
+    def saved_index(self) -> int:
+        try:
+            return max(0, int(self.saved().get("last-playing-index", "0")))
+        except ValueError:
+            return 0
+
+    async def resume(self) -> bool:
+        """Al abrir: seguir con lo último que estaba sonando, si High Tide lo puede restaurar solo.
+
+        High Tide recuerda álbumes, playlists y mixes, pero no "Mis canciones": en ese caso no guarda
+        qué se estaba escuchando (solo el número de tema) y devuelve False sin hacer esperar.
+        """
+        restorable = bool(self.saved().get("last-playing-thing-id"))
+        for _ in range(20 if restorable else 3):
             st = await self.status()
             if st.get("title"):
                 if st.get("status") != "Playing":
                     await self.ctl("play")
-                    log.info("Sigue sonando: %s - %s", st.get("title"), st.get("artist"))
-                return
+                log.info("Sigue sonando: %s - %s", st.get("title"), st.get("artist"))
+                return True
             await asyncio.sleep(1)
-        log.info("High Tide no tenía nada para seguir reproduciendo")
+        return False
 
     async def quit(self, timeout: float = 15.0) -> None:
         """Cierra High Tide ordenadamente (MPRIS Quit); si no responde, lo cierra Flatpak."""
@@ -163,14 +192,26 @@ class HighTide:
             log.warning("No encontré en High Tide el botón %s", " / ".join(names))
         return ok
 
-    async def my_tracks(self) -> bool:
-        """Reproduce "Mis canciones": Colección → "More" de Canciones → primer tema → Enter.
+    async def my_tracks(self, start: int = 0) -> bool:
+        """Reproduce "Mis canciones" desde el tema número `start` (0 = el primero).
 
+        Colección → "More" de Canciones → primer tema → (flecha abajo `start` veces) → Enter.
         High Tide no tiene una acción para esto. Activar una fila de esa lista reproduce todos los
         favoritos desde esa fila, y las filas solo se activan con Enter (o clic), así que se llega al
         primer tema con Tab y se confirma con Enter.
         """
-        if not await self.press_button(COLLECTION):
+        # Recién abierto, High Tide publica sus controles antes de terminar de dibujar la interfaz. Y dentro
+        # de una página (un álbum, la misma lista de Canciones) la barra Inicio/Explorar/Colección no está:
+        # se vuelve con "Atrás" hasta encontrarla.
+        for attempt in range(30):
+            if await asyncio.to_thread(_atspi_activate, COLLECTION):
+                break
+            if attempt < 4 and await asyncio.to_thread(_atspi_activate, BACK):
+                await asyncio.sleep(0.8)
+                continue
+            await asyncio.sleep(1)
+        else:
+            log.warning("No encontré en High Tide el botón %s", " / ".join(COLLECTION))
             return False
         more = None
         for _ in range(20):
@@ -194,8 +235,10 @@ class HighTide:
         for _ in range(40):
             if not await self.key("Tab"):
                 return False
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.05)
             if await asyncio.to_thread(_atspi_any_focused, rows):
+                for _ in range(start):
+                    await self.key("Down")
                 await self.key("Return")
                 return True
         log.warning("No llegué con Tab al primer tema de Canciones")
@@ -247,37 +290,54 @@ def _text(o, depth: int = 0) -> str:
     return ""
 
 
-def _walk(roles: tuple[str, ...]) -> list[tuple[Any, str, str, tuple[int, int, int, int], bool]]:
-    """Elementos visibles de High Tide con esos roles: (objeto, rol, texto, (x, y, ancho, alto), enfocable)."""
+# Dentro de estos no hay nada que buscar (y son la mayor parte del árbol: filas de temas, tarjetas).
+_NO_DESCEND = {"list item", "table cell", "label", "image", "heading", "link", "slider"}
+
+
+def _walk(roles: tuple[str, ...], done=None, limit: int | None = None
+          ) -> list[tuple[Any, str, str, tuple[int, int, int, int], bool]]:
+    """Elementos visibles de High Tide con esos roles: (objeto, rol, texto, (x, y, ancho, alto), enfocable).
+
+    Recorre por niveles (los botones de navegación están cerca de la raíz) y corta apenas `done(lista)`
+    da verdadero o se juntan `limit` elementos. Cada consulta de accesibilidad es un viaje por D-Bus: en
+    una Pi lenta, recorrer todo el árbol de High Tide (cientos de tarjetas y temas) tarda decenas de segundos.
+    """
     Atspi = _atspi()
     S = Atspi.StateType
     app = _app()
     out: list = []
     if app is None:
         return out
-
-    def walk(o, d: int = 0) -> None:
-        if o is None or d > 60:
-            return
-        try:
-            st = o.get_state_set()
-            role = o.get_role_name()
-        except Exception:  # noqa: BLE001
-            return
-        if not st.contains(S.SHOWING):
-            return
-        if role in roles:
+    level = [app.get_child_at_index(i) for i in range(app.get_child_count())]
+    depth = 0
+    while level and depth < 60:
+        nxt = []
+        for o in level:
+            if o is None:
+                continue
             try:
-                e = o.get_extents(Atspi.CoordType.WINDOW)
-                rect = (e.x, e.y, e.width, e.height)
+                st = o.get_state_set()
+                role = o.get_role_name()
             except Exception:  # noqa: BLE001
-                rect = (0, 0, 0, 0)
-            out.append((o, role, _text(o), rect, st.contains(S.FOCUSABLE)))
-        for i in range(o.get_child_count()):
-            walk(o.get_child_at_index(i), d + 1)
-
-    for i in range(app.get_child_count()):
-        walk(app.get_child_at_index(i))
+                continue
+            if not st.contains(S.SHOWING):
+                continue
+            if role in roles:
+                try:
+                    e = o.get_extents(Atspi.CoordType.WINDOW)
+                    rect = (e.x, e.y, e.width, e.height)
+                except Exception:  # noqa: BLE001
+                    rect = (0, 0, 0, 0)
+                out.append((o, role, _text(o), rect, st.contains(S.FOCUSABLE)))
+                if (limit and len(out) >= limit) or (done and done(out)):
+                    return out
+            if role not in _NO_DESCEND:
+                try:
+                    nxt.extend(o.get_child_at_index(i) for i in range(o.get_child_count()))
+                except Exception:  # noqa: BLE001
+                    pass
+        level = nxt
+        depth += 1
     return out
 
 
@@ -291,17 +351,24 @@ def _atspi_do(o) -> bool:
 
 def _atspi_activate(names: tuple[str, ...]) -> bool:
     want = {n.lower() for n in names}
-    for o, _role, text, _r, _f in _walk(("button", "toggle button")):
-        if text.strip().lower() in want and _atspi_do(o):
-            return True
-    return False
+    found = _walk(("button", "toggle button"), done=lambda out: out[-1][2].strip().lower() in want)
+    return bool(found) and found[-1][2].strip().lower() in want and _atspi_do(found[-1][0])
 
 
 def _atspi_section_more(titles: tuple[str, ...]):
     """El botón "More" que está en la misma línea que el título de sección (p. ej. "Canciones")."""
-    items = _walk(("label", "button"))
     want = {t.lower() for t in titles}
-    hdr = next((r for o, role, t, r, f in items if role == "label" and t.strip().lower() in want), None)
+
+    def header(out):
+        return next((r for o, role, t, r, f in out if role == "label" and t.strip().lower() in want), None)
+
+    def done(out):
+        h = header(out)
+        return bool(h) and any(role == "button" and t.strip() in MORE and abs(r[1] - h[1]) < 20
+                               for o, role, t, r, f in out)
+
+    items = _walk(("label", "button"), done=done)
+    hdr = header(items)
     if not hdr:
         return None
     more = [(abs(r[1] - hdr[1]), o) for o, role, t, r, f in items
@@ -310,7 +377,7 @@ def _atspi_section_more(titles: tuple[str, ...]):
 
 
 def _atspi_rows() -> list:
-    rows = [(r[1], o) for o, role, t, r, f in _walk(("list item",)) if f and r[2] > 200]
+    rows = [(r[1], o) for o, role, t, r, f in _walk(("list item",), limit=8) if f and r[2] > 200]
     return [o for _y, o in sorted(rows, key=lambda x: x[0])[:5]]
 
 
