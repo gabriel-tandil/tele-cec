@@ -65,11 +65,15 @@ class IdleShutdown:
         self.warn = float(cfg.get("warn_seconds", 60))
         self.tv_standby = bool(cfg.get("tv_standby", True))
         self.wake_on_tv = bool(cfg.get("wake_on_tv", True))
+        # En reposo tantas horas seguidas sin que nadie la despierte: apagarla de verdad (0 = nunca).
+        self.off_after = float(cfg.get("off_after_hours", 72) or 0) * 3600
         cmd = cfg.get("command") or ["systemctl", "poweroff"]
         self.command = [str(c) for c in cmd] if isinstance(cmd, list) else str(cmd).split()
         self.last_activity = time.monotonic()  # última vez que sonó algo o se apretó una tecla
         self.tv_off_since: float | None = None
         self.asleep = False
+        self.entering = False         # entrando en reposo (cerrando apps): no se interrumpe a la mitad
+        self._wake_pending = False    # llegó una tecla mientras entraba: volver apenas termine
         self.saved: dict[str, Any] = {}
         self._asleep_at = 0.0
         self._countdown: asyncio.Task | None = None
@@ -86,6 +90,10 @@ class IdleShutdown:
         self.tv_off_since = None  # si alguien usa el control, la TV está prendida
         if self.asleep:
             self.wake(by_key=True)
+            return True
+        if self.entering:
+            self._wake_pending = True
+            log.info("Tecla mientras entra en reposo: vuelvo apenas termine")
             return True
         if self._countdown and not self._countdown.done():
             self._countdown.cancel()
@@ -134,6 +142,9 @@ class IdleShutdown:
             await asyncio.sleep(5.0)
             now = time.monotonic()
             if self.asleep:
+                if self.off_after and now - self._asleep_at >= self.off_after:
+                    await self.long_rest_off()
+                    continue
                 # En reposo: preguntarle a la TV si se prendió (la respuesta llega a on_frame).
                 if self.wake_on_tv and now - last_poll >= TV_POLL_EVERY and self.ctl.source is not None:
                     last_poll = now
@@ -165,6 +176,8 @@ class IdleShutdown:
                                  int(step * 1000) + 700)
             await asyncio.sleep(step)
             left -= step
+        # Desde acá ya no se cancela: una tecla a mitad de camino dejaría unas apps cerradas y otras no.
+        self._countdown = None
         if self.mode == "reposo":
             await self.sleep(why)
         else:
@@ -182,14 +195,22 @@ class IdleShutdown:
     # ------------------------------------------------------------ reposo
     async def sleep(self, why: str) -> None:
         log.warning("Reposo: %s", why)
-        await self.ctl.toast("Reposo…", 2000)
-        self.saved = await self.ctl.snapshot()
-        log.info("Reposo: guardo %s", self.saved or "nada abierto")
-        await self.ctl.sleep_apps()
-        await self._tv_off()
+        self.entering, self._wake_pending = True, False
+        try:
+            await self.ctl.toast("Reposo…", 2000)
+            self.saved = await self.ctl.snapshot()
+            log.info("Reposo: guardo %s", self.saved or "nada abierto")
+            await self.ctl.sleep_apps()
+            if not self._wake_pending:
+                await self._tv_off()
+        finally:
+            self.entering = False
         self.asleep = True
         self._asleep_at = time.monotonic()
         self.tv_off_since = None
+        if self._wake_pending:
+            self._wake_pending = False
+            self.wake(by_key=True)
 
     def wake(self, by_key: bool) -> None:
         if not self.asleep or (self._wake_task and not self._wake_task.done()):
@@ -203,12 +224,24 @@ class IdleShutdown:
         self._wake_task = asyncio.get_running_loop().create_task(self.ctl.restore(saved, activate=by_key))
 
     # ------------------------------------------------------------ apagado
-    async def shutdown(self, why: str) -> None:
+    async def shutdown(self, why: str, tv: bool = True) -> bool:
         log.warning("Apagando la Raspberry Pi: %s", why)
         await self.ctl.toast("Apagando…", 3000)
-        await self._tv_off()
+        if tv:
+            await self._tv_off()
         rc, out = await run_cmd(self.command, 30)
         if rc != 0:
             log.error("No pude apagar (%s): %s", " ".join(self.command), out.strip()[:200] or rc)
             await self.ctl.toast("No pude apagar la Raspberry Pi (ver el log)", 4000)
             self.last_activity = time.monotonic()  # no reintentar enseguida
+            return False
+        return True
+
+    async def long_rest_off(self) -> None:
+        """Muchas horas seguidas en reposo (nadie la despertó): apagarla de verdad.
+
+        Sin tocar la TV: puede estar prendida mirando otra entrada. Apagada, el control ya no la despierta.
+        """
+        hours = (time.monotonic() - self._asleep_at) / 3600
+        if not await self.shutdown(f"{hours:.0f} h seguidas en reposo", tv=False):
+            self._asleep_at = time.monotonic()  # si falló, reintentar recién dentro de otro período

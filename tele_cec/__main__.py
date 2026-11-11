@@ -373,6 +373,8 @@ def _check_power_off(cfg: config_mod.Config) -> None:
             False: ": falta (./install.sh --apagado-automatico); sin eso el apagado va a fallar"}[present])
     else:
         _check(True, "vuelve con una tecla del control" + (" o al prenderse la TV" if pw.get("wake_on_tv", True) else ""))
+        off = float(pw.get("off_after_hours", 72) or 0)
+        _check(True, f"tras {off:g} h seguidas en reposo se apaga de verdad" if off else "en reposo no se apaga nunca")
     _check(True, f"ahora: {'sale sonido' if audio_playing() else 'no sale sonido'}")
 
 
