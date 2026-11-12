@@ -390,6 +390,7 @@ start_timeout = 60                   # segundos para que High Tide termine de ab
 # Cómo dibuja High Tide (GTK 4). En la Pi, con Vulkan (el de GTK) se queda sin memoria del driver y se
 # cierra solo al cambiar de vista (por ejemplo, al abrir las letras): con OpenGL ("ngl") no pasa.
 gsk_renderer = "ngl"                 # "" = el que elija GTK
+focus_color = "#FFD400"              # marco y fondo del elemento con el foco (GTK lo dibuja muy tenue); "" = no tocar
 
 [apps.youtube]                       # YouTube para TV, en un Firefox aparte (perfil propio)
 url = "https://www.youtube.com/tv"

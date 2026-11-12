@@ -106,7 +106,7 @@ class Mpris:
         """Pide al reproductor que se cierre (método Quit de MPRIS)."""
         rc, _ = await run_cmd(["gdbus", "call", "--session", "--dest", f"org.mpris.MediaPlayer2.{self.player}",
                                "--object-path", "/org/mpris/MediaPlayer2", "--method",
-                               "org.mpris.MediaPlayer2.Quit"], 5)
+                               "org.mpris.MediaPlayer2.Quit"], 2)  # High Tide 1.4 no contesta: no esperar de más
         return rc == 0
 
 
@@ -158,6 +158,8 @@ class HighTide:
         self.mpris = Mpris(self.player, self.volume_step)
         self.nav = TidalNav()
         self.gsk_renderer = str(cfg.get("gsk_renderer") or "")
+        # Foco bien visible en la TV (GTK lo dibuja muy tenue): color del marco, o "" para no tocar el estilo.
+        self.focus_color = str(cfg.get("focus_color", "#FFD400") or "")
         self._installed: bool | None = None
 
     # ------------------------------------------------------------ estado
@@ -183,6 +185,7 @@ class HighTide:
             log.error("High Tide no está instalado (flatpak %s). Ver README → Tidal.", self.app_id)
             return False
         if not self.pids(fresh=True):
+            self.write_focus_css()
             args = ["flatpak", "run"]
             if self.gsk_renderer:
                 args.append(f"--env=GSK_RENDERER={self.gsk_renderer}")
@@ -244,18 +247,59 @@ class HighTide:
             await asyncio.sleep(1)
         return False
 
+    def write_focus_css(self) -> None:
+        """Estilo para que el elemento con el foco se vea desde el sillón (marco grueso y fondo de color).
+
+        High Tide es una app GTK 4 en Flatpak: lee el CSS del usuario de su propia carpeta de configuración
+        (~/.var/app/<id>/config/gtk-4.0/gtk.css). tele-cec escribe el suyo aparte (tele-cec.css) y lo importa
+        desde gtk.css, sin pisar lo que haya ahí. Se aplica al abrir High Tide.
+        """
+        d = Path.home() / ".var" / "app" / self.app_id / "config" / "gtk-4.0"
+        css, main = d / "tele-cec.css", d / "gtk.css"
+        try:
+            if not self.focus_color:
+                css.write_text("/* tele-cec: estilo del foco desactivado ([apps.tidal] focus_color = \"\") */\n")
+                return
+            d.mkdir(parents=True, exist_ok=True)
+            c = self.focus_color
+            # Solo lo que se elige: GTK también marca «con foco» a los contenedores (la ventana, los paneles).
+            sel = ("row, flowboxchild, gridview > child, listview > row, button, togglebutton, menubutton > button, "
+                   "scale, entry, checkbutton, switch, label, link, .card")
+            targets = ", ".join(f"{s.strip()}:focus-visible" for s in sel.split(","))
+            css.write_text(
+                "/* Lo escribe tele-cec al abrir High Tide: foco bien visible en la TV. */\n"
+                f"{targets} {{\n  outline: 4px solid {c};\n  outline-offset: -4px;\n}}\n"
+                "row:focus-visible, flowboxchild:focus-visible, gridview > child:focus-visible, "
+                "listview > row:focus-visible, button:focus-visible, togglebutton:focus-visible {\n"
+                f"  background-color: alpha({c}, 0.25);\n}}\n", encoding="utf-8")
+            text = main.read_text(encoding="utf-8") if main.exists() else ""
+            if "tele-cec.css" not in text:
+                main.write_text(text + ('\n' if text and not text.endswith('\n') else '') +
+                                '@import url("tele-cec.css");\n', encoding="utf-8")
+        except OSError as exc:
+            log.warning("No pude escribir el estilo del foco de High Tide: %s", exc)
+
     async def quit(self, timeout: float = 15.0) -> None:
-        """Cierra High Tide ordenadamente (MPRIS Quit); si no responde, lo cierra Flatpak."""
+        """Cierra High Tide: MPRIS Quit; si no responde (en High Tide 1.4 falla), SIGTERM; si no, flatpak kill."""
         await self.nav.close()
-        if not self.pids(fresh=True):
+        pids = self.pids(fresh=True)
+        if not pids:
             return
         await self.mpris.quit()
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if not self.pids(fresh=True):
-                log.info("High Tide cerrado")
-                return
-            await asyncio.sleep(0.5)
+        for step, wait in (("term", 2.0), ("kill", timeout)):
+            deadline = time.monotonic() + wait
+            while time.monotonic() < deadline:
+                if not self.pids(fresh=True):
+                    log.info("High Tide cerrado")
+                    return
+                await asyncio.sleep(0.25)
+            if step == "term":
+                log.info("High Tide no respondió a Quit: lo cierro con SIGTERM")
+                for pid in self.pids(fresh=True):
+                    try:
+                        os.kill(pid, 15)
+                    except OSError:
+                        pass
         log.warning("High Tide no se cerró solo: lo cierro con flatpak kill")
         await run_cmd(["flatpak", "kill", self.app_id], 10)
         invalidate_procs()
