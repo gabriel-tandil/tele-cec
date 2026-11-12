@@ -163,7 +163,6 @@ def _log(*args):
 
 
 def _patch_cards(module):
-    from gi.repository import Gdk, Gtk
     cls = module.HTCardWidget
     original_init = cls.__init__
 
@@ -171,8 +170,8 @@ def _patch_cards(module):
         original_init(self, *args, **kwargs)
         try:
             # La tarjeta no toma el foco ella misma (se lo pasa a lo de adentro): lo recibe la portada, y el
-            # Enter lo atiende la tarjeta (las teclas suben desde la portada). El link del artista de adentro
-            # queda sin foco: si no, OK abriría el artista en vez del disco (se llega desde la página del disco).
+            # Enter lo atiende la ventana (ver _on_window_key). El link del artista de adentro queda sin foco:
+            # si no, OK abriría el artista en vez del disco (se llega desde la página del disco).
             image = getattr(self, "image", None)
             if image is not None:
                 image.set_focusable(True)
@@ -180,21 +179,155 @@ def _patch_cards(module):
                 widget = getattr(self, name, None)
                 if widget is not None:
                     widget.set_can_focus(False)
-            keys = Gtk.EventControllerKey()
-
-            def on_key(_controller, keyval, _keycode, _state):
-                if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
-                    self._on_click()
-                    return True
-                return False
-
-            keys.connect("key-pressed", on_key)
-            self.add_controller(keys)
         except Exception as exc:  # noqa: BLE001
             _log("no pude hacer enfocable una tarjeta:", exc)
 
     cls.__init__ = __init__
     _log("tarjetas de High Tide enfocables (Enter = abrir)")
+
+
+# ------------------------------------------------------------------ teclado: flechas y Enter
+# GTK mueve el foco con las flechas solo dentro de cada bloque (una fila de portadas, una lista), así que hay
+# lugares a los que no se llega. Acá las flechas van al elemento enfocable más cercano en esa dirección, mirando
+# dónde está cada uno en la ventana (como en una TV). Y Enter abre lo que High Tide solo abre con un clic.
+_ARROWS = {}
+
+
+def _rect(widget, window):
+    ok, r = widget.compute_bounds(window)
+    if not ok or r.size.width < 2 or r.size.height < 2:
+        return None
+    return (r.origin.x, r.origin.y, r.origin.x + r.size.width, r.origin.y + r.size.height)
+
+
+def _region(widget, window):
+    \"\"\"El panel con desplazamiento más externo que lo contiene (la página, el panel del reproductor…).\"\"\"
+    from gi.repository import Gtk
+    found, w = None, widget.get_parent()
+    while w is not None and w is not window:
+        if isinstance(w, Gtk.ScrolledWindow):
+            found = w
+        w = w.get_parent()
+    return found
+
+
+def _candidates(window):
+    \"\"\"Lo que se puede elegir: widgets enfocables visibles, sin entrar en los que ya lo son (una fila de la
+    lista se elige entera, no el link del artista de adentro).\"\"\"
+    from gi.repository import Gtk
+    # Contenedores que se declaran enfocables pero lo que se elige es lo de adentro.
+    containers = (Gtk.Window, Gtk.ScrolledWindow, Gtk.Viewport, Gtk.ListBox, Gtk.FlowBox, Gtk.ListView,
+                  Gtk.GridView, Gtk.ColumnView, Gtk.Stack)
+    out, stack = [], [window.get_first_child()]
+    while stack:
+        w = stack.pop()
+        while w is not None:
+            # Los botones de la ventana (minimizar, cerrar) no: OK cerraría High Tide.
+            if w.get_mapped() and w.is_sensitive() and not isinstance(w, Gtk.WindowControls):
+                if w.get_focusable() and w.get_can_focus() and not isinstance(w, containers):
+                    out.append(w)
+                else:
+                    stack.append(w.get_first_child())
+            w = w.get_next_sibling()
+    return out
+
+
+def _score(direction, cur, r):
+    cx, cy = (cur[0] + cur[2]) / 2, (cur[1] + cur[3]) / 2
+    rx, ry = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
+    if direction in ("up", "down"):
+        ahead = ry > cy + 2 if direction == "down" else ry < cy - 2
+        gap = max(0.0, r[1] - cur[3]) if direction == "down" else max(0.0, cur[1] - r[3])
+        side = max(0.0, r[0] - cur[2], cur[0] - r[2])
+        off = abs(rx - cx)
+    else:
+        ahead = rx > cx + 2 if direction == "right" else rx < cx - 2
+        gap = max(0.0, r[0] - cur[2]) if direction == "right" else max(0.0, cur[0] - r[2])
+        side = max(0.0, r[1] - cur[3], cur[1] - r[3])
+        off = abs(ry - cy)
+    if not ahead:
+        return None
+    return gap + 4 * side + 0.05 * off
+
+
+def _move_focus(window, direction):
+    from gi.repository import Gtk
+    focus = window.get_focus()
+    if focus is not None and focus.get_native() is not window:
+        return False  # un menú o un popup: que lo maneje GTK
+    if isinstance(focus, Gtk.Text) and direction in ("left", "right"):
+        return False  # escribiendo (buscar): las flechas mueven el cursor
+    items = _candidates(window)
+    cur = _rect(focus, window) if focus is not None else None
+    if cur is None:
+        # Sin foco: el primer elemento de la página (arriba a la izquierda).
+        rects = [(r, w) for w in items for r in [_rect(w, window)] if r]
+        if not rects:
+            return False
+        target = min(rects, key=lambda x: (x[0][1] // 40, x[0][0]))[1]
+    else:
+        region = _region(focus, window)
+        best = {True: None, False: None}  # misma región / cualquiera
+        for w in items:
+            if w is focus:
+                continue
+            r = _rect(w, window)
+            if r is None:
+                continue
+            sc = _score(direction, cur, r)
+            if sc is None:
+                continue
+            same = region is not None and _region(w, window) is region
+            for key in ((True, False) if same else (False,)):
+                if best[key] is None or sc < best[key][0]:
+                    best[key] = (sc, w)
+        # Primero dentro del mismo panel (si no, desde el final de la lista se iría a la barra de abajo
+        # antes que al resto de la lista, que está fuera de la pantalla).
+        pick = best[True] or best[False]
+        if pick is None:
+            return True  # nada en esa dirección: no hacer nada (antes que mover la canción o el volumen)
+        target = pick[1]
+    window.set_focus_visible(True)
+    target.grab_focus()
+    return True
+
+
+def _activate(window):
+    \"\"\"Enter sobre algo que High Tide solo abre con un clic (portadas, atajos de Inicio): lo abre.\"\"\"
+    from gi.repository import Gtk
+    focus = window.get_focus()
+    if focus is None or isinstance(focus, (Gtk.Button, Gtk.Label, Gtk.Text, Gtk.ListBoxRow)):
+        return False
+    # La tarjeta puede estar arriba (el foco está en su portada) o adentro (el foco está en la casilla de una
+    # grilla, que la envuelve).
+    near, w = [focus.get_first_child()], focus
+    for _ in range(8):
+        if w is None:
+            break
+        near.append(w)
+        w = w.get_parent()
+    for w in near:
+        if w is not None and callable(getattr(w, "_on_click", None)) and hasattr(w, "item"):
+            w._on_click()
+            return True
+    return False
+
+
+def _on_window_key(controller, keyval, _keycode, state):
+    from gi.repository import Gdk
+    window = controller.get_widget()
+    if state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SHIFT_MASK):
+        return False
+    try:
+        if not _ARROWS:
+            _ARROWS.update({Gdk.KEY_Up: "up", Gdk.KEY_Down: "down", Gdk.KEY_Left: "left", Gdk.KEY_Right: "right"})
+        if keyval in _ARROWS:
+            return _move_focus(window, _ARROWS[keyval])
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            return _activate(window)
+    except Exception as exc:  # noqa: BLE001
+        _log("teclado:", exc)
+    return False
 
 
 # ------------------------------------------------------------------ canal de control
@@ -344,6 +477,15 @@ def _patch_window(module):
         original_init(self, *args, **kwargs)
         first = _window is None
         _window = self
+        try:
+            from gi.repository import Gtk
+            keys = Gtk.EventControllerKey()
+            keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)  # antes que la lista o la fila de portadas
+            keys.connect("key-pressed", _on_window_key)
+            self.add_controller(keys)
+            _log("flechas por posición y Enter en portadas y atajos")
+        except Exception as exc:  # noqa: BLE001
+            _log("no pude agregar el teclado:", exc)
         if first:
             threading.Thread(target=_serve, name="tele-cec", daemon=True).start()
 
@@ -403,7 +545,8 @@ class HighTide:
         self.app_id = str(cfg.get("flatpak_id") or "io.github.nokse22.high-tide")
         self.player = str(cfg.get("mpris_player") or self.app_id)  # nombre para playerctl -p
         self.start_timeout = float(cfg.get("start_timeout", 60))
-        self.resume_on_open = bool(cfg.get("resume_on_open", True))
+        self.resume_on_open = bool(cfg.get("resume_on_open", False))
+        self.start_in_nav = bool(cfg.get("start_in_nav", True))  # flechas = mover el foco al abrir
         self.volume_step = float(cfg.get("volume_step", 0.05))
         self.mpris = Mpris(self.player, self.volume_step)
         self.nav = TidalNav()

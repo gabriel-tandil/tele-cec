@@ -101,6 +101,7 @@ class FakeBrowser:
 
 class FakeMusic:
     resume_on_open = True
+    start_in_nav = False  # los tests de abajo arrancan en controles; el arranque en navegación se prueba aparte
 
     def __init__(self, log: list[str]):
         self.log = log
@@ -427,8 +428,9 @@ async def main() -> int:
     out = await press("DOWN", "LEFT", "SELECT", "EXIT")
     check(out == ["wtype:Down", "wtype:Left", "wtype:Return", "go:back"],
           f"en modo navegación: flechas, OK y Atrás van tal cual a la app (sin seguir el foco): {out}")
-    out = await press("FORWARD", "BACKWARD", "CHANNEL_UP")
-    check(out == ["tab", "tab:back", "tab"], f"⏭ ⏮ y Canal+ saltan al elemento siguiente / anterior: {out}")
+    out = await press("FORWARD", "BACKWARD", "CHANNEL_UP", "CHANNEL_DOWN")
+    check(out == ["mpris:next", "mpris:previous", "tab", "tab:back"],
+          f"⏭ ⏮ siguen cambiando de tema; Canal ± saltan al elemento siguiente / anterior: {out}")
     out = await press("NUMBER3", "NUMBER1")
     check(out == ["go:collection", "go:home"], f"3 = Colección, 1 = Inicio: {out}")
     out = await press("ROOT_MENU")
@@ -543,6 +545,18 @@ async def main() -> int:
     check([x for x in out if x.startswith("music:")][-3:] == ["music:launch", "music:resume", "music:my_tracks@11"],
           f"abre Tidal y retoma «Mis canciones» en el tema guardado: {[x for x in out if x.startswith('music:')]}")
     ctl.music.can_resume = True
+
+    print("Tidal como viene por defecto: en Inicio, en pausa y con las flechas recorriendo la interfaz")
+    await press("ROOT_MENU", "NUMBER1")
+    ctl.music.resume_on_open, ctl.music.start_in_nav = False, True
+    out = await press("ROOT_MENU", "NUMBER2")
+    music = [x for x in out if x.startswith("music:")]
+    check(music[-1:] == ["music:launch"], f"abre Tidal sin poner música: {music}")
+    check(await ctl.context() == "tidal_nav", "arranca con las flechas recorriendo la interfaz")
+    out = await press("DOWN", "SELECT", "NUMBER0", "DOWN")
+    check(out == ["wtype:Down", "wtype:Return", "nav:stop", "mpris:volume-"], f"▼ y OK van a la app; 0 pasa a controles: {out}")
+    ctl.music.resume_on_open, ctl.music.start_in_nav = True, False
+    ctl._tidal_nav = False
 
     print("Autocierre y teclas durante el cambio")
     ctl._menu_timeout = 0.2
@@ -681,7 +695,7 @@ async def main() -> int:
     await ctl.run_action("app:tidal")
     ctl._ctx = await ctl.context()
     out = await press("HELP")
-    check(out == ["ov:help:Ayuda · Tidal"], f"la tecla Ayuda abre la ayuda de la app actual: {out}")
+    check(out == ["ov:help:Ayuda · Tidal · controles (después de 0)"], f"la tecla Ayuda abre la ayuda de la app actual: {out}")
     out = await press("EXIT")
     check(out == ["ov:hide"] and not ctl._menu_open, f"Atrás la cierra: {out}")
 

@@ -127,7 +127,7 @@ class Controller:
         self._busy_timer: asyncio.Task | None = None
         # Tidal (High Tide): app aparte, sin navegador.
         self.music = HighTide(cfg.apps.get("tidal"))
-        self._tidal_nav = False
+        self._tidal_nav = self.music.start_in_nav  # flechas = recorrer la interfaz (0 cambia)
         # Qué pantalla de High Tide dejó el último amarillo («my_tracks», «inicio» o "" si no se sabe), y en qué
         # proceso de High Tide (si se reinició, ya no vale).
         self._tidal_view = ""
@@ -360,7 +360,7 @@ class Controller:
             cur = self.current_app()
             if cur == "tidal":
                 return "tidal_nav" if self._tidal_nav else "tidal"
-            self._tidal_nav = False
+            self._tidal_nav = self.music.start_in_nav  # la próxima vez que se abra, arranca así
             return self.activities[cur].context if cur else "offline"
         try:
             r = await self.js("ctx")
@@ -1004,7 +1004,7 @@ class Controller:
                 if (ident != want or folder is not None) and await other.active():
                     log.info("Cierro %s", other.name)
                     await other.close()
-            self._tidal_nav = False
+            self._tidal_nav = self.music.start_in_nav
             if (want != "netflix" and self.source and not self._no_activate
                     and self.cfg.cec.get("activate_source") in ("launch", "both")):
                 await self.source.activate_source()  # a_launch lo hace para Netflix

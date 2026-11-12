@@ -242,24 +242,23 @@ VOLUME_DOWN = "music:volume:-"
 F1_BLUE = "music:like"        # azul = me gusta (agregar/quitar de favoritos)
 F2_RED = "music:lyrics"       # rojo = mostrar las letras (otra vez = volver al reproductor)
 F4_YELLOW = "music:my_tracks" # amarillo = Mis canciones
-NUMBER0 = "music:nav"         # flechas para recorrer la interfaz de Tidal (otra vez = volver)
+NUMBER0 = "music:nav"         # cambia las flechas: recorrer la interfaz ↔ controles (volumen, temas)
 NUMBER1 = "music:page:inicio"     # páginas de High Tide (la barra de abajo)
 NUMBER2 = "music:page:explorar"
 NUMBER3 = "music:page:coleccion"
 EXIT = ""
 AN_RETURN = ""
 
-[keys.tidal_nav]              # las flechas mueven el foco por la interfaz de Tidal y OK aprieta
-# Las flechas van tal cual. Donde se traban (la barra de progreso, dentro de una fila de la lista), ⏭ y ⏮
-# saltan al elemento siguiente o anterior (Tab / Shift+Tab).
-# music:move:<Flecha> (experimental) sigue el foco por accesibilidad y usa Tab solo donde hace falta, pero
-# escuchar esos eventos puede cerrar High Tide (error de GTK 4): por eso no se usa por defecto.
+[keys.tidal_nav]              # las flechas mueven el foco por la interfaz de Tidal y OK aprieta (así arranca)
+# Las flechas van tal cual: el parche que tele-cec le carga a High Tide las lleva al elemento más cercano en esa
+# dirección (sin el parche, GTK solo mueve el foco dentro de cada bloque). Canal + y − saltan al elemento
+# siguiente o anterior (Tab / Shift+Tab), por si algo se traba. El resto de las teclas, como en [keys.tidal].
+# music:move:<Flecha> (experimental) sigue el foco por accesibilidad, pero escuchar esos eventos puede cerrar
+# High Tide (error de GTK 4): por eso no se usa.
 UP = "music:key:Up"
 DOWN = "music:key:Down"
 LEFT = "music:key:Left"
 RIGHT = "music:key:Right"
-FORWARD = "music:tab"
-BACKWARD = "music:tab:back"
 CHANNEL_UP = "music:tab"
 CHANNEL_DOWN = "music:tab:back"
 SELECT = "music:key:Return"
@@ -384,7 +383,8 @@ on_reselect = "continue_watching"   # app:netflix con Netflix ya abierto
 [apps.tidal]                         # Tidal con High Tide (Flatpak; ver README → Tidal)
 on_reselect = "music:my_tracks"      # app:tidal con Tidal ya abierto: Mis canciones
 flatpak_id = "io.github.nokse22.high-tide"
-resume_on_open = true                # al abrir Tidal, seguir con lo último que estaba sonando
+resume_on_open = false               # al abrir Tidal: false = en Inicio y en pausa; true = seguir con lo último que sonaba
+start_in_nav = true                  # al abrir Tidal, las flechas mueven el foco (0 cambia a controles: volumen, temas)
 volume_step = 0.05
 start_timeout = 60                   # segundos para que High Tide termine de abrir (en una Pi tarda)
 # Cómo dibuja High Tide (GTK 4). En la Pi, con Vulkan (el de GTK) se queda sin memoria del driver y se
