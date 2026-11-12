@@ -61,7 +61,7 @@ SUB_ACTIONS = {
              "right": "Videos o Fotos: elegir otra carpeta · entrar", "pick": "Elegir directo", "help": "Ayuda"},
     "music": {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "stop": "Pausa", "next": "Tema siguiente",
               "previous": "Tema anterior", "like": "Me gusta (favoritos)", "shuffle": "Aleatorio",
-              "my_tracks": "Mis canciones (otra vez: Inicio)", "lyrics": "Letras (otra vez: volver)", "back": "Atrás en la app",
+              "my_tracks": "Mis canciones → Colección → Inicio (en ciclo)", "lyrics": "Letras (otra vez: volver)", "back": "Atrás en la app",
               "nav": "Modo navegación: las flechas recorren la app (otra vez: volver)", "move": "Moverse por la app",
               "tab": "Siguiente elemento (si las flechas se traban)"},
     "video": {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "stop": "Pausa", "next": "Video siguiente",

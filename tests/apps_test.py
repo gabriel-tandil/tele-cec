@@ -156,6 +156,29 @@ class FakeMusic:
         self.log.append(f"boton:{names[0]}")
         return True
 
+    # Canal de control del parche: channel=False simula High Tide sin él (respaldo por la cuenta propia).
+    channel = False
+    page = "home"
+
+    async def go(self, page: str) -> bool:
+        self.log.append(f"go:{page}")
+        return True
+
+    async def like(self) -> bool:
+        self.log.append("like")
+        return True
+
+    async def shuffle(self) -> bool:
+        self.log.append("shuffle")
+        return True
+
+    async def cycle(self):
+        if not self.channel:
+            return None
+        self.page = {"my_tracks": "collection", "collection": "home"}.get(self.page, "my_tracks")
+        self.log.append(f"cycle:{self.page}")
+        return self.page
+
     async def move(self, direction: str) -> bool:
         self.log.append(f"move:{direction}")
         return True
@@ -379,15 +402,22 @@ async def main() -> int:
     out = await press("F4_YELLOW")
     check(out == ["music:my_tracks"], f"amarillo = Mis canciones: {out}")
     out = await press("F4_YELLOW")
-    check(out == ["boton:Inicio"], f"amarillo otra vez (sigue en Mis canciones) = Inicio: {out}")
+    check(out == ["go:back"], f"amarillo otra vez = Colección (Atrás desde Mis canciones): {out}")
+    out = await press("F4_YELLOW")
+    check(out == ["go:home"], f"amarillo otra vez = Inicio: {out}")
     out = await press("F4_YELLOW")
     check(out == ["music:my_tracks"], f"y otra vez, de nuevo Mis canciones: {out}")
     await press("NUMBER0", "DOWN", "NUMBER0")  # se movió por la interfaz
     out = await press("F4_YELLOW")
     check(out == ["music:my_tracks"], f"si se movió con las flechas, el amarillo vuelve a Mis canciones: {out}")
+    ctl.music.channel = True  # con el canal del parche: High Tide decide según la pantalla que muestra
+    out = await press("F4_YELLOW", "F4_YELLOW", "F4_YELLOW", "F4_YELLOW")
+    check(out == ["cycle:my_tracks", "cycle:collection", "cycle:home", "cycle:my_tracks"],
+          f"con el canal, el amarillo cicla Mis canciones → Colección → Inicio: {out}")
+    ctl.music.channel = False
     out = await press("SELECT", "FORWARD", "BACKWARD", "UP", "DOWN", "F1_BLUE")
     check(out == ["mpris:play-pause", "mpris:next", "mpris:previous", "mpris:volume+", "mpris:volume-",
-                  "boton:Agregar/Eliminar de favoritos"], f"OK, ⏭, ⏮, ▲, ▼, azul: {out}")
+                  "like"], f"OK, ⏭, ⏮, ▲, ▼, azul: {out}")
     out = await press("EXIT", "F3_GREEN")
     check(out == [], f"Atrás y verde no hacen nada en Tidal: {out}")
     out = await press("F2_RED")
@@ -395,12 +425,12 @@ async def main() -> int:
     await press("NUMBER0")
     check(await ctl.context() == "tidal_nav", "0 activa el modo navegación de Tidal")
     out = await press("DOWN", "LEFT", "SELECT", "EXIT")
-    check(out == ["wtype:Down", "wtype:Left", "wtype:Return", "boton:Atrás"],
+    check(out == ["wtype:Down", "wtype:Left", "wtype:Return", "go:back"],
           f"en modo navegación: flechas, OK y Atrás van tal cual a la app (sin seguir el foco): {out}")
     out = await press("FORWARD", "BACKWARD", "CHANNEL_UP")
     check(out == ["tab", "tab:back", "tab"], f"⏭ ⏮ y Canal+ saltan al elemento siguiente / anterior: {out}")
     out = await press("NUMBER3", "NUMBER1")
-    check(out == ["boton:Colección", "boton:Inicio"], f"3 = Colección, 1 = Inicio: {out}")
+    check(out == ["go:collection", "go:home"], f"3 = Colección, 1 = Inicio: {out}")
     out = await press("ROOT_MENU")
     check(await ctl.context() == "menu", "Menú también se abre en el modo navegación")
     await press("EXIT")

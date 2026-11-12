@@ -20,7 +20,7 @@ from .cdp import CDPClosed, CDPError, ContextLost, SessionBusy
 from .cec import OP_STANDBY, CecFrame
 from .config import PKG_DIR, Config
 from .keys import key_label, key_name
-from .music import BACK, COLLECTION, EXPLORE, HOME, LIKE, SHUFFLE, HighTide, wtype_key
+from .music import HighTide, wtype_key
 from .overlay import Overlay
 from .power import IdleShutdown
 
@@ -1637,20 +1637,33 @@ class Controller:
             except ValueError:
                 log.warning("music:seek:%s inválido (segundos, p. ej. -10)", rest)
         elif cmd == "like":
-            await m.press_button(LIKE)
+            await m.like()
         elif cmd == "shuffle":
-            await m.press_button(SHUFFLE)
+            await m.shuffle()
         elif cmd == "back":
-            await m.press_button(BACK)
+            await m.go("back")
         elif cmd == "my_tracks":
-            # Otra vez sin haberse movido de «Mis canciones»: a Inicio. Se lleva la cuenta acá en vez de
-            # preguntarle a High Tide qué pantalla muestra: consultarlo por accesibilidad mientras cambia de
-            # pantalla puede cerrarlo (error de GTK 4).
+            # En ciclo: Mis canciones → Colección → Inicio → Mis canciones. Con el canal de control del parche,
+            # High Tide decide según la pantalla que muestra.
+            went = await m.cycle()
+            if went is not None:
+                log.info("Amarillo: %s", {"my_tracks": "Mis canciones", "collection": "Colección",
+                                         "home": "Inicio"}.get(went, "no pude cambiar de pantalla"))
+                return
+            # Sin canal (parche desactivado): se lleva la cuenta acá, mientras no se mueva por otro lado,
+            # porque preguntarle por accesibilidad qué pantalla muestra puede cerrarlo (error de GTK 4).
             pids = tuple(m.pids())
-            if self._tidal_view == "my_tracks" and pids == self._tidal_pids:
-                if await m.press_button(HOME):
+            view = self._tidal_view if pids == self._tidal_pids else ""
+            if view == "my_tracks":
+                # «Mis canciones» es una página abierta desde Colección: Atrás vuelve justo ahí.
+                if await m.go("back"):
+                    self._tidal_view = "coleccion"
+                    log.info("Amarillo: Colección")
+                return
+            if view == "coleccion":
+                if await m.go("home"):
                     self._tidal_view = "inicio"
-                    log.info("Mis canciones otra vez: voy a Inicio")
+                    log.info("Amarillo: Inicio")
                 return
             ok = await m.my_tracks()
             self._tidal_view, self._tidal_pids = ("my_tracks" if ok else ""), pids
@@ -1667,13 +1680,13 @@ class Controller:
         elif cmd == "lyrics":
             await m.toggle_lyrics()
         elif cmd == "page":
-            pages = {"inicio": HOME, "home": HOME, "explorar": EXPLORE, "explore": EXPLORE,
-                     "coleccion": COLLECTION, "colección": COLLECTION, "collection": COLLECTION}
-            names = pages.get(rest.lower())
-            if names is None:
+            pages = {"inicio": "home", "home": "home", "explorar": "explore", "explore": "explore",
+                     "coleccion": "collection", "colección": "collection", "collection": "collection"}
+            page = pages.get(rest.lower())
+            if page is None:
                 log.warning("music:page:%s desconocida (inicio, explorar, coleccion)", rest)
             else:
-                await m.press_button(names)
+                await m.go(page)
         elif cmd == "key":
             if rest:
                 await m.key(rest)

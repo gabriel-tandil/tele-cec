@@ -136,64 +136,233 @@ async def xdotool_key(name: str) -> bool:
 # usercustomize.py que se le carga a High Tide (ver HighTide.write_card_patch). Corre adentro de High Tide.
 # No puede llamarse sitecustomize.py: el runtime de GNOME usa el suyo para agregar las librerías de la app
 # (tidalapi…) y uno con el mismo nombre lo taparía. usercustomize se carga además, después de ese.
-CARD_PATCH = '''\
-"""Lo escribe tele-cec al abrir High Tide (no editar: se reescribe cada vez).
+CARD_PATCH = """\
+\"\"\"Lo escribe tele-cec al abrir High Tide (no editar: se reescribe cada vez).
 
-Hace que las tarjetas de High Tide (portadas de discos, playlists, artistas) puedan recibir el foco del
-teclado y abrirse con Enter, igual que con un clic. Si algo falla, High Tide sigue como siempre.
-"""
+1. Hace que las tarjetas de High Tide (portadas de discos, playlists, artistas) puedan recibir el foco del
+   teclado y abrirse con Enter, igual que con un clic.
+2. Abre un canal de control (control.sock, al lado de este archivo) para que tele-cec cambie de pantalla
+   (Inicio, Colección, Mis canciones, Atrás, Letras…) llamando a las mismas funciones que los botones, sin
+   pasar por la accesibilidad (consultarla mientras High Tide dibuja puede cerrarlo: error de GTK 4).
+Si algo falla, High Tide sigue como siempre.
+\"\"\"
 import importlib.abc
 import importlib.util
+import os
+import socket
 import sys
+import threading
 
-_TARGET = "high_tide.widgets.card_widget"
+_SOCK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "control.sock")
+_MY_TRACKS = "tele-my-tracks"  # etiqueta de la página «Mis canciones» que abre tele-cec
+_window = None
 
 
-def _patch(module):
+def _log(*args):
+    print("tele-cec:", *args, file=sys.stderr, flush=True)
+
+
+def _patch_cards(module):
+    from gi.repository import Gdk, Gtk
+    cls = module.HTCardWidget
+    original_init = cls.__init__
+
+    def __init__(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        try:
+            # La tarjeta no toma el foco ella misma (se lo pasa a lo de adentro): lo recibe la portada, y el
+            # Enter lo atiende la tarjeta (las teclas suben desde la portada). El link del artista de adentro
+            # queda sin foco: si no, OK abriría el artista en vez del disco (se llega desde la página del disco).
+            image = getattr(self, "image", None)
+            if image is not None:
+                image.set_focusable(True)
+            for name in ("track_artist_label", "detail_label", "title_label"):
+                widget = getattr(self, name, None)
+                if widget is not None:
+                    widget.set_can_focus(False)
+            keys = Gtk.EventControllerKey()
+
+            def on_key(_controller, keyval, _keycode, _state):
+                if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
+                    self._on_click()
+                    return True
+                return False
+
+            keys.connect("key-pressed", on_key)
+            self.add_controller(keys)
+        except Exception as exc:  # noqa: BLE001
+            _log("no pude hacer enfocable una tarjeta:", exc)
+
+    cls.__init__ = __init__
+    _log("tarjetas de High Tide enfocables (Enter = abrir)")
+
+
+# ------------------------------------------------------------------ canal de control
+def _tag():
+    page = _window.navigation_view.get_visible_page()
+    return (page.get_tag() or "") if page is not None else ""
+
+
+def _go(tag, handler):
+    if _window.navigation_view.find_page(tag):
+        _window.navigation_view.pop_to_tag(tag)
+    else:
+        handler(None)
+    return tag
+
+
+def _home():
+    return _go("home", _window.on_home_button_clicked_func)
+
+
+def _explore():
+    return _go("explore", _window.on_explore_button_clicked_func)
+
+
+def _collection():
+    return _go("collection", _window.on_collection_button_clicked_func)
+
+
+def _my_tracks(start="-1"):
+    \"\"\"Colección → «Canciones» (Mis canciones) y, con start >= 0, reproducirlas desde ese tema.\"\"\"
+    from gettext import gettext as _
+    from high_tide.lib import utils
+    from high_tide.pages import HTFromFunctionPage
+    tracks = list(utils.favourite_tracks or [])
+    # Recién abierto: todavía no entró a la cuenta o no cargó los favoritos. Al entrar, High Tide reemplaza
+    # todas las páginas por Inicio, así que hay que esperar a eso (tele-cec reintenta).
+    if not tracks or not getattr(_window, "is_logged_in", False):
+        return "empty"
+    nav = _window.navigation_view
+    if nav.find_page(_MY_TRACKS):
+        nav.pop_to_tag(_MY_TRACKS)
+    else:
+        _collection()
+        page = HTFromFunctionPage(_("Tracks"))
+        page.set_tag(_MY_TRACKS)
+        page.set_items(tracks)
+        page.load()
+        nav.push(page)
+    start = int(start)
+    if start >= 0:
+        utils.player_object.play_this(tracks, min(start, len(tracks) - 1))
+    return "my_tracks"
+
+
+def _cycle(start="0"):
+    \"\"\"Amarillo: Mis canciones → Colección → Inicio → Mis canciones.\"\"\"
+    tag = _tag()
+    if tag == _MY_TRACKS:
+        return _collection()
+    if tag == "collection":
+        return _home()
+    return _my_tracks(start)
+
+
+def _back():
+    return "ok" if _window.navigation_view.pop() else "no"
+
+
+def _like():
+    _window.on_in_my_collection_button_clicked(_window.in_my_collection_button)
+    return "ok"
+
+
+def _shuffle():
+    b = _window.shuffle_button
+    b.set_active(not b.get_active())
+    return "on" if b.get_active() else "off"
+
+
+def _lyrics():
+    stack = _window.sidebar_stack
+    stack.set_visible_child_name("player" if stack.get_visible_child_name() == "lyrics" else "lyrics")
+    return stack.get_visible_child_name()
+
+
+_COMMANDS = {"ping": lambda: "pong", "page": _tag, "home": _home, "explore": _explore,
+             "collection": _collection, "my_tracks": _my_tracks, "cycle": _cycle, "back": _back,
+             "like": _like, "shuffle": _shuffle, "lyrics": _lyrics}
+
+
+def _run(line):
+    \"\"\"Corre un comando en el hilo de GTK y devuelve la respuesta.\"\"\"
+    from gi.repository import GLib
+    name, *args = line.split()
+    fn = _COMMANDS.get(name)
+    if fn is None:
+        return "error comando desconocido"
+    if _window is None:
+        return "error todavía no hay ventana"
+    done, out = threading.Event(), ["error tiempo agotado"]
+
+    def call():
+        try:
+            out[0] = str(fn(*args))
+        except Exception as exc:  # noqa: BLE001
+            out[0] = "error " + " ".join(str(exc).split())
+        done.set()
+        return False
+
+    GLib.idle_add(call)
+    done.wait(8)
+    return out[0]
+
+
+def _serve():
     try:
-        from gi.repository import Gdk, Gtk
-        cls = module.HTCardWidget
-        original_init = cls.__init__
-
-        def __init__(self, *args, **kwargs):
-            original_init(self, *args, **kwargs)
+        os.unlink(_SOCK)
+    except OSError:
+        pass
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(_SOCK)
+    srv.listen(4)
+    _log("canal de control en", _SOCK)
+    while True:
+        conn, _addr = srv.accept()
+        with conn:
             try:
-                # La tarjeta no toma el foco ella misma (se lo pasa a lo de adentro): lo recibe la portada, y el
-                # Enter lo atiende la tarjeta (las teclas suben desde la portada). El link del artista de adentro
-                # queda sin foco: si no, OK abriría el artista en vez del disco (se llega desde la página del disco).
-                image = getattr(self, "image", None)
-                if image is not None:
-                    image.set_focusable(True)
-                for name in ("track_artist_label", "detail_label", "title_label"):
-                    widget = getattr(self, name, None)
-                    if widget is not None:
-                        widget.set_can_focus(False)
-                keys = Gtk.EventControllerKey()
-
-                def on_key(_controller, keyval, _keycode, _state):
-                    if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
-                        self._on_click()
-                        return True
-                    return False
-
-                keys.connect("key-pressed", on_key)
-                self.add_controller(keys)
+                conn.settimeout(5)
+                data = b""
+                while not data.endswith(b"\\n") and len(data) < 1024:
+                    chunk = conn.recv(256)
+                    if not chunk:
+                        break
+                    data += chunk
+                line = data.decode("utf-8", "replace").strip()
+                conn.sendall((_run(line) if line else "error vacío").encode() + b"\\n")
             except Exception as exc:  # noqa: BLE001
-                print("tele-cec: no pude hacer enfocable una tarjeta:", exc, file=sys.stderr)
+                _log("canal de control:", exc)
 
-        cls.__init__ = __init__
-        print("tele-cec: tarjetas de High Tide enfocables (Enter = abrir)", file=sys.stderr)
-    except Exception as exc:  # noqa: BLE001
-        print("tele-cec: no pude aplicar el parche de tarjetas:", exc, file=sys.stderr)
+
+def _patch_window(module):
+    cls = module.HighTideWindow
+    original_init = cls.__init__
+
+    def __init__(self, *args, **kwargs):
+        global _window
+        original_init(self, *args, **kwargs)
+        first = _window is None
+        _window = self
+        if first:
+            threading.Thread(target=_serve, name="tele-cec", daemon=True).start()
+
+    cls.__init__ = __init__
+
+
+# ------------------------------------------------------------------ enganche
+_TARGETS = {"high_tide.widgets.card_widget": _patch_cards, "high_tide.window": _patch_window}
 
 
 class _Finder(importlib.abc.MetaPathFinder):
-    """Espera a que High Tide cargue el módulo de las tarjetas y lo parchea apenas termina."""
+    \"\"\"Espera a que High Tide cargue cada módulo de _TARGETS y lo parchea apenas termina.\"\"\"
 
     def find_spec(self, name, path=None, target=None):
-        if name != _TARGET:
+        patch = _TARGETS.pop(name, None)
+        if patch is None:
             return None
-        sys.meta_path.remove(self)
+        if not _TARGETS:
+            sys.meta_path.remove(self)
         spec = importlib.util.find_spec(name)
         if spec is None or spec.loader is None:
             return spec
@@ -201,14 +370,17 @@ class _Finder(importlib.abc.MetaPathFinder):
 
         def exec_module(module):
             original_exec(module)
-            _patch(module)
+            try:
+                patch(module)
+            except Exception as exc:  # noqa: BLE001
+                _log("no pude aplicar el parche de", name + ":", exc)
 
         spec.loader.exec_module = exec_module
         return spec
 
 
 sys.meta_path.insert(0, _Finder())
-'''
+"""
 
 
 class TidalNav(HelperProcess):
@@ -270,6 +442,7 @@ class HighTide:
             if self.gsk_renderer:
                 args.append(f"--env=GSK_RENDERER={self.gsk_renderer}")
             patch_dir = self.write_card_patch()
+            self.control_socket.unlink(missing_ok=True)  # el de una vez anterior (si se cerró de golpe)
             if patch_dir:
                 args.append(f"--env=PYTHONPATH={patch_dir}")
             args.append(self.app_id)
@@ -422,12 +595,82 @@ class HighTide:
     async def seek(self, seconds: int) -> bool:
         return await self.mpris.seek(seconds)
 
+    # ------------------------------------------------------------ canal de control (parche de High Tide)
+    @property
+    def control_socket(self) -> Path:
+        return Path.home() / ".var" / "app" / self.app_id / "data" / "tele-cec" / "control.sock"
+
+    async def command(self, line: str, timeout: float = 10.0, wait: float = 0.0) -> str | None:
+        """Manda un comando al canal de control que abre el parche dentro de High Tide (ver CARD_PATCH).
+
+        Devuelve la respuesta, o None si el canal no está (parche desactivado, High Tide abierto sin tele-cec
+        o todavía arrancando). Es la forma segura de cambiar de pantalla: la accesibilidad puede cerrarlo.
+        """
+        if not self.keyboard_cards:
+            return None
+        # wait: High Tide recién abierto abre el canal cuando termina de armar la ventana.
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_unix_connection(str(self.control_socket)), 2)
+                break
+            except (OSError, asyncio.TimeoutError):
+                if time.monotonic() >= deadline or not self.pids():
+                    return None
+                await asyncio.sleep(0.5)
+        try:
+            writer.write(line.encode() + b"\n")
+            await writer.drain()
+            reply = (await asyncio.wait_for(reader.readline(), timeout)).decode("utf-8", "replace").strip()
+        except (OSError, asyncio.TimeoutError) as exc:
+            log.warning("Canal de control de High Tide (%s): %s", line, exc or "sin respuesta")
+            return None
+        finally:
+            writer.close()
+        if reply.startswith("error"):
+            log.warning("High Tide no pudo hacer «%s»: %s", line, reply[6:])
+        return reply
+
+    async def go(self, page: str) -> bool:
+        """Pantalla de High Tide: home, explore, collection, back (atrás)."""
+        reply = await self.command(page)
+        if reply is not None:
+            return not reply.startswith("error") and reply != "no"
+        names = {"home": HOME, "explore": EXPLORE, "collection": COLLECTION, "back": BACK}[page]
+        return await self.press_button(names)
+
+    async def like(self) -> bool:
+        reply = await self.command("like")
+        return reply == "ok" if reply is not None else await self.press_button(LIKE)
+
+    async def shuffle(self) -> bool:
+        reply = await self.command("shuffle")
+        return reply in ("on", "off") if reply is not None else await self.press_button(SHUFFLE)
+
+    async def cycle(self) -> str | None:
+        """Amarillo: Mis canciones → Colección → Inicio → … según la pantalla que muestra High Tide.
+
+        Devuelve a dónde fue ("my_tracks", "collection", "home"), "" si no pudo, o None sin canal de control.
+        """
+        for _ in range(30):
+            reply = await self.command("cycle 0", wait=5)
+            if reply != "empty":
+                break
+            await asyncio.sleep(1)  # recién abierto: los favoritos todavía están cargando
+        if reply is None:
+            return None
+        return "" if reply.startswith("error") or reply == "empty" else reply
+
     # ------------------------------------------------------------ interfaz (AT-SPI + wtype)
     async def key(self, name: str) -> bool:
         return await wtype_key(name)
 
     async def toggle_lyrics(self) -> bool:
         """Pestaña Letras del panel de High Tide (otra vez = volver a Reproductor)."""
+        reply = await self.command("lyrics")
+        if reply is not None:
+            return reply in ("lyrics", "player")
         ok = await asyncio.to_thread(_atspi_toggle_tab, LYRICS, PLAYER_TAB)
         if not ok:
             log.warning("No encontré en High Tide la pestaña %s", " / ".join(LYRICS))
@@ -462,8 +705,15 @@ class HighTide:
         Colección → "More" de Canciones → primer tema → (flecha abajo `start` veces) → Enter.
         High Tide no tiene una acción para esto. Activar una fila de esa lista reproduce todos los
         favoritos desde esa fila, y las filas solo se activan con Enter (o clic), así que se llega al
-        primer tema con Tab y se confirma con Enter.
+        primer tema con Tab y se confirma con Enter. Con el canal de control del parche se hace directo.
         """
+        for _ in range(30):
+            reply = await self.command(f"my_tracks {max(start, 0)}", wait=20)
+            if reply != "empty":
+                break
+            await asyncio.sleep(1)  # recién abierto: los favoritos todavía están cargando
+        if reply is not None:
+            return reply == "my_tracks"
         # Recién abierto, High Tide publica sus controles antes de terminar de dibujar la interfaz. Y dentro
         # de una página (un álbum, la misma lista de Canciones) la barra Inicio/Explorar/Colección no está:
         # se vuelve con "Atrás" hasta encontrarla.
