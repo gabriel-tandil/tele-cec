@@ -260,8 +260,12 @@ def _move_focus(window, direction):
     items = _candidates(window)
     cur = _rect(focus, window) if focus is not None else None
     if cur is None:
-        # Sin foco: el primer elemento de la página (arriba a la izquierda).
-        rects = [(r, w) for w in items for r in [_rect(w, window)] if r]
+        # Sin foco (recién abierto, o después de abrir otra página): el primer elemento de la página, arriba a
+        # la izquierda; no el panel del reproductor.
+        page = getattr(window, "navigation_view", None)
+        # Lo que se desplaza en la página: sin la barra de arriba (el menú ☰ tiene «Salir»).
+        inside = [w for w in items if page is not None and w.is_ancestor(page) and _region(w, window)]
+        rects = [(r, w) for w in (inside or items) for r in [_rect(w, window)] if r]
         if not rects:
             return False
         target = min(rects, key=lambda x: (x[0][1] // 40, x[0][0]))[1]
@@ -393,6 +397,14 @@ def _cycle(start="0"):
 
 
 def _back():
+    \"\"\"Atrás: si hay un menú desplegado (☰, ⋮ de un tema), lo cierra; si no, la página anterior.\"\"\"
+    from gi.repository import Gtk
+    w = _window.get_focus()
+    while w is not None:
+        if isinstance(w, Gtk.Popover):
+            w.popdown()
+            return "ok"
+        w = w.get_parent()
     return "ok" if _window.navigation_view.pop() else "no"
 
 
