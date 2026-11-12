@@ -4,7 +4,9 @@ Raspberry Pi OS usa PipeWire con WirePlumber:
 - `pw-dump` (JSON) lista las salidas («sinks») y cuál es la predeterminada.
 - `wpctl set-default <id>` la cambia; WirePlumber pasa ahí lo que esté sonando.
 - Los dispositivos Bluetooth emparejados pero desconectados no tienen salida todavía: se listan con
-  `bluetoothctl` y al elegirlos se conectan (emparejar uno nuevo se hace una vez desde el escritorio).
+  `bluetoothctl` y al elegirlos se conectan.
+- Los parlantes y auriculares Bluetooth cercanos que todavía no están emparejados se buscan mientras se ve la
+  lista (BluetoothScan); al elegir uno se empareja, se marca de confianza y se conecta.
 
 Las funciones sin async se llaman en un hilo aparte (asyncio.to_thread): corren comandos.
 """
@@ -25,6 +27,11 @@ from .procs import graphical_env, run_cmd
 log = logging.getLogger("sonido")
 
 BT_AUDIO_UUID = "0000110b"  # «Audio Sink»: el dispositivo reproduce audio (parlante, auriculares)
+# Íconos que BlueZ deduce de la clase del dispositivo: parlante o equipo de audio, auriculares con y sin micrófono.
+BT_AUDIO_ICONS = {"audio-card", "audio-headset", "audio-headphones"}
+# Clase de dispositivo Bluetooth: categoría mayor 4 = audio/video; menores que reproducen sonido (auricular, manos
+# libres, parlante, auriculares, audio portátil, del auto, equipo de música).
+BT_AUDIO_MINORS = {1, 2, 5, 6, 7, 8, 10}
 
 
 @dataclass
@@ -35,11 +42,14 @@ class Output:
     node_name: str = ""
     mac: str = ""             # Bluetooth
     default: bool = False     # la salida actual
+    paired: bool = True       # Bluetooth: False = encontrado cerca, todavía sin emparejar
 
     @property
     def detail(self) -> str:
         """Línea secundaria del menú."""
         kind = {"hdmi": "HDMI", "bluetooth": "Bluetooth", "analog": "Analógica", "usb": "USB"}.get(self.kind, "")
+        if self.kind == "bluetooth" and not self.paired:
+            return "Bluetooth · nuevo (OK lo empareja y conecta)"
         if self.kind == "bluetooth" and self.sink_id is None:
             return "Bluetooth · desconectado (OK lo conecta)"
         return kind
@@ -94,19 +104,106 @@ def _kind(props: dict) -> str:
     return "other"
 
 
-def _bt_paired_audio() -> list[tuple[str, str]]:
-    """(MAC, nombre) de los dispositivos Bluetooth emparejados que reproducen audio."""
+def _bt_devices(which: str = "") -> list[tuple[str, str]]:
+    """(MAC, nombre) de `bluetoothctl devices [Paired]`: los emparejados o todos los que conoce BlueZ."""
     if not shutil.which("bluetoothctl"):
         return []
     out = []
-    for line in _run(["bluetoothctl", "devices", "Paired"]).splitlines():
-        m = re.match(r"Device ([0-9A-F:]{17}) (.*)", line.strip())
-        if not m:
-            continue
-        info = _run(["bluetoothctl", "info", m.group(1)])
-        if BT_AUDIO_UUID in info.lower() or re.search(r"Icon: audio-", info):
-            out.append((m.group(1), m.group(2).strip()))
+    for line in _run(["bluetoothctl", "devices", *([which] if which else [])]).splitlines():
+        m = re.match(r"Device ([0-9A-Fa-f:]{17}) (.*)", line.strip())
+        if m:
+            out.append((m.group(1).upper(), m.group(2).strip()))
     return out
+
+
+def bt_info(mac: str) -> dict:
+    """Lo que interesa de `bluetoothctl info`: nombre, ícono, clase, UUIDs, emparejado, conectado."""
+    text = _run(["bluetoothctl", "info", mac])
+    info: dict = {"uuids": [], "found": bool(text.strip())}
+    for line in text.splitlines():
+        key, sep, value = line.strip().partition(": ")
+        if not sep:
+            continue
+        if key == "UUID":
+            info["uuids"].append(value.lower())
+        elif key in ("Name", "Alias", "Icon", "Class", "Paired", "Connected"):
+            info[key.lower()] = value.strip()
+    return info
+
+
+def bt_is_audio(info: dict) -> bool:
+    """¿Reproduce sonido? (parlante, auriculares, equipo de música…; no micrófonos, teléfonos ni teclados)."""
+    if info.get("icon") in BT_AUDIO_ICONS or any(BT_AUDIO_UUID in u for u in info.get("uuids", [])):
+        return True
+    try:
+        cls = int(str(info.get("class", "")).split()[0], 16)
+    except (ValueError, IndexError):
+        return False
+    return (cls >> 8) & 0x1F == 4 and (cls >> 2) & 0x3F in BT_AUDIO_MINORS
+
+
+def _looks_like_mac(name: str) -> bool:
+    """BlueZ usa la dirección como nombre mientras no sabe cómo se llama el dispositivo."""
+    return bool(re.fullmatch(r"([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}", name.strip()))
+
+
+def _bt_paired_audio() -> list[tuple[str, str]]:
+    """(MAC, nombre) de los dispositivos Bluetooth emparejados que reproducen audio."""
+    return [(mac, name) for mac, name in _bt_devices("Paired") if bt_is_audio(bt_info(mac))]
+
+
+def bt_nearby_audio(skip: set[str]) -> list[Output]:
+    """Parlantes y auriculares que BlueZ encontró cerca (en una búsqueda) y que no están en `skip`."""
+    out = []
+    for mac, name in _bt_devices():
+        if mac in skip or _looks_like_mac(name):
+            continue
+        info = bt_info(mac)
+        if info.get("paired") == "yes" or not bt_is_audio(info):
+            continue
+        out.append(Output(name=info.get("alias") or name, kind="bluetooth", mac=mac, paired=False))
+    return out
+
+
+class BluetoothScan:
+    """Busca dispositivos Bluetooth mientras se ve la lista de salidas (bluetoothctl scan, con tope de tiempo).
+
+    BlueZ busca mientras el cliente que lo pidió siga conectado: el bluetoothctl queda abierto hasta `seconds`
+    o hasta stop(). Lo encontrado se lee con bt_nearby_audio (BlueZ lo recuerda un rato después de buscar).
+    """
+
+    def __init__(self) -> None:
+        self.proc: asyncio.subprocess.Process | None = None
+
+    @staticmethod
+    def available() -> bool:
+        return bool(shutil.which("bluetoothctl"))
+
+    async def start(self, seconds: int = 25) -> bool:
+        await self.stop()
+        await run_cmd(["bluetoothctl", "power", "on"], 5)
+        try:
+            self.proc = await asyncio.create_subprocess_exec(
+                "bluetoothctl", "--timeout", str(seconds), "scan", "on", env=graphical_env(),
+                stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        except OSError as exc:
+            log.warning("No pude buscar dispositivos Bluetooth: %s", exc)
+            return False
+        log.info("Busco parlantes y auriculares Bluetooth (%d s)", seconds)
+        return True
+
+    def running(self) -> bool:
+        return self.proc is not None and self.proc.returncode is None
+
+    async def stop(self) -> None:
+        if self.running():
+            assert self.proc is not None
+            self.proc.terminate()
+            try:
+                await asyncio.wait_for(self.proc.wait(), 3)
+            except asyncio.TimeoutError:
+                self.proc.kill()
+        self.proc = None
 
 
 def list_outputs() -> list[Output]:
@@ -146,9 +243,29 @@ def sink_running() -> bool:
     return any((s.get("info") or {}).get("state") == "running" for s in sinks)
 
 
+async def pair(out: Output, timeout: float = 25.0) -> tuple[bool, str]:
+    """Empareja un parlante o auriculares nuevos (sin PIN: «just works») y los marca de confianza, así después se
+    reconectan solos."""
+    if not bt_info(out.mac).get("found"):
+        # BlueZ se olvida de lo encontrado un rato después de la búsqueda: buscarlo de nuevo un momento.
+        await run_cmd(["bluetoothctl", "--timeout", "8", "scan", "on"], 12)
+    log.info("Emparejo %s (%s)", out.name, out.mac)
+    rc, text = await run_cmd(["bluetoothctl", "--agent", "NoInputNoOutput", "--timeout", str(int(timeout)),
+                              "pair", out.mac], timeout + 5)
+    if rc != 0 or not re.search(r"Pairing successful|AlreadyExists", text):
+        log.warning("No pude emparejar %s: %s", out.name, text.strip()[-300:] or rc)
+        return False, f"No pude emparejar {out.name}: ponelo en modo emparejamiento y probá de nuevo"
+    await run_cmd(["bluetoothctl", "trust", out.mac], 5)
+    return True, ""
+
+
 async def select(out: Output, connect_timeout: float = 25.0) -> tuple[bool, str]:
     """Pasa el sonido a esa salida (conecta antes el Bluetooth si hace falta). Devuelve (ok, mensaje)."""
     sink_id = out.sink_id
+    if out.mac and not out.paired:
+        ok, text = await pair(out, connect_timeout)
+        if not ok:
+            return False, text
     if sink_id is None and out.mac:
         log.info("Conecto %s (%s)", out.name, out.mac)
         rc, text = await run_cmd(["bluetoothctl", "--timeout", str(int(connect_timeout)), "connect", out.mac],

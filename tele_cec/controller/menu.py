@@ -1,12 +1,15 @@
-"""El menú de actividades en el panel: elegir actividad, el selector de carpetas (Videos, Fotos) y la ayuda."""
+"""El menú de actividades en el panel: elegir actividad, el selector de carpetas (Videos, Fotos), la salida de
+sonido y la ayuda."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 from .. import apps as activities_mod
+from ..system import audio
 from ..ui import help as help_mod
 from .activities import KEEP_PLAYING
 
@@ -15,6 +18,9 @@ log = logging.getLogger("tele")
 # Ayuda al pie del menú.
 MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ otra carpeta (Videos, Fotos) · Atrás cerrar"
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
+SOUND_HINT = "▲ ▼ elegir · OK usar esta salida · ◀ volver"
+BT_SCAN_SECONDS = 25   # cuánto se buscan parlantes y auriculares Bluetooth al abrir «Sonido»
+BT_POLL_SECONDS = 2.0  # cada cuánto se mira qué encontró la búsqueda
 HELP_HINT = "◀ ▶ otra app · ▲ ▼ más filas · Atrás volver"
 
 
@@ -38,6 +44,24 @@ class MenuMixin:
         self._help_idx = 0
         self._help_top = 0
         self._help_from_menu = False
+        # Salida de sonido (entrada «Sonido» del menú): las salidas que se mostraron.
+        self._sound_outputs: list[audio.Output] = []
+        self._sound_on = bool(self.cfg.menu.get("sound", True))
+        self._bt_scan = audio.BluetoothScan()
+        self._sound_scan_task: asyncio.Task | None = None
+        self._sound_scanning = False
+
+    async def startup_menu(self) -> None:
+        """Al arrancar el servicio (al prender la Pi): el panel listo y el menú abierto, si no hay nada en pantalla."""
+        await self.overlay.warm()
+        if not self.cfg.menu.get("open_on_start", True) or not self.overlay.running():
+            return
+        await asyncio.sleep(2)  # que browser_loop alcance a encontrar un navegador que ya estaba abierto
+        if (self._menu_open or self._switching or self.power.asleep or self.current_app()
+                or await self.browser.alive()):
+            return
+        log.info("Arranque: abro el menú de actividades")
+        await self.menu_open()
 
     # ---------------------------------------------------------------- menú de actividades
     def _menu_order(self) -> list[str]:
@@ -66,6 +90,14 @@ class MenuMixin:
             if ident != cur and ident in KEEP_PLAYING.get(cur or "", set()) and act.running():
                 item["badge"] = "sonando"  # p. ej. Tidal de fondo mientras pasan las fotos
             out.append(item)
+        if self._sound_on and audio.available():
+            try:
+                current = audio.current_name()
+            except Exception:  # noqa: BLE001  (sin la salida actual, el menú igual se abre)
+                log.exception("Menú: no pude leer la salida de sonido")
+                current = ""
+            out.append({"id": "_sound", "name": "Sonido", "icon": "sonido.svg",
+                        "sub": current or "Elegir por dónde sale el sonido", "enabled": True, "current": False})
         out.append({"id": "_help", "name": "Ayuda", "icon": "ayuda.svg", "sub": "Qué hace cada tecla del control",
                     "enabled": True, "current": False})
         return out
@@ -74,12 +106,14 @@ class MenuMixin:
         if self._menu_timer:
             self._menu_timer.cancel()
         self._menu_timer = None
-        if self._menu_timeout > 0:
+        # Sin nada abierto el menú es la pantalla de inicio: no se cierra solo (Atrás sí lo cierra).
+        if self._menu_timeout > 0 and self.current_app() is not None:
             self._menu_timer = asyncio.get_running_loop().create_task(self._menu_autoclose())
 
     def _menu_wait(self) -> float:
-        """Cuánto espera el menú sin teclas antes de cerrarse (la ayuda se lee con más calma)."""
-        return max(self._menu_timeout, 60.0) if self._menu_mode == "help" else self._menu_timeout
+        """Cuánto espera el menú sin teclas antes de cerrarse (la ayuda se lee con más calma, y en «Sonido» se
+        espera a que aparezcan los Bluetooth)."""
+        return max(self._menu_timeout, 60.0) if self._menu_mode in ("help", "sound") else self._menu_timeout
 
     async def _menu_autoclose(self) -> None:
         wait = self._menu_wait()
@@ -89,6 +123,7 @@ class MenuMixin:
             await self.menu_close()
 
     async def menu_open(self, sel: int | None = None) -> None:
+        self._sound_scan_stop()
         items = await asyncio.to_thread(self._menu_entries)
         if not items:
             await self.toast("No hay actividades para elegir")
@@ -110,6 +145,7 @@ class MenuMixin:
         self._menu_restart_timer()
 
     async def menu_close(self) -> None:
+        self._sound_scan_stop()
         self._menu_open = False
         self._menu_mode = "activities"
         if self._menu_timer:
@@ -133,6 +169,9 @@ class MenuMixin:
         if self._menu_mode == "folders":
             await self._picker_choose(index)
             return
+        if self._menu_mode == "sound":
+            await self._sound_choose(index)
+            return
         if self._menu_mode == "help":
             self._menu_restart_timer()
             return
@@ -140,6 +179,10 @@ class MenuMixin:
         if item["id"] == "_help":
             self._menu_act_sel = index
             await self.help_open(from_menu=True)
+            return
+        if item["id"] == "_sound":
+            self._menu_act_sel = index
+            await self._sound_open()
             return
         if index != self._menu_sel:
             self._menu_sel = index
@@ -213,18 +256,25 @@ class MenuMixin:
         elif sub == "right":
             if self._menu_mode == "folders":
                 await self._picker_enter(self._menu_sel)
-            elif self._is_media(self._menu_items[self._menu_sel]["id"]):
+            elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] == "_sound":
+                self._menu_act_sel = self._menu_sel
+                await self._sound_open()
+            elif self._menu_mode == "activities" and self._is_media(self._menu_items[self._menu_sel]["id"]):
                 await self._picker_open(self._menu_items[self._menu_sel]["id"])
             else:
                 self._menu_restart_timer()
         elif sub == "left":
             if self._menu_mode == "folders":
                 await self._picker_back()
+            elif self._menu_mode == "sound":
+                await self.menu_open(self._menu_act_sel)
             else:
                 self._menu_restart_timer()
         elif sub == "back":
             if self._menu_mode == "folders":
                 await self._picker_back()
+            elif self._menu_mode == "sound":
+                await self.menu_open(self._menu_act_sel)
             else:
                 await self.menu_close()
         elif sub == "ok":
@@ -329,6 +379,123 @@ class MenuMixin:
         await self.overlay.busy(f"Abriendo {act.name}…")
         self._macro_task = asyncio.create_task(
             self._menu_switch({"id": self._picker_act, "name": act.name, "folder": item["path"]}))
+
+    # ---------------------------------------------------------------- salida de sonido
+    # La lista aparece enseguida con lo que ya se conoce (HDMI, Bluetooth emparejados…) y, mientras tanto, se buscan
+    # parlantes y auriculares Bluetooth cercanos: los que aparecen se agregan al final, antes de la fila de búsqueda.
+    async def _sound_open(self) -> None:
+        outs = await asyncio.to_thread(audio.list_outputs)
+        if not outs and not self._bt_scan.available():
+            await self.overlay.toast("No encontré salidas de sonido", 2500)
+            self._menu_restart_timer()
+            return
+        self._sound_outputs = outs
+        self._sound_scanning = self._bt_scan.available()  # la fila dice «Buscando…» desde el primer momento
+        await self._sound_render(next((i for i, o in enumerate(outs) if o.default), 0))
+        log.info("Menú: salidas de sonido: %s", " · ".join(("[" + o.name + "]") if o.default else o.name for o in outs))
+        self._sound_scan_start()
+
+    def _sound_items(self) -> list[dict]:
+        icons = {"bluetooth": "bluetooth", "hdmi": "video-display"}
+        items = [{"id": f"_out{i}", "name": o.name, "icon": icons.get(o.kind, "audio-speakers"), "sub": o.detail,
+                  "enabled": True, "current": o.default} for i, o in enumerate(self._sound_outputs)]
+        if self._bt_scan.available():
+            if self._sound_scanning:
+                items.append({"id": "_scan", "name": "Buscando parlantes y auriculares…", "icon": "bluetooth",
+                              "sub": "Ponelos en modo emparejamiento", "enabled": False, "current": False})
+            else:
+                items.append({"id": "_scan", "name": "Buscar Bluetooth otra vez", "icon": "bluetooth",
+                              "sub": "Parlantes y auriculares cercanos", "enabled": True, "current": False})
+        return items
+
+    async def _sound_render(self, sel: int) -> None:
+        items = self._sound_items()
+        sel = max(0, min(sel, len(items) - 1))
+        self._menu_mode, self._menu_items, self._menu_sel = "sound", items, sel
+        await self.overlay.show(items, sel, title="Sonido · por dónde sale", hint=SOUND_HINT, numbers=False)
+        self._menu_restart_timer()
+
+    def _sound_scan_start(self) -> None:
+        self._sound_scan_stop()
+        if self._bt_scan.available():
+            self._sound_scan_task = asyncio.get_running_loop().create_task(self._sound_scan_loop())
+
+    def _sound_scan_stop(self) -> None:
+        if self._sound_scan_task and not self._sound_scan_task.done():
+            self._sound_scan_task.cancel()
+        self._sound_scan_task = None
+
+    def _in_sound(self) -> bool:
+        return self._menu_open and self._menu_mode == "sound" and not self._switching
+
+    async def _sound_scan_loop(self) -> None:
+        self._sound_scanning = True
+        try:
+            if not await self._bt_scan.start(BT_SCAN_SECONDS):
+                return
+            deadline = time.monotonic() + BT_SCAN_SECONDS
+            while time.monotonic() < deadline and self._bt_scan.running():
+                await asyncio.sleep(BT_POLL_SECONDS)
+                if not self._in_sound():
+                    return
+                skip = {o.mac for o in self._sound_outputs if o.mac}
+                new = await asyncio.to_thread(audio.bt_nearby_audio, skip)
+                if not new or not self._in_sound():
+                    continue
+                log.info("Bluetooth: encontré %s", ", ".join(o.name for o in new))
+                sel = self._menu_sel
+                if sel >= len(self._sound_outputs):  # estaba sobre la fila de búsqueda: que siga ahí
+                    sel += len(new)
+                self._sound_outputs += new
+                await self._sound_render(sel)
+        finally:
+            current = self._sound_scan_task is asyncio.current_task()
+            if current or self._sound_scan_task is None:  # si ya arrancó otra búsqueda, no tocar la suya
+                self._sound_scanning = False
+                await self._bt_scan.stop()
+            if current and self._in_sound():
+                await self._sound_render(self._menu_sel)  # la fila pasa a «Buscar Bluetooth otra vez»
+
+    async def _sound_choose(self, index: int) -> None:
+        if index != self._menu_sel:
+            self._menu_sel = index
+            await self.overlay.select(index)
+        if index >= len(self._sound_outputs):  # la fila de búsqueda
+            if not self._sound_scanning:
+                self._sound_scanning = True
+                await self._sound_render(index)
+                self._sound_scan_start()
+            else:
+                self._menu_restart_timer()
+            return
+        out = self._sound_outputs[index]
+        if out.default:
+            await self.menu_open(self._menu_act_sel)
+            return
+        self._sound_scan_stop()  # emparejar y conectar anda mejor sin una búsqueda andando
+        if self._menu_timer:
+            self._menu_timer.cancel()
+            self._menu_timer = None
+        self._switching = True  # conectar un Bluetooth tarda: que ninguna tecla lo corte
+        busy = (f"Emparejando {out.name}…" if not out.paired else f"Conectando {out.name}…" if out.sink_id is None
+                else f"Cambiando a {out.name}…")
+        await self.overlay.busy(busy)
+        self._macro_task = asyncio.create_task(self._sound_switch(out))
+
+    async def _sound_switch(self, out: audio.Output) -> None:
+        ok, text = False, ""
+        try:
+            ok, text = await audio.select(out)
+        except asyncio.CancelledError:
+            pass
+        except Exception:  # noqa: BLE001
+            log.exception("Error cambiando la salida de sonido a %s", out.name)
+            text = "No pude cambiar la salida de sonido"
+        finally:
+            self._switching = False
+        await self.menu_open(self._menu_act_sel)
+        if text:
+            await self.overlay.toast(text, 3000 if ok else 4000)
 
     # ---------------------------------------------------------------- ayuda
     async def help_open(self, from_menu: bool = False) -> None:
