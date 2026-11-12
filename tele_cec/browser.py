@@ -1,0 +1,585 @@
+"""Lanzamiento del navegador (Chromium o Firefox) con el puerto de control habilitado.
+
+- Chromium: Chrome DevTools Protocol (cdp.py).
+- Firefox: WebDriver BiDi (bidi.py). Admite una sola sesión de control a la vez.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import glob
+import json
+import logging
+import os
+import re
+import shutil
+import signal
+import subprocess
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+from . import bidi, cdp
+
+# Primera página al abrir el navegador: negra y vacía (sin destello blanco). «Abriendo Netflix…» lo muestra
+# el panel del menú; el controller navega a Netflix apenas instala su script en la pestaña. Es un archivo
+# porque Firefox no abre direcciones data: desde la línea de comandos.
+BLANK = Path(__file__).resolve().parent / "blank.html"
+# Lo que escriben los programas que abre tele-cec (VLC, feh, High Tide): sirve para ver por qué se cerraron.
+LOG_DIR = Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")).expanduser() / "tele-cec"
+
+log = logging.getLogger("browser")
+
+ENGINES = ("chromium", "firefox")
+BINARIES = {
+    "chromium": ("chromium-browser", "chromium", "google-chrome", "google-chrome-stable"),
+    "firefox": ("firefox", "firefox-esr"),
+}
+NAMES = {"chromium": "Chromium", "firefox": "Firefox"}
+
+# Preferencias que tele-cec escribe en el user.js del perfil de Firefox.
+FIREFOX_PREFS: dict[str, Any] = {
+    # Las "preferencias recomendadas" del agente remoto son para pruebas automáticas (apagan
+    # Safe Browsing, el guardado de contraseñas, la protección contra rastreo…): no las queremos.
+    "remote.prefs.recommended": False,
+    # DRM (Widevine) y reproducción automática.
+    "media.eme.enabled": True,
+    "media.gmp-widevinecdm.enabled": True,
+    "media.gmp-widevinecdm.visible": True,
+    "media.autoplay.default": 0,
+    "media.autoplay.blocking_policy": 0,
+    # Sin carteles de primer inicio, de navegador predeterminado ni de restaurar la sesión.
+    "browser.shell.checkDefaultBrowser": False,
+    "browser.aboutwelcome.enabled": False,
+    "browser.startup.homepage_override.mstone": "ignore",
+    "datareporting.policy.dataSubmissionPolicyBypassNotification": True,
+    "toolkit.telemetry.reportingpolicy.firstRun": False,
+    "browser.sessionstore.resume_from_crash": False,
+    # Después de varios cierres bruscos seguidos (cortes de luz, el servicio reiniciando un Firefox colgado)
+    # Firefox arranca preguntando si entrar en "modo seguro" y no sigue hasta que alguien conteste: en la
+    # TV, con el control remoto, no hay forma de hacerlo.
+    "toolkit.startup.max_resumed_crashes": -1,
+    "browser.tabs.warnOnClose": False,
+    "browser.warnOnQuit": False,
+    "browser.translations.automaticallyPopup": False,
+    # Nada encima del video: ni el botón de imagen en imagen ni el aviso de pantalla completa.
+    "media.videocontrols.picture-in-picture.video-toggle.enabled": False,
+    "full-screen-api.warning.timeout": 0,
+}
+FIREFOX_PERF_PREFS: dict[str, Any] = {
+    "ui.prefersReducedMotion": 1,
+    "general.smoothScroll": False,
+}
+
+# Variables que inyecta un snap (p. ej. la terminal de VS Code instalado como snap) y que
+# rompen la parte gráfica de otros programas: el navegador se lanza sin ellas.
+SNAP_LEAKS = ("GTK_PATH", "GTK_EXE_PREFIX", "GIO_MODULE_DIR", "LOCPATH", "GDK_PIXBUF_MODULE_FILE",
+              "GDK_PIXBUF_MODULEDIR", "GTK_IM_MODULE_FILE", "GSETTINGS_SCHEMA_DIR")
+
+
+def find_binary(configured: str = "", engine: str = "chromium") -> str | None:
+    if configured:
+        return configured if (os.path.isabs(configured) or shutil.which(configured)) else None
+    for name in BINARIES.get(engine, BINARIES["chromium"]):
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
+def graphical_env() -> dict[str, str]:
+    """Entorno para abrir ventanas aunque el servicio no haya heredado WAYLAND_DISPLAY/DISPLAY.
+
+    Raspberry Pi OS Bookworm usa Wayland (labwc/wayfire). Un servicio de usuario no
+    siempre recibe esas variables, así que se buscan los sockets en XDG_RUNTIME_DIR.
+    """
+    env = dict(os.environ)
+    if env.get("SNAP_NAME"):
+        for k in SNAP_LEAKS:
+            env.pop(k, None)
+        for k in [k for k in env if k.endswith("_VSCODE_SNAP_ORIG")]:
+            env[k.removesuffix("_VSCODE_SNAP_ORIG")] = env.pop(k)
+    runtime = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    env.setdefault("XDG_RUNTIME_DIR", runtime)
+    if not env.get("WAYLAND_DISPLAY"):
+        sockets = sorted(p for p in glob.glob(os.path.join(runtime, "wayland-*")) if not p.endswith(".lock"))
+        if sockets:
+            env["WAYLAND_DISPLAY"] = os.path.basename(sockets[0])
+    if not env.get("DISPLAY"):
+        xsockets = sorted(glob.glob("/tmp/.X11-unix/X*"))
+        if xsockets:
+            env["DISPLAY"] = ":" + os.path.basename(xsockets[0])[1:]
+    if not env.get("XAUTHORITY"):
+        xauth = Path.home() / ".Xauthority"
+        if xauth.exists():
+            env["XAUTHORITY"] = str(xauth)
+    return env
+
+
+def has_display(env: dict[str, str]) -> bool:
+    return bool(env.get("WAYLAND_DISPLAY") or env.get("DISPLAY"))
+
+
+def _popen(cmd: list[str], env: dict[str, str], out: Any = subprocess.DEVNULL) -> subprocess.Popen:
+    return subprocess.Popen(  # noqa: S603
+        cmd, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT if out is not subprocess.DEVNULL
+        else subprocess.DEVNULL, start_new_session=True,
+    )
+
+
+def log_file(name: str) -> Any:
+    """~/.cache/tele-cec/<name>.log, vacío, para la salida de un programa (o DEVNULL si no se puede)."""
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        return open(LOG_DIR / f"{name}.log", "wb")  # noqa: SIM115  (lo hereda el programa)
+    except OSError:
+        return subprocess.DEVNULL
+
+
+async def spawn_scoped(args: list[str], unit: str, env: dict[str, str] | None = None,
+                       check: float = 1.5, log: str | None = None) -> subprocess.Popen:
+    """Abre un programa en un scope propio de systemd: reiniciar o detener el servicio no lo cierra.
+
+    Si systemd-run no puede crear el scope (sin bus de usuario) sale enseguida con error: entonces se
+    lanza directamente. Con --scope, systemd-run se convierte en el programa (mismo PID).
+    Con `log`, lo que escribe el programa va a ~/.cache/tele-cec/<log>.log.
+    Lanza OSError si no se puede ejecutar.
+    """
+    env = env if env is not None else graphical_env()
+    out = log_file(log) if log else subprocess.DEVNULL
+    try:
+        proc = await _spawn_scoped(args, unit, env, check, out)
+    finally:
+        if out is not subprocess.DEVNULL:
+            out.close()  # el programa ya tiene su copia
+    # Alguien tiene que recoger su salida cuando termina: si no, queda zombi, sigue figurando en /proc y
+    # parece abierto (pgrep y kill -0 lo cuentan).
+    threading.Thread(target=proc.wait, name=f"reap-{unit}", daemon=True).start()
+    return proc
+
+
+async def _spawn_scoped(args: list[str], unit: str, env: dict[str, str], check: float, out: Any) -> subprocess.Popen:
+    if not (shutil.which("systemd-run") and env.get("XDG_RUNTIME_DIR")):
+        return _popen(args, env, out)
+    cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect",
+           f"--unit={unit}-{int(time.time())}", "--"] + args
+    proc = _popen(cmd, env, out)
+    deadline = time.monotonic() + check
+    while time.monotonic() < deadline:
+        rc = proc.poll()
+        if rc is not None:
+            if rc != 0:
+                log.warning("systemd-run terminó con código %s; lanzo %s directamente", rc, os.path.basename(args[0]))
+                return _popen(args, env, out)
+            break
+        await asyncio.sleep(0.1)
+    return proc
+
+
+def _js_value(v: Any) -> str:
+    return json.dumps(v, ensure_ascii=False)
+
+
+USER_JS_HEADER = "// Lo genera tele-cec cada vez que abre Firefox: los cambios a mano se pierden."
+_PREF_LINE = re.compile(r'^\s*user_pref\(\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _pref_keys(text: str) -> set[str]:
+    keys = set()
+    for line in text.splitlines():
+        m = _PREF_LINE.match(line)
+        if m:
+            try:
+                keys.add(json.loads(f'"{m.group(1)}"'))
+            except ValueError:
+                keys.add(m.group(1))
+    return keys
+
+
+def _drop_prefs(prefs_js: Path, keys: set[str]) -> None:
+    try:
+        lines = prefs_js.read_text(encoding="utf-8").splitlines(keepends=True)
+    except OSError:
+        return
+    kept = [ln for ln in lines if not (_pref_keys(ln) & keys)]
+    if len(kept) != len(lines):
+        tmp = prefs_js.with_suffix(".js.tele-cec")
+        tmp.write_text("".join(kept), encoding="utf-8")
+        tmp.replace(prefs_js)
+        log.info("Preferencias de Firefox que tele-cec ya no fija (vuelven a su valor normal): %s",
+                 ", ".join(sorted(keys)))
+
+
+def write_user_js(profile: Path, prefs: dict[str, Any]) -> None:
+    """Escribe el user.js del perfil (Firefox tiene que estar cerrado).
+
+    Firefox copia lo del user.js a su prefs.js y ahí queda aunque después se saque del user.js. Por
+    eso, lo que tele-cec fijaba antes y ya no fija (p. ej. reduce_effects = false, o una pref
+    borrada de [browser.firefox] prefs) también se borra de prefs.js, para que vuelva a su valor normal.
+    """
+    profile.mkdir(parents=True, exist_ok=True)
+    user_js = profile / "user.js"
+    try:
+        old = user_js.read_text(encoding="utf-8")
+    except OSError:
+        old = ""
+    if old.startswith(USER_JS_HEADER):  # solo si el user.js anterior era nuestro
+        removed = _pref_keys(old) - set(prefs)
+        if removed:
+            _drop_prefs(profile / "prefs.js", removed)
+    lines = [USER_JS_HEADER,
+             "// Para agregar o cambiar preferencias usá [browser.firefox] prefs en config.toml."]
+    lines += [f"user_pref({_js_value(k)}, {_js_value(v)});" for k, v in prefs.items()]
+    user_js.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# Extensiones que deshabilitó tele-cec (para volver a habilitarlas si se sacan de la lista).
+EXT_STATE_FILE = "tele-cec-extensiones.json"
+
+
+def _ext_name(addon: dict) -> str:
+    return (addon.get("defaultLocale") or {}).get("name") or addon.get("id") or "?"
+
+
+def profile_extensions(profile: Path) -> list[dict]:
+    """Extensiones instaladas en el perfil (no las que trae Firefox): id, nombre, activa, nuestra."""
+    try:
+        data = json.loads((profile / "extensions.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    try:
+        ours = set(json.loads((profile / EXT_STATE_FILE).read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        ours = set()
+    return [{"id": a.get("id"), "name": _ext_name(a), "active": bool(a.get("active")) and not a.get("userDisabled"),
+             "ours": a.get("id") in ours}
+            for a in data.get("addons", [])
+            if a.get("type") == "extension" and a.get("location") == "app-profile" and a.get("id") != "newtab@mozilla.org"]
+
+
+def apply_extension_states(profile: Path, disable: list[str]) -> None:
+    """Deshabilita en el perfil las extensiones de [browser.firefox] disable_extensions (por id o por nombre).
+
+    Es lo mismo que apagarlas en about:addons: quedan instaladas. Las que tele-cec había deshabilitado y
+    ya no están en la lista se vuelven a habilitar; las que apagaste vos a mano no se tocan. Firefox tiene
+    que estar cerrado (al salir reescribe extensions.json).
+    """
+    want = {str(x).strip().lower() for x in (disable or []) if str(x).strip()}
+    mark = profile / EXT_STATE_FILE
+    try:
+        ours = set(json.loads(mark.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        ours = set()
+    if not want and not ours:
+        return
+    db = profile / "extensions.json"
+    try:
+        data = json.loads(db.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return  # perfil nuevo: todavía no hay extensiones
+    changed: list[str] = []
+    found: set[str] = set()
+    new_ours: set[str] = set()
+    for a in data.get("addons", []):
+        aid = a.get("id") or ""
+        keys = {aid.lower(), _ext_name(a).lower()}
+        if keys & want:
+            found |= keys & want
+            if not a.get("userDisabled"):
+                a["userDisabled"], a["active"] = True, False
+                changed.append(f"deshabilito {_ext_name(a)}")
+                new_ours.add(aid)
+            elif aid in ours:
+                new_ours.add(aid)
+        elif aid in ours:
+            a["userDisabled"], a["active"] = False, True
+            changed.append(f"vuelvo a habilitar {_ext_name(a)}")
+    for missing in sorted(want - found):
+        log.warning("disable_extensions: no hay ninguna extensión «%s» en el perfil", missing)
+    if changed:
+        tmp = db.with_suffix(".json.tele-cec")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(db)
+        # Caché del estado de las extensiones al arrancar: sin ella, Firefox la rearma desde extensions.json.
+        (profile / "addonStartup.json.lz4").unlink(missing_ok=True)
+        log.info("Extensiones del perfil: %s", ", ".join(changed))
+    if new_ours != ours:
+        if new_ours:
+            mark.write_text(json.dumps(sorted(new_ours)), encoding="utf-8")
+        else:
+            mark.unlink(missing_ok=True)
+
+
+class Browser:
+    MIN_RELAUNCH_INTERVAL = 15.0
+    MAX_FAILED_LAUNCHES = 5      # lanzamientos sin conexión antes de enfriar
+    COOLDOWN = 300.0
+
+    def __init__(self, cfg: dict):
+        self.cfg = cfg
+        self.engine = str(cfg.get("engine") or "firefox").lower()
+        if self.engine not in ENGINES:
+            log.warning("browser.engine=%r inválido (firefox/chromium); uso firefox", self.engine)
+            self.engine = "firefox"
+        self.name = NAMES[self.engine]
+        self.fx: dict = cfg.get("firefox") or {}
+        # El navegador se abre en una página negra vacía y el controller navega a Netflix después de
+        # instalar su script (pending_url es a dónde ir). Así, en Firefox, Netflix nunca ve el
+        # navigator.webdriver = true que pone el control remoto: el script lo oculta antes.
+        self.hide_webdriver = self.firefox and bool(self.fx.get("hide_webdriver", True))
+        self.pending_url: str | None = None
+        self.port = int(cfg.get("debug_port", 9222))
+        self.proc: subprocess.Popen | None = None
+        self._last_launch = 0.0
+        self._failed = 0
+        self._cooldown_until = 0.0
+        self._no_display_logged = -1e9
+
+    @property
+    def firefox(self) -> bool:
+        return self.engine == "firefox"
+
+    @staticmethod
+    def is_blank(url: str) -> bool:
+        """¿Es la página negra del arranque (o una vacía)? Entonces todavía falta abrir Netflix."""
+        if url in ("", "about:blank"):
+            return True
+        return url.startswith("file:") and url.split("?")[0].endswith("/" + BLANK.name)
+
+    def _first_page(self, url: str) -> str:
+        """Primera página al abrir: la negra vacía; el controller navega a `url` después."""
+        self.pending_url = url
+        return BLANK.as_uri() if BLANK.is_file() else "about:blank"
+
+    @property
+    def user_data_dir(self) -> Path:
+        if self.firefox:
+            return Path(self.fx.get("profile") or "~/.config/firefox-netflix").expanduser()
+        return Path(self.cfg.get("user_data_dir") or "~/.config/chromium-netflix").expanduser()
+
+    def binary(self) -> str | None:
+        configured = self.fx.get("binary", "") if self.firefox else self.cfg.get("binary", "")
+        return find_binary(configured, self.engine)
+
+    # ------------------------------------------------------------ línea de comandos
+    def args(self, url: str | None = None) -> list[str]:
+        binary = self.binary()
+        if not binary:
+            raise FileNotFoundError(f"No encuentro {self.name} ({' / '.join(BINARIES[self.engine])})")
+        url = url or self.cfg.get("start_url") or "https://www.netflix.com/browse"
+        if self.firefox:
+            return self._firefox_args(binary, url)
+        args = [
+            binary,
+            f"--remote-debugging-port={self.port}",
+            f"--user-data-dir={self.user_data_dir}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--noerrdialogs",
+            "--disable-session-crashed-bubble",
+            "--hide-crash-restore-bubble",
+            "--disable-features=Translate",
+            "--autoplay-policy=no-user-gesture-required",
+            "--overscroll-history-navigation=0",
+        ]
+        args += self.perf_args()
+        if self.cfg.get("kiosk", True):
+            args.append("--kiosk")
+        else:
+            args.append("--start-fullscreen")
+        args += self._extra(self.cfg.get("extra_args"), args)
+        args.append(self._first_page(url))
+        return args
+
+    def _firefox_args(self, binary: str, url: str) -> list[str]:
+        # --no-remote: una instancia propia, independiente del Firefox de siempre del usuario.
+        args = [binary, "--no-remote", "--profile", str(self.user_data_dir),
+                "--remote-debugging-port", str(self.port)]
+        if self.cfg.get("kiosk", True):
+            args.append("--kiosk")
+        args += self._extra(self.fx.get("extra_args"), args)
+        args.append(self._first_page(url))
+        return args
+
+    @staticmethod
+    def _extra(extra: Any, current: list[str]) -> list[str]:
+        extra = extra or []
+        if isinstance(extra, str):
+            extra = extra.split()
+        return [a for a in extra if a not in current]
+
+    def perf_args(self) -> list[str]:
+        """Flags de Chromium para gastar menos GPU/CPU en animaciones (browser.reduce_effects)."""
+        if self.firefox or not self.cfg.get("reduce_effects", True):
+            return []
+        return ["--force-prefers-reduced-motion", "--disable-smooth-scrolling"]
+
+    def firefox_prefs(self) -> dict[str, Any]:
+        prefs = dict(FIREFOX_PREFS)
+        if self.cfg.get("reduce_effects", True):
+            prefs.update(FIREFOX_PERF_PREFS)
+        user = self.fx.get("prefs") or {}
+        if isinstance(user, dict):
+            prefs.update(user)
+        return prefs
+
+    # ------------------------------------------------------------ conexión
+    async def alive(self) -> bool:
+        return await (bidi.endpoint_alive(self.port) if self.firefox else cdp.endpoint_alive(self.port))
+
+    async def connect(self) -> Any:
+        """Conecta con la pestaña de Netflix. None si el navegador no está escuchando.
+
+        Con Firefox puede lanzar cdp.SessionBusy si otro cliente tiene la única sesión.
+        """
+        if self.firefox:
+            return await bidi.connect_firefox(self.port)
+        return await cdp.connect_chromium(self.port)
+
+    def notify_connected(self) -> None:
+        self._failed = 0
+
+    def can_autolaunch(self) -> bool:
+        now = time.monotonic()
+        if now < self._cooldown_until:
+            return False
+        return now - self._last_launch >= self.MIN_RELAUNCH_INTERVAL
+
+    # ------------------------------------------------------------ lanzamiento
+    def _mark_clean_exit(self) -> None:
+        """Evita el cartel "Chromium no se cerró correctamente" después de un corte."""
+        prefs = self.user_data_dir / "Default" / "Preferences"
+        try:
+            data = json.loads(prefs.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        profile = data.setdefault("profile", {})
+        if profile.get("exit_type") != "Normal" or profile.get("exited_cleanly") is not True:
+            profile["exit_type"] = "Normal"
+            profile["exited_cleanly"] = True
+            try:
+                prefs.write_text(json.dumps(data), encoding="utf-8")
+            except OSError:
+                pass
+
+    def prepare_profile(self) -> None:
+        self.user_data_dir.mkdir(parents=True, exist_ok=True)
+        if self.firefox:
+            write_user_js(self.user_data_dir, self.firefox_prefs())
+            apply_extension_states(self.user_data_dir, self.fx.get("disable_extensions") or [])
+        else:
+            self._mark_clean_exit()
+
+    async def launch(self, url: str | None = None) -> bool:
+        """Abre el navegador si no está escuchando en el puerto. Devuelve True si quedó disponible."""
+        if await self.alive():
+            return True
+        if self.proc and self.proc.poll() is None and time.monotonic() - self._last_launch < 30:
+            log.info("%s ya se está abriendo…", self.name)
+            return await self._wait_alive(20)
+
+        env = graphical_env()
+        self._last_launch = time.monotonic()
+        if not has_display(env):
+            # Pasa si el servicio arranca antes que el escritorio: se reintenta más tarde.
+            if time.monotonic() - self._no_display_logged > 300:
+                self._no_display_logged = time.monotonic()
+                log.warning("Todavía no hay sesión gráfica (WAYLAND_DISPLAY/DISPLAY); no puedo abrir %s", self.name)
+            return False
+
+        try:
+            args = self.args(url)
+        except FileNotFoundError as exc:
+            log.error("%s", exc)
+            return False
+        self.prepare_profile()
+        self._failed += 1
+        if self._failed > self.MAX_FAILED_LAUNCHES:
+            self._cooldown_until = time.monotonic() + self.COOLDOWN
+            self._failed = 0
+            log.error("%s falló %d veces seguidas; espero %.0f min antes de reintentar solo",
+                      self.name, self.MAX_FAILED_LAUNCHES, self.COOLDOWN / 60)
+
+        # Se lanza en un scope propio de systemd: así reiniciar o detener este
+        # servicio no cierra el navegador.
+        log.info("Abriendo %s: %s", self.name, " ".join(args))
+        try:
+            self.proc = await spawn_scoped(args, f"netflix-{self.engine}", env)
+        except OSError as exc:
+            log.error("No pude abrir %s: %s", self.name, exc)
+            return False
+
+        ok = await self._wait_alive(25)
+        if not ok:
+            log.error("%s no abrió el puerto %d. ¿Hay otro %s usando %s sin el puerto de control?",
+                      self.name, self.port, self.name, self.user_data_dir)
+        return ok
+
+    async def _wait_alive(self, seconds: float) -> bool:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if await self.alive():
+                return True
+            await asyncio.sleep(0.5)
+        return False
+
+    # ------------------------------------------------------------ Firefox con la sesión tomada
+    def profile_pids(self) -> list[int]:
+        """PIDs del proceso principal del navegador que usa nuestro perfil."""
+        want = str(self.user_data_dir)
+        pids = []
+        for d in Path("/proc").glob("[0-9]*"):
+            try:
+                argv = (d / "cmdline").read_bytes().split(b"\0")
+            except OSError:
+                continue
+            args = [a.decode("utf-8", "replace") for a in argv if a]
+            if not args or "-contentproc" in args or "systemd-run" in os.path.basename(args[0]):
+                continue
+            if want in args or f"--user-data-dir={want}" in args:
+                pids.append(int(d.name))
+        return pids
+
+    async def close(self, timeout: float = 30.0) -> bool:
+        """Cierra ordenadamente el navegador de nuestro perfil (SIGTERM; si no responde, SIGKILL).
+
+        En una Pi lenta Firefox puede tardar bastante más de 10 s en cerrarse prolijo.
+        """
+        pids = self.profile_pids()
+        if not pids:
+            return False
+        log.info("Cierro %s (PID %s)", self.name, ", ".join(map(str, pids)))
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not await self.alive() and not self.profile_pids():
+                return True
+            await asyncio.sleep(0.25)
+        log.warning("%s no se cerró en %.0f s: lo fuerzo", self.name, timeout)
+        for pid in self.profile_pids():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        await asyncio.sleep(1)
+        return True
+
+    async def restart(self) -> bool:
+        """Cierra el navegador de nuestro perfil y lo vuelve a abrir.
+
+        Se usa cuando Firefox quedó con una sesión de control colgada (un cliente que murió sin
+        cerrarla): Firefox no la libera nunca y no hay otra forma de recuperar el control.
+        """
+        pids = self.profile_pids()
+        if not pids:
+            log.warning("No encontré el proceso de %s con el perfil %s", self.name, self.user_data_dir)
+            return False
+        log.warning("Reinicio %s (PID %s) para recuperar el control", self.name, ", ".join(map(str, pids)))
+        await self.close()
+        self._last_launch = 0.0
+        return await self.launch()
