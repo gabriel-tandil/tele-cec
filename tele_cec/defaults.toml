@@ -391,6 +391,7 @@ start_timeout = 60                   # segundos para que High Tide termine de ab
 # cierra solo al cambiar de vista (por ejemplo, al abrir las letras): con OpenGL ("ngl") no pasa.
 gsk_renderer = "ngl"                 # "" = el que elija GTK
 focus_color = "#FFD400"              # marco y fondo del elemento con el foco (GTK lo dibuja muy tenue); "" = no tocar
+keyboard_cards = true                # portadas de discos/playlists elegibles con el control y OK (parche al abrir High Tide)
 
 [apps.youtube]                       # YouTube para TV, en un Firefox aparte (perfil propio)
 url = "https://www.youtube.com/tv"

@@ -133,6 +133,84 @@ async def xdotool_key(name: str) -> bool:
     return rc == 0
 
 
+# usercustomize.py que se le carga a High Tide (ver HighTide.write_card_patch). Corre adentro de High Tide.
+# No puede llamarse sitecustomize.py: el runtime de GNOME usa el suyo para agregar las librerías de la app
+# (tidalapi…) y uno con el mismo nombre lo taparía. usercustomize se carga además, después de ese.
+CARD_PATCH = '''\
+"""Lo escribe tele-cec al abrir High Tide (no editar: se reescribe cada vez).
+
+Hace que las tarjetas de High Tide (portadas de discos, playlists, artistas) puedan recibir el foco del
+teclado y abrirse con Enter, igual que con un clic. Si algo falla, High Tide sigue como siempre.
+"""
+import importlib.abc
+import importlib.util
+import sys
+
+_TARGET = "high_tide.widgets.card_widget"
+
+
+def _patch(module):
+    try:
+        from gi.repository import Gdk, Gtk
+        cls = module.HTCardWidget
+        original_init = cls.__init__
+
+        def __init__(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            try:
+                # La tarjeta no toma el foco ella misma (se lo pasa a lo de adentro): lo recibe la portada, y el
+                # Enter lo atiende la tarjeta (las teclas suben desde la portada). El link del artista de adentro
+                # queda sin foco: si no, OK abriría el artista en vez del disco (se llega desde la página del disco).
+                image = getattr(self, "image", None)
+                if image is not None:
+                    image.set_focusable(True)
+                for name in ("track_artist_label", "detail_label", "title_label"):
+                    widget = getattr(self, name, None)
+                    if widget is not None:
+                        widget.set_can_focus(False)
+                keys = Gtk.EventControllerKey()
+
+                def on_key(_controller, keyval, _keycode, _state):
+                    if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
+                        self._on_click()
+                        return True
+                    return False
+
+                keys.connect("key-pressed", on_key)
+                self.add_controller(keys)
+            except Exception as exc:  # noqa: BLE001
+                print("tele-cec: no pude hacer enfocable una tarjeta:", exc, file=sys.stderr)
+
+        cls.__init__ = __init__
+        print("tele-cec: tarjetas de High Tide enfocables (Enter = abrir)", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        print("tele-cec: no pude aplicar el parche de tarjetas:", exc, file=sys.stderr)
+
+
+class _Finder(importlib.abc.MetaPathFinder):
+    """Espera a que High Tide cargue el módulo de las tarjetas y lo parchea apenas termina."""
+
+    def find_spec(self, name, path=None, target=None):
+        if name != _TARGET:
+            return None
+        sys.meta_path.remove(self)
+        spec = importlib.util.find_spec(name)
+        if spec is None or spec.loader is None:
+            return spec
+        original_exec = spec.loader.exec_module
+
+        def exec_module(module):
+            original_exec(module)
+            _patch(module)
+
+        spec.loader.exec_module = exec_module
+        return spec
+
+
+sys.meta_path.insert(0, _Finder())
+'''
+
+
 class TidalNav(HelperProcess):
     """Flechas que llegan a todos lados en High Tide (tidal_nav.py: sigue el foco por accesibilidad).
 
@@ -160,6 +238,8 @@ class HighTide:
         self.gsk_renderer = str(cfg.get("gsk_renderer") or "")
         # Foco bien visible en la TV (GTK lo dibuja muy tenue): color del marco, o "" para no tocar el estilo.
         self.focus_color = str(cfg.get("focus_color", "#FFD400") or "")
+        # Que las portadas (tarjetas de discos, playlists, artistas) se puedan elegir con el control y abrir con OK.
+        self.keyboard_cards = bool(cfg.get("keyboard_cards", True))
         self._installed: bool | None = None
 
     # ------------------------------------------------------------ estado
@@ -189,6 +269,9 @@ class HighTide:
             args = ["flatpak", "run"]
             if self.gsk_renderer:
                 args.append(f"--env=GSK_RENDERER={self.gsk_renderer}")
+            patch_dir = self.write_card_patch()
+            if patch_dir:
+                args.append(f"--env=PYTHONPATH={patch_dir}")
             args.append(self.app_id)
             # En un scope propio de systemd, igual que el navegador: reiniciar el servicio no lo cierra.
             log.info("Abriendo High Tide: %s", " ".join(args))
@@ -263,13 +346,13 @@ class HighTide:
             d.mkdir(parents=True, exist_ok=True)
             c = self.focus_color
             # Solo lo que se elige: GTK también marca «con foco» a los contenedores (la ventana, los paneles).
-            sel = ("row, flowboxchild, gridview > child, listview > row, button, togglebutton, menubutton > button, "
+            sel = (".card-bg, .card-image, row, flowboxchild, gridview > child, listview > row, button, togglebutton, menubutton > button, "
                    "scale, entry, checkbutton, switch, label, link, .card")
             targets = ", ".join(f"{s.strip()}:focus-visible" for s in sel.split(","))
             css.write_text(
                 "/* Lo escribe tele-cec al abrir High Tide: foco bien visible en la TV. */\n"
                 f"{targets} {{\n  outline: 4px solid {c};\n  outline-offset: -4px;\n}}\n"
-                "row:focus-visible, flowboxchild:focus-visible, gridview > child:focus-visible, "
+                ".card-bg:focus-visible, row:focus-visible, flowboxchild:focus-visible, gridview > child:focus-visible, "
                 "listview > row:focus-visible, button:focus-visible, togglebutton:focus-visible {\n"
                 f"  background-color: alpha({c}, 0.25);\n}}\n", encoding="utf-8")
             text = main.read_text(encoding="utf-8") if main.exists() else ""
@@ -278,6 +361,28 @@ class HighTide:
                                 '@import url("tele-cec.css");\n', encoding="utf-8")
         except OSError as exc:
             log.warning("No pude escribir el estilo del foco de High Tide: %s", exc)
+
+    def write_card_patch(self) -> str:
+        """Parche para que las tarjetas de High Tide se puedan elegir con el teclado (y con el control).
+
+        Las portadas de discos, playlists y artistas son un widget propio de High Tide (HTCardWidget) que solo se
+        abre con un clic del mouse: no recibe el foco del teclado. High Tide está escrito en Python, así que al
+        abrirlo se le carga un usercustomize.py (por PYTHONPATH, desde su propia carpeta de datos, que se ve dentro
+        del Flatpak) que, cuando High Tide carga ese widget, lo hace enfocable y le agrega Enter = abrir (lo mismo
+        que hace su clic). No modifica la app instalada; si algo falla, High Tide sigue igual que siempre.
+        Devuelve la carpeta para PYTHONPATH ("" si está desactivado).
+        """
+        d = Path.home() / ".var" / "app" / self.app_id / "data" / "tele-cec"
+        if not self.keyboard_cards:
+            return ""
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "sitecustomize.py").unlink(missing_ok=True)  # versión anterior: tapaba el del runtime
+            (d / "usercustomize.py").write_text(CARD_PATCH, encoding="utf-8")
+        except OSError as exc:
+            log.warning("No pude escribir el parche de tarjetas de High Tide: %s", exc)
+            return ""
+        return str(d)
 
     async def quit(self, timeout: float = 15.0) -> None:
         """Cierra High Tide: MPRIS Quit; si no responde (en High Tide 1.4 falla), SIGTERM; si no, flatpak kill."""
