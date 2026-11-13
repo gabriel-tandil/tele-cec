@@ -42,7 +42,7 @@
 # delay_s = 5                 # segundos por foto
 # scroll_step = 250           # con zoom, cuánto se mueve la foto por flecha (píxeles)
 
-# [apps.android]              # la pantalla del celular con scrcpy (./install.sh --android; ver README → Android)
+# [apps.android]              # la pantalla del celular con scrcpy (./install.sh lo instala; ver README → Android)
 # serial = "192.168.0.50:5555"   # por Wi‑Fi ("" = el que esté conectado por USB)
 # max_size = 1280             # más liviano para la Pi
 
