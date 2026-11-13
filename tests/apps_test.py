@@ -226,6 +226,16 @@ class FakeOverlay:
         self.log.append(f"ov:select:{index}")
         return True
 
+    async def image(self, title, path, lines, status="", hint="", size=9) -> bool:
+        self.title, self.image_path, self.status_text = title, path, status
+        self.log.append(f"ov:image:{title}")
+        return True
+
+    async def status(self, text: str) -> bool:
+        self.status_text = text
+        self.log.append(f"ov:status:{text}")
+        return True
+
     async def busy(self, text: str) -> bool:
         self.log.append(f"ov:busy:{text}")
         return True
@@ -772,6 +782,48 @@ async def main() -> int:
         async def shell(self, command: str) -> bool:
             self.log.append(f"adbsh:{command}")
             return True
+
+        # «Android · conectar»: adb y la red simulados
+        net_devices: list = []
+        connect_services: list = []
+        pairing_services: list = []
+        paired: dict = {}
+
+        def devices(self):
+            self._last = list(self.net_devices)
+            return self._last
+
+        @staticmethod
+        def discovery_available() -> bool:
+            return True
+
+        def browse(self, kind, timeout=5.0):
+            return list(self.pairing_services if kind == android_mod.PAIRING else self.connect_services)
+
+        def pair(self, addr, code):
+            self.log.append(f"pair:{addr}:{code}")
+            ok = self.paired.get(addr) == code
+            return ok, "Successfully paired" if ok else "Failed: Wrong password"
+
+        def connect(self, addr):
+            self.log.append(f"connect:{addr}")
+            ok = any(s.addr == addr for s in self.connect_services) and self.paired_ok
+            if ok and not any(d.serial == addr for d in self.net_devices):
+                self.net_devices.append(android_mod.Device(addr, "device", "Pixel_8"))
+            return ok
+
+        def write_qr(self, path, payload):
+            self.qr = payload
+            return True
+
+        async def open(self, folder=None) -> bool:
+            if not self.ok:
+                self.fail_text = "Aceptá «Permitir depuración USB» en el celular"
+                return False
+            self.log.append(f"android:open:{self.want_serial}")
+            self.want_serial = ""
+            self.on = True
+            return True
     andr = FakeAndroid(log)
     ctl.activities["android"] = andr
     await ctl.run_action("app:android")
@@ -800,7 +852,96 @@ async def main() -> int:
     await press("EXIT")
     await ctl.run_action("app:videos")
     check(not andr.on, "abrir otra app cierra Android")
+    print("Android · conectar (vincular por Wi‑Fi con el control)")
+    ctl.cfg.menu["items"] = ["netflix", "tidal", "videos", "fotos", "android"]
+    andr.on, andr.paired_ok = False, False
+    andr.source = lambda: (setattr(andr, "ready", bool([d for d in andr.net_devices if d.ready]))  # type: ignore
+                           or (android_mod.NO_DEVICE, True))
+
+    async def settle() -> None:
+        for _ in range(20):
+            await asyncio.sleep(0)
+        if ctl._and_task:
+            await asyncio.wait([ctl._and_task], timeout=2)
+        if ctl._macro_task:
+            await ctl._macro_task
+            ctl._macro_task = None
+
+    android_ctl = sys.modules["tele_cec.controller.android"]
+    android_ctl.SCAN_EVERY_S = 0.01  # type: ignore[attr-defined]
+    await ctl.run_action("app:videos")
+    await press("ROOT_MENU")
+    idx = [it["id"] for it in ctl._menu_items].index("android")
+    out = await press(f"NUMBER{idx + 1}")
+    await settle()
+    ids = [it["id"] for it in ctl.overlay.items]
+    check(ctl._menu_mode == "android" and ids[:3] == ["_qr", "_code", "_usb"] and "_rescan" in ids,
+          f"sin celular, OK sobre Android abre «Android · conectar» (QR, código, USB): {ids}")
+    out = await press("EXIT")
+    check(ctl._menu_mode == "activities" and ctl.overlay.items[ctl._menu_sel]["id"] == "android",
+          f"Atrás vuelve al menú, sobre Android: {out}")
+
+    # Vincular con código: el celular lo muestra, se escribe con los números
+    out = await press("RIGHT")
+    await settle()
+    out = await press("DOWN", "SELECT")
+    check(ctl._menu_mode == "android_code" and ctl.overlay.items[0]["name"].startswith("Código:"),
+          f"«Vincular con código» pide el código: {ctl.overlay.items[:1]}")
+    andr.pairing_services = [android_mod.Service("adb-XYZ-1", "192.168.0.60", 37000)]
+    andr.connect_services = [android_mod.Service("adb-XYZ-2", "192.168.0.60", 41000)]
+    andr.paired = {"192.168.0.60:37000": "123456"}
+    await settle()
+    check("Celular encontrado" in ctl.overlay.items[0]["sub"], f"encuentra al celular en la red: {ctl.overlay.items[0]}")
+    out = await press("NUMBER1", "NUMBER2", "NUMBER9", "LEFT", "NUMBER3")
+    check(ctl.overlay.items[0]["name"] == "Código:  1  2  3  _  _  _", f"los números escriben y ◀ borra: {ctl.overlay.items[0]['name']}")
+    andr.paired_ok = True
+    out = await press("NUMBER4", "NUMBER5", "NUMBER6")
+    await settle()
+    check("pair:192.168.0.60:37000:123456" in log and "connect:192.168.0.60:41000" in log
+          and "android:open:192.168.0.60:41000" in log and ctl.current_app() == "android",
+          f"con el 6.º número vincula, conecta y muestra la pantalla de ese celular: {log[-6:]}")
+
+    # Vincular con QR: el celular lo escanea y anuncia la vinculación con el nombre del QR
+    await ctl.run_action("app:videos")
+    andr.net_devices, andr.paired_ok = [], False
+    await press("ROOT_MENU")
+    idx = [it["id"] for it in ctl._menu_items].index("android")
+    await press(*["DOWN"] * ((idx - ctl._menu_sel) % len(ctl._menu_items)), "RIGHT")
+    await settle()
+    qr_row = [it["id"] for it in ctl._menu_items].index("_qr")
+    out = await press(*["DOWN"] * qr_row, "SELECT")
+    check(ctl._menu_mode == "android_qr" and "ov:image:Android · vincular con código QR" in out
+          and andr.qr.startswith("WIFI:T:ADB;S:tele-cec-"), f"«Vincular con QR» muestra el QR: {out[-2:]} {andr.qr}")
+    name = andr.qr.split("S:")[1].split(";")[0]
+    password = andr.qr.split("P:")[1].split(";")[0]
+    andr.pairing_services = [android_mod.Service("adb-otro", "192.168.0.61", 1), android_mod.Service(name, "192.168.0.62", 38000)]
+    andr.connect_services = [android_mod.Service("adb-Q", "192.168.0.62", 42000)]
+    andr.paired = {"192.168.0.62:38000": password}
+    andr.paired_ok = True
+    await settle()
+    await settle()
+    check(f"pair:192.168.0.62:38000:{password}" in log and "android:open:192.168.0.62:42000" in log,
+          f"cuando el celular lee el QR: vincula con esa contraseña (no con otro celular), conecta y abre: {log[-5:]}")
+
+    # Ya vinculado (después de reiniciar la Pi): OK sobre Android lo conecta solo y lo abre
+    await ctl.run_action("app:videos")
+    andr.net_devices = []
+    andr.pairing_services = []
+    await press("ROOT_MENU")
+    idx = [it["id"] for it in ctl._menu_items].index("android")
+    start = len(log)
+    await press(f"NUMBER{idx + 1}")
+    await settle()
+    await settle()
+    check("connect:192.168.0.62:42000" in log[start:] and "android:open:192.168.0.62:42000" in log[start:],
+          f"un celular ya vinculado se conecta y se abre directo: {log[start:]}")
+    del andr.source
+    andr.net_devices = []
+    ctl.cfg.menu["items"] = ["netflix", "tidal", "videos", "fotos"]
+    await ctl.run_action("app:videos")
+
     andr.ok = False
+    andr.ready = True
     out = await press("ROOT_MENU")
     ctl._menu_items.append({"id": "android", "name": "Android", "icon": "", "sub": "", "enabled": True,
                             "current": False})
@@ -823,9 +964,10 @@ async def main() -> int:
     real.devices = lambda: devs[:1]  # type: ignore[method-assign]
     check(real.source() == ("SM G973F · USB", True), f"el menú muestra el modelo y cómo está conectado: {real.source()}")
     real.devices = lambda: devs[1:2]  # type: ignore[method-assign]
-    check(real.source() == (android_mod.STATE_TEXT["unauthorized"], False), "sin autorizar: en gris y dice qué hacer")
+    check(real.source() == (android_mod.STATE_TEXT["unauthorized"], True) and not real.ready,
+          "sin autorizar: dice qué hacer (y OK abre «conectar»)")
     real.devices = lambda: []  # type: ignore[method-assign]
-    check(real.source() == (android_mod.NO_DEVICE, False), "sin celular: en gris")
+    check(real.source() == (android_mod.NO_DEVICE, True) and not real.ready, "sin celular: OK abre «conectar»")
     wifi = activities_mod.AndroidActivity({"serial": "192.168.0.50"})
     wifi.devices = lambda: []  # type: ignore[method-assign]
     check(wifi._target() == "192.168.0.50:5555" and wifi.source()[1],
