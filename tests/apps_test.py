@@ -850,6 +850,24 @@ async def main() -> int:
     out = await press("HELP")
     check(out == ["ov:help:Ayuda · Android · la pantalla del celular"], f"la tecla Ayuda empieza por Android: {out}")
     await press("EXIT")
+
+    print("App que se cierra sola (el celular se desconectó)")
+    check(ctl._left_alone() is None, "con Android abierto, nada que hacer")
+    andr.on = False  # scrcpy se cerró: el celular apagó la depuración inalámbrica
+    check(ctl._left_alone() is None, "recién abierto (o cambiando de app) todavía no cuenta")
+    ctl._switch_until = 0.0
+    check(ctl._left_alone() == "android", "después sí: Android se cerró sola")
+    start = len(log)
+    await ctl._app_gone("android")
+    check(log[start:] == ["android:close", "ov:show:0", "ov:toast:Se desconectó el celular"] and ctl._menu_open
+          and ctl._left_alone() is None, f"vuelve el menú, con el aviso: {log[start:]}")
+    await press("EXIT")
+    await ctl.run_action("app:android")
+    ctl._switch_until = 0.0
+    await ctl.sleep_apps()
+    andr.on = False
+    check(ctl._left_alone() is None, "las que cierra el reposo no cuentan como cerradas solas")
+    await ctl.run_action("app:android")
     await ctl.run_action("app:videos")
     check(not andr.on, "abrir otra app cierra Android")
     print("Android · conectar (vincular por Wi‑Fi con el control)")
