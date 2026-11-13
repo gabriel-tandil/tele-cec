@@ -6,7 +6,8 @@ Raspberry Pi OS usa PipeWire con WirePlumber:
 - Los dispositivos Bluetooth emparejados pero desconectados no tienen salida todavía: se listan con
   `bluetoothctl` y al elegirlos se conectan.
 - Los parlantes y auriculares Bluetooth cercanos que todavía no están emparejados se buscan mientras se ve la
-  lista (BluetoothScan); al elegir uno se empareja, se marca de confianza y se conecta.
+  lista (BluetoothScan); al elegir uno se empareja, se marca de confianza y se conecta (y se cierra el aviso
+  que abre el panel del escritorio, ver desktop.py).
 
 Las funciones sin async se llaman en un hilo aparte (asyncio.to_thread): corren comandos.
 """
@@ -22,6 +23,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 
+from . import desktop
 from .procs import graphical_env, run_cmd
 
 log = logging.getLogger("sonido")
@@ -261,6 +263,19 @@ async def pair(out: Output, timeout: float = 25.0) -> tuple[bool, str]:
 
 async def select(out: Output, connect_timeout: float = 25.0) -> tuple[bool, str]:
     """Pasa el sonido a esa salida (conecta antes el Bluetooth si hace falta). Devuelve (ok, mensaje)."""
+    if out.mac and not out.paired:
+        # El panel del escritorio abre su propio aviso de «emparejado» (con un OK que el control no alcanza):
+        # se lo va cerrando mientras dura.
+        closer = desktop.PairingNoticeCloser()
+        closer.start()
+        try:
+            return await _select(out, connect_timeout)
+        finally:
+            closer.finish()
+    return await _select(out, connect_timeout)
+
+
+async def _select(out: Output, connect_timeout: float) -> tuple[bool, str]:
     sink_id = out.sink_id
     if out.mac and not out.paired:
         ok, text = await pair(out, connect_timeout)
