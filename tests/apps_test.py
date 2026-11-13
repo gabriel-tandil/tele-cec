@@ -750,6 +750,96 @@ async def main() -> int:
     finally:
         procs_mod.proc_table = real_table  # type: ignore[assignment]
 
+    print("Android (scrcpy)")
+    android_mod = activities_mod.android
+
+    class FakeAndroid(FakeProcMixin, activities_mod.AndroidActivity):
+        def __init__(self, log):
+            activities_mod.AndroidActivity.__init__(self, {})
+            self.setup(log)
+            self.ok = True
+
+        async def open(self, folder=None) -> bool:
+            if not self.ok:
+                self.fail_text = "Aceptá «Permitir depuración USB» en el celular"
+                return False
+            return await FakeProcMixin.open(self)
+
+        async def keyevent(self, what) -> bool:
+            self.log.append(f"adb:{what}")
+            return True
+
+        async def shell(self, command: str) -> bool:
+            self.log.append(f"adbsh:{command}")
+            return True
+    andr = FakeAndroid(log)
+    ctl.activities["android"] = andr
+    await ctl.run_action("app:android")
+    check(ctl.current_app() == "android" and await ctl.context() == "android",
+          "app:android abre Android (contexto 'android')")
+    out = await press("UP", "RIGHT", "SELECT", "NUMBER4", "CLEAR")
+    check(out == ["wtype:Up", "wtype:Right", "wtype:Return", "wtype:4", "wtype:BackSpace"],
+          f"flechas, OK, números y Borrar van a la ventana de scrcpy: {out}")
+    out = await press("EXIT", "F1_BLUE", "F2_RED", "PAUSE_PLAY_FUNCTION", "FORWARD", "FAST_FORWARD", "STOP")
+    check(out == ["adb:back", "adb:home", "adb:apps", "adb:play_pause", "adb:next", "adb:fast_forward", "adb:stop"],
+          f"Atrás, azul (Inicio), rojo (recientes) y las multimedia van por adb (⏭ no es el botón inteligente): {out}")
+    out = await press("F4_YELLOW", "F4_YELLOW")
+    check(out == ["adbsh:cmd statusbar expand-notifications", "adbsh:cmd statusbar collapse"],
+          f"amarillo abre las notificaciones y otra vez las cierra: {out}")
+    rows = dict((d, k) for k, d in help_rows(ctl, "android"))
+    check(rows.get("Inicio de Android") == "Azul" and rows.get("Atrás (botón de Android)") == "Atrás"
+          and "Moverse" in rows and any("Depuración USB" in d for d in rows),
+          f"la ayuda tiene página de Android, con las teclas y cómo conectar el celular: {list(rows)[:6]}")
+    from tele_cec.ui import help as help_mod
+    check(("android", "Android · la pantalla del celular") in help_mod.pages(ctl.cfg, {"netflix", "android"})
+          and not any(c == "android" for c, _t in help_mod.pages(ctl.cfg, {"netflix"}))
+          and not any(c == "app" for c, _t in help_mod.pages(ctl.cfg, {"netflix", "android"})),
+          "la página de Android aparece solo si está instalado (y no cuenta como «Otras apps»)")
+    out = await press("HELP")
+    check(out == ["ov:help:Ayuda · Android · la pantalla del celular"], f"la tecla Ayuda empieza por Android: {out}")
+    await press("EXIT")
+    await ctl.run_action("app:videos")
+    check(not andr.on, "abrir otra app cierra Android")
+    andr.ok = False
+    out = await press("ROOT_MENU")
+    ctl._menu_items.append({"id": "android", "name": "Android", "icon": "", "sub": "", "enabled": True,
+                            "current": False})
+    out = await press(*["DOWN"] * (len(ctl._menu_items) - 1 - ctl._menu_sel), "SELECT")
+    check("ov:toast:Aceptá «Permitir depuración USB» en el celular" in out,
+          f"si no puede abrir, el menú dice por qué: {out[-3:]}")
+    del ctl.activities["android"]
+    await ctl.run_action("app:videos")
+
+    devs = android_mod.parse_devices(
+        "List of devices attached\n"
+        "R58M1234   device usb:1-1 product:beyond1 model:SM_G973F device:beyond1 transport_id:1\n"
+        "192.168.0.50:5555 unauthorized transport_id:2\n"
+        "ZY22 no permissions (missing udev rules?); see [http://developer.android.com/tools/device.html] usb:1-2\n")
+    check([(d.serial, d.state, d.model, d.wifi) for d in devs]
+          == [("R58M1234", "device", "SM_G973F", False), ("192.168.0.50:5555", "unauthorized", "", True),
+              ("ZY22", "no permissions", "", False)],
+          f"lee `adb devices -l` (estado, modelo, USB o Wi‑Fi): {devs}")
+    real = activities_mod.AndroidActivity({})
+    real.devices = lambda: devs[:1]  # type: ignore[method-assign]
+    check(real.source() == ("SM G973F · USB", True), f"el menú muestra el modelo y cómo está conectado: {real.source()}")
+    real.devices = lambda: devs[1:2]  # type: ignore[method-assign]
+    check(real.source() == (android_mod.STATE_TEXT["unauthorized"], False), "sin autorizar: en gris y dice qué hacer")
+    real.devices = lambda: []  # type: ignore[method-assign]
+    check(real.source() == (android_mod.NO_DEVICE, False), "sin celular: en gris")
+    wifi = activities_mod.AndroidActivity({"serial": "192.168.0.50"})
+    wifi.devices = lambda: []  # type: ignore[method-assign]
+    check(wifi._target() == "192.168.0.50:5555" and wifi.source()[1],
+          f"por Wi‑Fi (puerto 5555 si no se pone): se puede elegir aunque no esté conectado aún: {wifi.source()}")
+    aargs = activities_mod.AndroidActivity({"max_size": 1280, "audio": False, "extra_args": ["--video-codec=h265"]}
+                                           ).args("/usr/local/bin/scrcpy", "R58M1234")
+    check(aargs[:2] == ["/usr/local/bin/scrcpy", "--serial=R58M1234"] and "--fullscreen" in aargs
+          and "--max-size=1280" in aargs and "--max-fps=30" not in aargs and "--no-audio" in aargs
+          and "--stay-awake" in aargs and aargs[-1] == "--video-codec=h265",
+          f"scrcpy en pantalla completa, con el celular elegido y las opciones de [apps.android]: {aargs}")
+    dargs = activities_mod.AndroidActivity(ctl.cfg.apps.get("android")).args("scrcpy", "X")
+    check("--max-size=1920" in dargs and "--max-fps=30" in dargs and "--no-audio" not in dargs,
+          f"por defecto: 1920 px, 30 cuadros y con sonido: {dargs}")
+
     print("Apagado automático")
     from tele_cec.system import power as power_mod
     from tele_cec.system.cec import CecFrame
