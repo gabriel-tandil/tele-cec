@@ -33,7 +33,8 @@ class FakeCtl:
     def __init__(self) -> None:
         self.keys: list = []
         self.toasts: list = []
-        tidal = SimpleNamespace(name="Tidal", mpris=SimpleNamespace(player="io.github.nokse22.high-tide"))
+        tidal = SimpleNamespace(name="Tidal")  # como la real: el MPRIS está en ctl.music (High Tide)
+        self.music = SimpleNamespace(mpris=SimpleNamespace(player="io.github.nokse22.high-tide"))
         videos = SimpleNamespace(name="Videos", mpris=SimpleNamespace(player="vlc"))
         self.activities = {"netflix": SimpleNamespace(name="Netflix"), "tidal": tidal, "videos": videos,
                            "youtube": SimpleNamespace(name="YouTube", mpris=SimpleNamespace(player="firefox"))}

@@ -223,12 +223,17 @@ class WebRemote:
             self._state_at = time.monotonic()
             return self._state
 
+    def _mpris(self, ident: str) -> Any:
+        """El MPRIS de una actividad (Tidal lo tiene en ctl.music, High Tide; las demás, propio)."""
+        if ident == "tidal":
+            return getattr(getattr(self.ctl, "music", None), "mpris", None)
+        return getattr(self.ctl.activities.get(ident), "mpris", None)
+
     def _players_for(self, ident: str | None) -> list[str]:
         """Los nombres MPRIS de la app en pantalla (para preferir su reproductor)."""
         if not ident:
             return []
-        act = self.ctl.activities.get(ident)
-        mpris = getattr(act, "mpris", None)
+        mpris = self._mpris(ident)
         names = [mpris.player] if mpris is not None else []
         if ident == "netflix":
             names.append(self.ctl.browser.engine)
@@ -241,8 +246,8 @@ class WebRemote:
             # Netflix y YouTube son el mismo navegador para MPRIS: la que esté en pantalla.
             cur = self.ctl.current_app()
             return self.ctl.activities[cur].name if cur in ("netflix", "youtube") else "Navegador"
-        for act in self.ctl.activities.values():
-            mpris = getattr(act, "mpris", None)
+        for ident, act in self.ctl.activities.items():
+            mpris = self._mpris(ident)
             if mpris is not None and (player == mpris.player or player.startswith(mpris.player + ".")):
                 return act.name
         return base
