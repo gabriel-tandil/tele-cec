@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<title>Tele-CEC</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #1a1d24; --card2: #232733; --text: #f3f4f6; --muted: #9aa1ad; --line: #2c313d;
+    --accent: #818cf8; --accent-ink: #0f1115; --ok: #22c55e; --warn: #fbbf24;
+    --red: #ef4444; --green: #22c55e; --yellow: #eab308; --blue: #3b82f6;
+    --radius: 18px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f3f4f6; --card: #ffffff; --card2: #eceef3; --text: #111827; --muted: #5b6270; --line: #dfe2e8;
+            --accent: #4f46e5; --accent-ink: #ffffff; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: max(12px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom)); }
+  main { max-width: 460px; margin: 0 auto; display: grid; gap: 14px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .2px; }
+  .pill { font-size: 13px; padding: 5px 11px; border-radius: 999px; background: var(--card2); color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+  .pill.on { color: var(--text); }
+  .pill.sleep { color: var(--warn); }
+  section { background: var(--card); border-radius: var(--radius); padding: 14px; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+    margin: 0 0 10px; }
+  button { font: inherit; color: inherit; border: 0; background: var(--card2); border-radius: 14px; cursor: pointer;
+    touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+  button:active, button.down { transform: scale(.95); filter: brightness(1.25); }
+  button:disabled { opacity: .4; }
+
+  /* lo que suena */
+  .now { display: grid; grid-template-columns: 76px 1fr; gap: 12px; align-items: center; }
+  .art { width: 76px; height: 76px; border-radius: 12px; background: var(--card2) center/cover no-repeat;
+    display: grid; place-items: center; color: var(--muted); font-size: 30px; }
+  .meta { min-width: 0; }
+  .title { font-weight: 650; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .artist, .from { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .from { font-size: 12px; margin-top: 2px; }
+  .bar { height: 4px; border-radius: 4px; background: var(--card2); margin: 12px 0 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .times { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .transport { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 10px; margin-top: 10px; }
+  .transport button { height: 54px; font-size: 22px; }
+  .transport .main { background: var(--accent); color: var(--accent-ink); }
+  .transport svg { width: 28px; height: 28px; fill: currentColor; vertical-align: middle; }
+  .empty { color: var(--muted); font-size: 14px; }
+
+  /* control remoto */
+  .pad { position: relative; width: min(78vw, 290px); aspect-ratio: 1; margin: 4px auto 14px; border-radius: 50%;
+    background: var(--card2); }
+  .pad button { position: absolute; background: transparent; font-size: 26px; color: var(--text); border-radius: 50%; }
+  .pad .up    { left: 33%; top: 2%;  width: 34%; height: 30%; }
+  .pad .down  { left: 33%; bottom: 2%; width: 34%; height: 30%; }
+  .pad .left  { top: 33%; left: 2%;  width: 30%; height: 34%; }
+  .pad .right { top: 33%; right: 2%; width: 30%; height: 34%; }
+  .pad .ok { left: 32%; top: 32%; width: 36%; height: 36%; background: var(--accent); color: var(--accent-ink);
+    font-size: 20px; font-weight: 700; box-shadow: 0 4px 18px rgba(0,0,0,.25); }
+  .row { display: grid; gap: 10px; }
+  .row3 { grid-template-columns: repeat(3, 1fr); }
+  .row4 { grid-template-columns: repeat(4, 1fr); }
+  .row button { height: 50px; font-size: 15px; }
+  .colors { margin-top: 10px; }
+  .colors button { height: 36px; }
+  .c-red { background: var(--red); } .c-green { background: var(--green); }
+  .c-yellow { background: var(--yellow); } .c-blue { background: var(--blue); }
+  .more { margin-top: 10px; }
+  .more summary { color: var(--muted); font-size: 14px; cursor: pointer; padding: 6px 2px; list-style: none; }
+  .more summary::-webkit-details-marker { display: none; }
+  .more summary::before { content: "▸ "; }
+  .more[open] summary::before { content: "▾ "; }
+  .nums { grid-template-columns: repeat(3, 1fr); margin-top: 8px; }
+  .nums button { height: 48px; font-size: 20px; }
+  .media { margin-top: 10px; }
+
+  /* volumen y salidas */
+  .vol { display: grid; grid-template-columns: 54px 1fr 54px 54px; gap: 10px; align-items: center; }
+  .vol button { height: 50px; font-size: 22px; }
+  .vol .level { height: 8px; border-radius: 8px; background: var(--card2); overflow: hidden; }
+  .vol .level > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .vol .num { text-align: center; font-size: 13px; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .vol.muted .level > i { background: var(--muted); }
+  .outs { display: grid; gap: 8px; margin-top: 12px; }
+  .out { display: flex; align-items: center; gap: 12px; padding: 12px; text-align: left; width: 100%; }
+  .out .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--muted); flex: none; }
+  .out.cur .dot { border-color: var(--accent); background: radial-gradient(var(--accent) 45%, transparent 50%); }
+  .out .name { font-weight: 600; }
+  .out .det { font-size: 13px; color: var(--muted); }
+
+  .toast { position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); }
+  .toast.show { opacity: .95; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Tele-CEC</h1>
+    <span class="pill" id="app">Conectando…</span>
+  </header>
+
+  <section id="nowsec" aria-label="Lo que suena">
+    <h2>Sonando</h2>
+    <div id="nowbox" hidden>
+      <div class="now">
+        <div class="art" id="art">♪</div>
+        <div class="meta">
+          <div class="title" id="title"></div>
+          <div class="artist" id="artist"></div>
+          <div class="from" id="from"></div>
+        </div>
+      </div>
+      <div class="bar"><i id="prog"></i></div>
+      <div class="times"><span id="pos"></span><span id="len"></span></div>
+      <div class="transport">
+        <button data-media="previous" aria-label="Anterior"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button class="main" id="pp" data-media="play-pause" aria-label="Play o pausa"></button>
+        <button data-media="next" aria-label="Siguiente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+      </div>
+    </div>
+    <div class="empty" id="nothing">No suena nada.</div>
+  </section>
+
+  <section aria-label="Control remoto">
+    <h2>Control</h2>
+    <div class="pad">
+      <button class="up" data-key="UP" data-repeat aria-label="Arriba">▲</button>
+      <button class="left" data-key="LEFT" data-repeat aria-label="Izquierda">◀</button>
+      <button class="ok" data-key="SELECT">OK</button>
+      <button class="right" data-key="RIGHT" data-repeat aria-label="Derecha">▶</button>
+      <button class="down" data-key="DOWN" data-repeat aria-label="Abajo">▼</button>
+    </div>
+    <div class="row row3">
+      <button data-key="EXIT">↩ Atrás</button>
+      <button data-key="CONTENTS_MENU">☰ Menú</button>
+      <button data-key="HELP">? Ayuda</button>
+    </div>
+    <div class="row row4 colors">
+      <button class="c-red" data-key="F2_RED" aria-label="Rojo"></button>
+      <button class="c-green" data-key="F3_GREEN" aria-label="Verde"></button>
+      <button class="c-yellow" data-key="F4_YELLOW" aria-label="Amarillo"></button>
+      <button class="c-blue" data-key="F1_BLUE" aria-label="Azul"></button>
+    </div>
+    <details class="more">
+      <summary>Más teclas</summary>
+      <div class="row row4 media">
+        <button data-key="REWIND" data-repeat aria-label="Atrasar">⏪</button>
+        <button data-key="PAUSE_PLAY_FUNCTION" aria-label="Play o pausa (como el control)">⏯</button>
+        <button data-key="STOP" aria-label="Stop">⏹</button>
+        <button data-key="FAST_FORWARD" data-repeat aria-label="Adelantar">⏩</button>
+      </div>
+      <div class="row nums">
+        <button data-key="NUMBER1">1</button><button data-key="NUMBER2">2</button><button data-key="NUMBER3">3</button>
+        <button data-key="NUMBER4">4</button><button data-key="NUMBER5">5</button><button data-key="NUMBER6">6</button>
+        <button data-key="NUMBER7">7</button><button data-key="NUMBER8">8</button><button data-key="NUMBER9">9</button>
+        <button data-key="CLEAR" aria-label="Borrar">⌫</button><button data-key="NUMBER0">0</button><span></span>
+      </div>
+    </details>
+  </section>
+
+  <section aria-label="Sonido">
+    <h2>Sonido</h2>
+    <div class="vol" id="vol">
+      <button data-vol="-" data-repeat aria-label="Bajar volumen">−</button>
+      <div><div class="level"><i id="level"></i></div><div class="num" id="volnum">–</div></div>
+      <button data-vol="+" data-repeat aria-label="Subir volumen">+</button>
+      <button data-vol="mute" id="mute" aria-label="Silencio">🔇</button>
+    </div>
+    <div class="outs" id="outs"></div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let state = null, stateAt = 0, failures = 0, pollTimer = null;
+const ICONS = {
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>',
+};
+
+function toast(text, ms = 2200) {
+  const t = $("toast");
+  t.textContent = text;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), ms);
+}
+
+async function post(path, body) {
+  try {
+    const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json", "X-Tele-CEC": "1"},
+                                 body: JSON.stringify(body)});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) toast(j.error || j.message || "No se pudo");
+    else if (j.message) toast(j.message);
+    return j;
+  } catch (e) {
+    toast("Sin conexión con la Pi");
+    return {ok: false};
+  } finally {
+    schedule(250);
+  }
+}
+
+function buzz() { try { navigator.vibrate && navigator.vibrate(8); } catch (e) {} }
+
+function fmt(s) {
+  if (!s || s < 0) return "";
+  s = Math.floor(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${x}` : `${m}:${x}`;
+}
+
+function render() {
+  const s = state;
+  const app = $("app");
+  app.className = "pill";
+  if (!s) { app.textContent = "Sin conexión"; return; }
+  if (s.asleep) { app.textContent = "En reposo · tocá una tecla"; app.classList.add("sleep"); }
+  else if (s.app && s.app.name) { app.textContent = s.app.name + (s.menu ? " · menú" : ""); app.classList.add("on"); }
+  else { app.textContent = s.menu ? "Menú" : "Nada abierto"; }
+
+  const n = s.now;
+  $("nowbox").hidden = !n;
+  $("nothing").hidden = !!n;
+  if (n) {
+    $("title").textContent = n.title || "(sin título)";
+    $("artist").textContent = [n.artist, n.album].filter(Boolean).join(" · ");
+    $("from").textContent = n.app + (n.status === "Paused" ? " · en pausa" : n.status === "Stopped" ? " · detenido" : "");
+    const art = $("art");
+    if (n.art) { if (art.dataset.src !== n.art) { art.style.backgroundImage = `url("${n.art}")`; art.dataset.src = n.art; art.textContent = ""; } }
+    else { art.style.backgroundImage = ""; art.dataset.src = ""; art.textContent = "♪"; }
+    const icon = n.status === "Playing" ? "pause" : "play";
+    const pp = $("pp");
+    if (pp.dataset.icon !== icon) { pp.innerHTML = ICONS[icon]; pp.dataset.icon = icon; }
+    progress();
+  }
+
+  const v = s.volume || {};
+  $("vol").classList.toggle("muted", !!v.muted);
+  $("level").style.width = (v.level == null ? 0 : Math.min(100, v.level)) + "%";
+  $("volnum").textContent = v.level == null ? "–" : (v.muted ? "silencio" : v.level + "%");
+
+  const outs = $("outs");
+  const key = JSON.stringify(s.outputs);
+  if (outs.dataset.key !== key) {
+    outs.dataset.key = key;
+    outs.replaceChildren(...(s.outputs || []).map((o) => {
+      const b = document.createElement("button");
+      b.className = "out" + (o.current ? " cur" : "");
+      b.innerHTML = '<span class="dot"></span><span><div class="name"></div><div class="det"></div></span>';
+      b.querySelector(".name").textContent = o.name;
+      b.querySelector(".det").textContent = o.current ? "Sale por acá" : o.detail;
+      b.addEventListener("click", async () => {
+        if (o.current) return;
+        buzz();
+        toast(`Pasando a ${o.name}…`, 6000);
+        await post("/api/sound", {id: o.id});
+      });
+      return b;
+    }));
+  }
+}
+
+function progress() {
+  const n = state && state.now;
+  if (!n) return;
+  let pos = n.position || 0;
+  if (n.status === "Playing") pos += (Date.now() - stateAt) / 1000;
+  if (n.length) pos = Math.min(pos, n.length);
+  $("prog").style.width = n.length ? (100 * pos / n.length) + "%" : "0";
+  $("pos").textContent = fmt(pos);
+  $("len").textContent = n.length ? fmt(n.length) : "";
+}
+setInterval(progress, 500);
+
+async function poll() {
+  pollTimer = null;
+  if (document.visibilityState !== "visible") return;
+  try {
+    const r = await fetch("/api/state", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    state = await r.json();
+    stateAt = Date.now();
+    failures = 0;
+  } catch (e) {
+    if (++failures === 2) toast("Sin conexión con la Pi", 3000);
+    if (failures >= 2) state = null;
+  }
+  render();
+  schedule(state ? 1500 : 4000);
+}
+function schedule(ms) { clearTimeout(pollTimer); pollTimer = setTimeout(poll, ms); }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") schedule(0); });
+
+// Botones: tocar manda una vez; mantener apretados los que repiten (flechas, volumen, ⏪ ⏩) repite.
+function press(btn) {
+  if (btn.dataset.key) return post("/api/key", {key: btn.dataset.key});
+  if (btn.dataset.vol) return post("/api/volume", {change: btn.dataset.vol});
+  if (btn.dataset.media) {
+    if (!state || !state.now) return;
+    return post("/api/media", {command: btn.dataset.media, player: state.now.player});
+  }
+}
+document.querySelectorAll("[data-key],[data-vol],[data-media]").forEach((btn) => {
+  let hold = null, rep = null;
+  const stop = () => { clearTimeout(hold); clearInterval(rep); hold = rep = null; btn.classList.remove("down"); };
+  btn.addEventListener("pointerdown", (ev) => {
+    ev.preventDefault();
+    btn.classList.add("down");
+    buzz();
+    press(btn);
+    if (btn.hasAttribute("data-repeat")) hold = setTimeout(() => { rep = setInterval(() => press(btn), 160); }, 450);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((e) => btn.addEventListener(e, stop));
+  btn.addEventListener("contextmenu", (e) => e.preventDefault());
+});
+
+poll();
+</script>
+</body>
+</html>
