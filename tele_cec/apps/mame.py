@@ -5,10 +5,16 @@
   dispositivos y los archivos que no son de MAME no aparecen. El nombre, el año y el fabricante salen de
   `mame -listxml` y quedan guardados en ~/.cache/tele-cec/mame-juegos.json (así la lista aparece al instante).
 - Abrir: `mame <rom>` en pantalla completa, con la configuración de MAME de siempre (~/.mame).
+- Control: MAME arranca con un script Lua propio (-autoboot_script) que cada 10 cuadros mira un archivo de
+  órdenes (pause, resume, exit) y contesta en otro. Así se pausa y se cierra con la API de MAME, sin
+  depender del foco ni del teclado (la P mandada con xdotool no lo pausaba).
 - Cerrar: MAME ignora SIGTERM, y matarlo pierde lo que guarda al salir (los controles que se configuraron en
-  su menú, los récords). Por eso se le manda Esc a su ventana (es X11, por Xwayland: con xdotool), como si
-  saliera el jugador; si no responde, SIGTERM y al final SIGKILL.
-- El joystick es del juego: el servicio solo atiende el botón del medio (o Back y Start juntos) para el menú.
+  su menú, los récords). Por eso: «exit» por el script; si no contesta, Esc a su ventana (X11, por Xwayland,
+  con xdotool); y al final SIGTERM y SIGKILL.
+- El joystick es del juego, salvo el botón del medio: es el de nuestro menú, como en las demás apps. Para eso
+  MAME arranca con un archivo de controles propio (-ctrlr) donde «mostrar el menú de MAME» queda solo en Tab;
+  el menú de MAME se abre desde nuestra lista («Opciones de MAME»).
+- Mientras nuestro menú está encima, el juego queda en pausa (P de MAME): los botones no mueven nada abajo.
 """
 
 from __future__ import annotations
@@ -34,6 +40,37 @@ log = logging.getLogger("actividades")
 
 ROM_EXT = (".zip", ".7z")
 CACHE_NAME = "mame-juegos.json"
+CTRLR_NAME = "tele-cec"
+LUA_SCRIPT = """-- Lo escribe tele-cec: órdenes desde el servicio (pause, resume, exit) por un archivo.
+local cmd, ack = %(cmd)s, %(ack)s
+local n = 0
+_tele_cec = emu.add_machine_frame_notifier(function()
+  n = n + 1
+  if n %% 10 ~= 0 then return end
+  local f = io.open(cmd, "r")
+  if not f then return end
+  local c = f:read("*l") or ""
+  f:close()
+  os.remove(cmd)
+  if c == "pause" then emu.pause() elseif c == "resume" then emu.unpause()
+  elseif c == "exit" then manager.machine:exit() end
+  local a = io.open(ack, "w")
+  if a then a:write(c .. "\\n"); a:close() end
+end)
+"""
+# El botón del medio (Guide) deja de abrir el menú de MAME: «mostrar el menú» queda solo en Tab.
+CTRLR_XML = """<?xml version="1.0"?>
+<!-- Lo escribe tele-cec: el botón del medio del joystick abre el menú de tele-cec, no el de MAME. -->
+<mameconfig version="10">
+    <system name="default">
+        <input>
+            <port type="UI_MENU">
+                <newseq type="standard">KEYCODE_TAB</newseq>
+            </port>
+        </input>
+    </system>
+</mameconfig>
+"""
 LISTXML_BATCH = 200
 
 
@@ -106,8 +143,14 @@ class MameActivity(ProcActivity):
         self.extra_args = shlex.split(extra) if isinstance(extra, str) else [str(a) for a in extra]
         self.procs = {os.path.basename(self.binary)}
         self.cache_dir = cache_dir or Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "tele-cec"
+        self.guide_menu = bool(cfg.get("guide_menu", True))
         self.current_game = ""
         self.fail_text = ""
+        self.frozen = False   # en pausa porque nuestro menú está encima
+        self.control = bool(cfg.get("control", True))   # el script Lua de órdenes (pausa, salir)
+        run = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp")
+        self.cmd_file = run / "tele-cec-mame.cmd"
+        self.ack_file = run / "tele-cec-mame.ack"
         self._games: list[Game] | None = None
         self._games_key: tuple = ()
 
@@ -229,10 +272,63 @@ class MameActivity(ProcActivity):
         exe = self.exe() or self.binary
         paths = self.rompaths()
         rp = ["-rompath", ";".join(str(p) for p in paths)] if self.rompath_cfg and paths else []
-        return [exe, *rp, *self.extra_args, rom]
+        ctrlr = ["-ctrlrpath", str(self.cache_dir / "mame-ctrlr"), "-ctrlr", CTRLR_NAME] if self.guide_menu else []
+        lua = (["-autoboot_script", str(self.cache_dir / "mame-tele-cec.lua"), "-autoboot_delay", "0"]
+               if self.control else [])
+        return [exe, *rp, *ctrlr, *lua, *self.extra_args, rom]
+
+    def write_lua(self) -> None:
+        text = LUA_SCRIPT % {"cmd": json.dumps(str(self.cmd_file)), "ack": json.dumps(str(self.ack_file))}
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            path = self.cache_dir / "mame-tele-cec.lua"
+            if not path.exists() or path.read_text(encoding="utf-8") != text:
+                path.write_text(text, encoding="utf-8")
+            for f in (self.cmd_file, self.ack_file):
+                f.unlink(missing_ok=True)
+        except OSError as exc:
+            log.warning("MAME: no pude escribir el script de control: %s", exc)
+
+    async def command(self, what: str, timeout: float = 1.5) -> bool:
+        """Una orden al script Lua de MAME; True si contestó."""
+        if not self.control or not self.running():
+            return False
+        try:
+            self.ack_file.unlink(missing_ok=True)
+            tmp = self.cmd_file.with_suffix(".tmp")
+            tmp.write_text(what + "\n", encoding="utf-8")
+            tmp.replace(self.cmd_file)  # entero de una vez: el script no lee media orden
+        except OSError as exc:
+            log.warning("MAME: no pude mandar «%s»: %s", what, exc)
+            return False
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if self.ack_file.read_text(encoding="utf-8").strip() == what:
+                    return True
+            except OSError:
+                pass
+            await asyncio.sleep(0.05)
+        log.debug("MAME no contestó «%s»", what)
+        return False
+
+    def write_ctrlr(self) -> None:
+        folder = self.cache_dir / "mame-ctrlr"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"{CTRLR_NAME}.cfg"
+            if not path.exists() or path.read_text(encoding="utf-8") != CTRLR_XML:
+                path.write_text(CTRLR_XML, encoding="utf-8")
+        except OSError as exc:
+            log.warning("MAME: no pude escribir el archivo de controles: %s", exc)
 
     async def open(self, rom: str | None = None) -> bool:
         self.fail_text = ""
+        self.frozen = False
+        if self.guide_menu:
+            await asyncio.to_thread(self.write_ctrlr)
+        if self.control:
+            await asyncio.to_thread(self.write_lua)
         rom = rom or self.current_game
         if not rom:
             self.fail_text = "Elegí un juego"
@@ -246,22 +342,60 @@ class MameActivity(ProcActivity):
             self.fail_text = "MAME no pudo abrir el juego (ver ~/.cache/tele-cec/juegos.log)"
         return ok
 
+    # ------------------------------------------------------------ teclas a la ventana de MAME (X11, Xwayland)
+    async def _window(self) -> str:
+        if not shutil.which("xdotool"):
+            return ""
+        for query in [["--pid", str(pid)] for pid in self.pids(fresh=True)] + [["--class", "mame"]]:
+            rc, out = await run_cmd(["xdotool", "search", *query], 5)
+            wids = [w for w in out.split() if w.isdigit()] if rc == 0 else []
+            if wids:
+                return wids[0]
+        return ""
+
+    async def key(self, name: str) -> bool:
+        """Una tecla a MAME, apretada un rato: mira el teclado una vez por cuadro, y una tecla instantánea
+        (xdotool key) a veces pasa entre dos cuadros sin que la vea."""
+        wid = await self._window()
+        if not wid:
+            return False
+        await run_cmd(["xdotool", "windowactivate", "--sync", wid], 3)
+        await run_cmd(["xdotool", "keydown", name], 3)
+        await asyncio.sleep(0.15)
+        await run_cmd(["xdotool", "keyup", name], 3)
+        return True
+
+    async def freeze(self) -> None:
+        """Nuestro menú se abre encima del juego: en pausa, si no estaba ya."""
+        if self.running() and not self.frozen and await self.command("pause"):
+            self.frozen = True
+            log.info("MAME en pausa (menú encima)")
+
+    async def unfreeze(self) -> None:
+        if self.frozen:
+            self.frozen = False
+            if await self.command("resume"):
+                log.info("MAME sigue (sin pausa)")
+
+    async def mame_menu(self) -> None:
+        """El menú de MAME (Tab): opciones, controles, trucos…"""
+        await self.unfreeze()
+        await asyncio.sleep(0.2)
+        await self.key("Tab")
+
     async def close(self) -> None:
+        self.frozen = False
         pids = self.pids(fresh=True)
-        if pids and shutil.which("xdotool"):
-            wids: list[str] = []
-            for query in [["--pid", str(pid)] for pid in pids] + [["--class", "mame"]]:
-                rc, out = await run_cmd(["xdotool", "search", *query], 5)
-                wids = [w for w in out.split() if w.isdigit()] if rc == 0 else []
-                if wids:
+        if pids and await self.command("exit"):
+            for _ in range(20):
+                if not self.pids(fresh=True):
+                    log.info("MAME cerrado")
+                    return
+                await asyncio.sleep(0.25)
+        if self.pids(fresh=True) and shutil.which("xdotool"):
+            for _attempt in range(2):
+                if not await self.key("Escape"):
                     break
-            for _attempt in range(2) if wids else []:
-                await run_cmd(["xdotool", "windowactivate", "--sync", wids[0]], 3)
-                # Apretado un rato: MAME mira el teclado una vez por cuadro, y un Esc instantáneo (xdotool key)
-                # a veces pasa entre dos cuadros sin que lo vea.
-                await run_cmd(["xdotool", "keydown", "Escape"], 3)
-                await asyncio.sleep(0.15)
-                await run_cmd(["xdotool", "keyup", "Escape"], 3)
                 for _ in range(10):
                     if not self.pids(fresh=True):
                         log.info("MAME cerrado (Esc)")

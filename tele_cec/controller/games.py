@@ -1,8 +1,8 @@
 """Juegos (MAME) en el menú: la lista de ROMs para elegir una y jugarla.
 
 OK sobre «Juegos» (sin un juego abierto) o ▶ sobre «Juegos» muestra la lista. Mientras se juega, Atrás del
-control, o el botón del medio del joystick, vuelven a la lista: OK sobre el juego actual sigue jugando, otro
-lo cambia, y «Salir del juego» cierra MAME.
+control, o el botón del medio del joystick, la muestran encima del juego (en pausa), con «Seguir jugando»,
+«Salir del juego», «Opciones de MAME» (su propio menú) y «Otras actividades» arriba de los juegos.
 """
 
 from __future__ import annotations
@@ -16,6 +16,9 @@ log = logging.getLogger("tele")
 
 GAMES_HINT = "▲ ▼ elegir · OK jugar · Atrás volver"
 QUIT_ID = "_quit_game"
+RESUME_ID = "_resume_game"
+MAME_MENU_ID = "_mame_menu"
+MAIN_MENU_ID = "_main_menu"
 
 
 class GamesMenuMixin:
@@ -31,12 +34,21 @@ class GamesMenuMixin:
         playing = act.current_game if act.running() else ""
         items: list[dict] = []
         if playing:
-            items.append({"id": QUIT_ID, "name": "Salir del juego", "icon": "application-exit",
-                          "sub": "Cierra MAME", "enabled": True, "current": False})
+            g = act.game(playing)
+            items += [
+                {"id": RESUME_ID, "name": "Seguir jugando", "icon": "media-playback-start",
+                 "sub": g.title if g else playing, "enabled": True, "current": False},
+                {"id": QUIT_ID, "name": "Salir del juego", "icon": "application-exit",
+                 "sub": "Cierra MAME", "enabled": True, "current": False},
+                {"id": MAME_MENU_ID, "name": "Opciones de MAME", "icon": "preferences-system",
+                 "sub": "Su propio menú: controles, video, trucos", "enabled": True, "current": False},
+                {"id": MAIN_MENU_ID, "name": "Otras actividades", "icon": "view-app-grid",
+                 "sub": "El menú principal", "enabled": True, "current": False},
+            ]
         for g in games:
             items.append({"id": "_game", "rom": g.rom, "name": g.title, "icon": "juegos.svg", "sub": g.sub,
                           "enabled": True, "current": g.rom == playing})
-        sel = next((i for i, it in enumerate(items) if it["current"]), 0)
+        sel = 0 if playing else next((i for i, it in enumerate(items) if it["current"]), 0)
         return items, sel
 
     async def games_open(self) -> None:
@@ -63,6 +75,8 @@ class GamesMenuMixin:
         self._android_stop()
         if self._menu_mode == "activities" and not self._menu_open and self._ctx != "menu":
             self._menu_from_ctx = self._ctx
+        if not self._menu_open:
+            await act.freeze()  # encima del juego: en pausa (antes de que el panel tome el teclado)
         self._menu_mode, self._menu_items, self._menu_sel = "games", items, sel
         n = sum(1 for it in items if it["id"] == "_game")
         if not await self.overlay.show(items, sel, title=f"{act.name} · {n} juego{'s' if n != 1 else ''}",
@@ -91,9 +105,17 @@ class GamesMenuMixin:
                 self._switching = False
             await self.menu_open()
             return
-        if item.get("current"):
-            log.info("Menú: sigo jugando %s", item["name"])
+        if item["id"] == RESUME_ID or item.get("current"):
+            log.info("Menú: sigo jugando %s", item.get("sub") if item["id"] == RESUME_ID else item["name"])
             await self.menu_close()
+            return
+        if item["id"] == MAME_MENU_ID:
+            log.info("Menú: abro el menú de MAME")
+            await self.menu_close()
+            await act.mame_menu()
+            return
+        if item["id"] == MAIN_MENU_ID:
+            await self.menu_open(self._menu_act_sel)
             return
         log.info("Menú: juego %s (%s)", item["name"], item["rom"])
         if self._menu_timer:

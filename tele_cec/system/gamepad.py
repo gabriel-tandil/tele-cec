@@ -11,6 +11,9 @@ apps, ayuda, y también despiertan a la Pi del reposo. Mantener una dirección l
 Nombres de los botones en [gamepad.buttons] (los de un joystick de Xbox; en otros, el que está en ese lugar):
   A B X Y · LB RB · LT RT (gatillos) · BACK START GUIDE (el botón del medio) · LS RS (apretar las palancas)
   DPAD_UP/DOWN/LEFT/RIGHT (la cruz y la palanca izquierda) · RS_UP/DOWN/LEFT/RIGHT (la palanca derecha)
+
+Los de [gamepad] hold_buttons avisan además cuando se los mantiene apretados ("BACK:HOLD"): en los juegos,
+mantener Back sale del juego (un toque corto es la moneda de MAME).
 """
 
 from __future__ import annotations
@@ -151,6 +154,10 @@ class Gamepads:
         self.deadzone = float(cfg.get("deadzone", 0.55))
         self.repeat_delay = float(cfg.get("repeat_delay_ms", 400)) / 1000
         self.repeat_every = float(cfg.get("repeat_ms", 130)) / 1000
+        # Botones que además avisan si se los mantiene apretados (p. ej. Back: salir del juego).
+        self.hold_buttons = {str(b).upper() for b in cfg.get("hold_buttons", ["BACK"]) or []}
+        self.hold_time = float(cfg.get("hold_ms", 1000)) / 1000
+        self._holds: dict[str, asyncio.Task] = {}
         self.on_key = on_key
         self.on_release = on_release
         self.pads: dict[str, Pad] = {}
@@ -291,6 +298,8 @@ class Gamepads:
         if pad.held.get(key, False) == down:
             return
         pad.held[key] = down
+        if btn in self.hold_buttons and src == "btn":
+            self._hold(pad, btn, down)
         code = self.codes.get(btn)
         if code is None:
             if down and btn in ("BACK", "START") and any(pad.held.get(f"{o}@btn") for o in ("BACK", "START") if o != btn):
@@ -308,6 +317,18 @@ class Gamepads:
             if self._repeating == key:
                 self._stop_repeat()
             self.on_release()
+
+    def _hold(self, pad: Pad, btn: str, down: bool) -> None:
+        """Mantenerlo apretado hold_ms avisa «<BOTÓN>:HOLD» (una vez por pulsación)."""
+        ident = f"{pad.path}:{btn}"
+        task = self._holds.pop(ident, None)
+        if task and not task.done():
+            task.cancel()
+        if down:
+            async def fire() -> None:
+                await asyncio.sleep(self.hold_time)
+                self.on_key(self.codes.get(btn) or 0, f"{btn}:HOLD")
+            self._holds[ident] = asyncio.get_running_loop().create_task(fire())
 
     def _stop_repeat(self) -> None:
         if self._repeat and not self._repeat.done():
