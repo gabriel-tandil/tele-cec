@@ -29,23 +29,118 @@ def check(cond: bool, what: str) -> None:
         print(f"  [FAIL] {what}")
 
 
+def app(name, icon="", mpris=None, installed=True):
+    return SimpleNamespace(name=name, icon=icon, mpris=mpris, installed=lambda: installed, fail_text="")
+
+
+class FakeMusic:
+    """High Tide simulado: el canal de control (data/command) con una biblioteca chica."""
+
+    def __init__(self, log):
+        self.log = log
+        self.on = True
+        self.logged = True
+        self.mpris = SimpleNamespace(player="io.github.nokse22.high-tide", ctl=self._mpris_ctl)
+        self.liked = False
+
+    async def _mpris_ctl(self, *args):
+        self.log.append(("mpris", *args))
+        return True
+
+    def running(self):
+        return self.on
+
+    async def command(self, line, timeout=10.0, wait=0.0):
+        self.log.append(("cmd", line))
+        if line == "like":
+            self.liked = not self.liked
+        return "ok"
+
+    async def data(self, line, timeout=25.0):
+        self.log.append(("data", line))
+        if not self.on:
+            return {"error": "cerrado"}
+        if not self.logged:
+            return {"error": "login"}
+        name, _, rest = line.partition(" ")
+        if name == "liked":
+            return {"liked": self.liked, "id": "1"}
+        if name == "ready":
+            return {"ok": True, "restored": True}
+        if name == "lib":
+            return {"items": [{"type": "track", "id": "11", "title": "Uno"}], "total": 1, "start": 0}
+        if name == "list":
+            return {"title": "Mi lista", "items": [{"type": "track", "id": "21", "title": "A"}], "total": 1}
+        if name == "search":
+            return {"tracks": [{"type": "track", "id": "31", "title": rest}], "albums": [], "playlists": [],
+                    "artists": [], "top": None}
+        if name == "queue":
+            return {"current": {"type": "track", "id": "1", "title": "Ahora"}, "queue": [], "next": [], "total_next": 0}
+        if name in ("play", "enqueue", "jump"):
+            return {"ok": True, "title": "Tema"}
+        return {"error": "?"}
+
+
 class FakeCtl:
     def __init__(self) -> None:
         self.keys: list = []
         self.toasts: list = []
-        tidal = SimpleNamespace(name="Tidal")  # como la real: el MPRIS está en ctl.music (High Tide)
-        self.music = SimpleNamespace(mpris=SimpleNamespace(player="io.github.nokse22.high-tide"))
-        videos = SimpleNamespace(name="Videos", mpris=SimpleNamespace(player="vlc"))
-        self.activities = {"netflix": SimpleNamespace(name="Netflix"), "tidal": tidal, "videos": videos,
-                           "youtube": SimpleNamespace(name="YouTube", mpris=SimpleNamespace(player="firefox"))}
+        self.log: list = []
+        # como la real: la actividad Tidal no tiene MPRIS propio, está en ctl.music (High Tide)
+        self.music = FakeMusic(self.log)
+        self.activities = {"netflix": app("Netflix", "netflix.svg"), "tidal": app("Tidal", "tidal.svg"),
+                           "videos": app("Videos", "videos.svg", SimpleNamespace(player="vlc")),
+                           "youtube": app("YouTube", "youtube.svg", SimpleNamespace(player="firefox")),
+                           "juegos": app("Juegos", "juegos.svg", installed=False)}
+        self.cfg = SimpleNamespace(menu={"items": ["netflix", "youtube", "tidal", "videos", "juegos"]})
         self.browser = SimpleNamespace(engine="firefox")
-        self.power = SimpleNamespace(asleep=False, last_activity=0.0)
+        self.power = SimpleNamespace(asleep=False, last_activity=0.0, note_key=lambda: False, wake=self._wake,
+                                     _wake_task=None)
         self._menu_open = False
+        self._switching = False
+        self._no_activate = False
+        self.page = None
         self.cur = "tidal"
-        self.overlay = SimpleNamespace(toast=self._toast)
+        self.ctx = "browse"
+        self.url = "https://www.netflix.com/browse"
+        self._switch_until = 0.0
+        self.overlay = SimpleNamespace(toast=self._toast, busy=self._busy, hide=self._hide)
 
     async def _toast(self, text, ms=2000):
         self.toasts.append(text)
+
+    async def _busy(self, text):
+        self.log.append(("busy", text))
+
+    async def _hide(self):
+        self.log.append(("hide",))
+
+    def _wake(self, by_key):
+        self.log.append(("wake", by_key))
+        self.power.asleep = False
+
+    async def menu_close(self):
+        self._menu_open = False
+        self.log.append(("menu_close",))
+
+    async def switch_to(self, ident, folder=None):
+        self.log.append(("switch", ident, self._no_activate))
+        self.cur = ident
+        if ident == "tidal":
+            self.music.on = True
+        return True
+
+    async def key(self, name):
+        self.log.append(("key", name))
+
+    async def context(self):
+        return self.ctx
+
+    async def js(self, name, *args):
+        return {"ctx": self.ctx, "url": self.url}
+
+    async def navigate(self, url):
+        self.log.append(("navigate", url))
 
     def current_app(self):
         return self.cur
@@ -76,13 +171,15 @@ async def http(port: int, method: str, path: str, body: dict | None = None, head
 async def main() -> int:
     print("Lo que suena (playerctl) y el volumen (wpctl)")
     S = nowplaying.SEP
-    out = (f"vlc{S}Paused{S}Peli{S}{S}{S}file:///tmp/x.jpg{S}5000000{S}60000000\n"
-           f"io.github.nokse22.high-tide{S}Playing{S}Tema{S}Artista{S}Disco{S}https://img/x.jpg{S}1500000{S}200000000\n"
+    out = (f"vlc{S}Paused{S}Peli{S}{S}{S}file:///tmp/x.jpg{S}5000000{S}60000000{S}{S}\n"
+           f"io.github.nokse22.high-tide{S}Playing{S}Tema{S}Artista{S}Disco{S}https://img/x.jpg{S}1500000{S}200000000"
+           f"{S}true{S}Playlist\n"
            f"basura sin campos\n")
     tracks = nowplaying.parse_players(out)
-    check([(t.player, t.status, t.title, t.position, t.length) for t in tracks]
-          == [("vlc", "Paused", "Peli", 5.0, 60.0), ("io.github.nokse22.high-tide", "Playing", "Tema", 1.5, 200.0)],
-          f"lee cada reproductor (segundos, no microsegundos): {tracks}")
+    check([(t.player, t.status, t.title, t.position, t.length, t.shuffle, t.loop) for t in tracks]
+          == [("vlc", "Paused", "Peli", 5.0, 60.0, None, ""),
+              ("io.github.nokse22.high-tide", "Playing", "Tema", 1.5, 200.0, True, "Playlist")],
+          f"lee cada reproductor (segundos, no microsegundos; aleatorio y repetir si los informa): {tracks}")
     check(nowplaying.pick(tracks, ["vlc"]).player == "io.github.nokse22.high-tide",
           "el que está sonando gana aunque la app en pantalla sea otra")
     paused = [t for t in tracks if t.player == "vlc"]
@@ -116,8 +213,8 @@ async def main() -> int:
     async def fake_volume():
         return 35, False
 
-    async def fake_control(player, command):
-        calls.append(("media", player, command))
+    async def fake_control(player, command, value=None):
+        calls.append(("media", player, command) if value is None else ("media", player, command, value))
         return True
 
     async def fake_change(what, step=5):
@@ -212,6 +309,159 @@ async def main() -> int:
         check(raw == b"" and ctl.keys == [1, None], "un cuerpo enorme se corta sin leerlo")
         st, _, _ = await http(port, "GET", "/api/state")
         check(st == 200, "sigue atendiendo después de un pedido inválido")
+
+        print("Lo que suena: ir a otra parte, aleatorio, repetir y «Me gusta»")
+        H = {"X-Tele-CEC": "1"}
+        players[:] = [tracks[1]]  # Tidal sonando, aleatorio sí, repetir la lista
+        web._state = None
+        _, _, body = await http(port, "GET", "/api/state")
+        s = json.loads(body)
+        check(s["now"]["tidal"] and s["now"]["shuffle"] is True and s["now"]["loop"] == "Playlist"
+              and s["now"]["liked"] is False, f"el estado dice si es Tidal, aleatorio, repetir y me gusta: {s['now']}")
+        P = tracks[1].player
+        await http(port, "POST", "/api/media", {"command": "seek", "player": P, "value": 95.5}, H)
+        check(calls[-1] == ("media", P, "seek", 95.5), f"tocar la barra va a ese segundo: {calls[-1]}")
+        await http(port, "POST", "/api/media", {"command": "loop", "player": P}, H)
+        check(calls[-1] == ("media", P, "loop", "Playlist"), f"repetir pasa al siguiente modo desde el actual: {calls[-1]}")
+        _, _, body = await http(port, "POST", "/api/media", {"command": "like", "player": P}, H)
+        r = json.loads(body)
+        check(r["ok"] and ("cmd", "like") in ctl.log and r["message"] == "Agregado a tus favoritos",
+              f"«Me gusta» en Tidal: {r}")
+        players[:] = [tracks[0]]
+        _, _, body = await http(port, "POST", "/api/media", {"command": "like", "player": "vlc"}, H)
+        check(not json.loads(body)["ok"], "«Me gusta» en VLC: no")
+
+        print("Apps")
+        web._state = None
+        _, _, body = await http(port, "GET", "/api/state")
+        s = json.loads(body)
+        check([a["id"] for a in s["apps"]] == ["netflix", "youtube", "tidal", "videos"]
+              and s["apps"][0]["icon"] == "/icons/netflix.svg",
+              f"las apps instaladas, en el orden del menú, con su ícono: {[a['id'] for a in s['apps']]}")
+        st, h, body = await http(port, "GET", "/icons/netflix.svg")
+        check(st == 200 and h["Content-Type"] == "image/svg+xml", "sirve los íconos del menú")
+        st, _, _ = await http(port, "GET", "/icons/..%2Fmenu_ui.py")
+        check(st == 404, "y nada más que los íconos")
+        ctl.cur, ctl._menu_open = None, True
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/app", {"id": "youtube"}, H)
+        check(json.loads(body)["ok"] and ("menu_close",) in ctl.log and ("switch", "youtube", False) in ctl.log
+              and ctl.log[-1] == ("hide",), f"abrir YouTube: cierra el menú y la abre, como el menú: {ctl.log}")
+        _, _, body = await http(port, "POST", "/api/app", {"id": "juegos"}, H)
+        check(not json.loads(body)["ok"], "una app no instalada: no")
+
+        print("Abrir Tidal con el sonido en Bluetooth y la Pi en reposo: sin prender la TV")
+        outs[0].default, outs[1].default, outs[1].sink_id = False, True, 79
+        web._outputs_at = 0.0
+        ctl.power.asleep = True
+        ctl.music.on = False
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/app", {"id": "tidal"}, H)
+        check(json.loads(body)["ok"] and ("wake", False) in ctl.log and ("switch", "tidal", True) in ctl.log
+              and not ctl._no_activate,
+              f"despierta como si se prendiera la TV (sin cambiarle la entrada) y abre Tidal sin anunciarse: {ctl.log}")
+        outs[0].default, outs[1].default, outs[1].sink_id = True, False, None
+        web._outputs_at = 0.0
+
+        print("Escribir en la TV")
+        ctl.cur, ctl._menu_open, ctl.page, ctl.ctx = "netflix", False, object(), "text"
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/text", {"text": "Ñandú\n", "key": "Enter"}, H)
+        check(json.loads(body)["ok"] and [x for x in ctl.log if x[0] == "key"]
+              == [("key", c) for c in "Ñandú"] + [("key", "Enter")],
+              f"en Netflix con un campo de texto (PIN, búsqueda): letra por letra, sin caracteres raros, y Enter: {ctl.log}")
+        ctl.ctx = "browse"
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/text", {"text": "la casa de papel", "key": "Enter"}, H)
+        check(json.loads(body)["ok"] and ctl.log == [("navigate", "https://www.netflix.com/search?q=la%20casa%20de%20papel")],
+              f"en Netflix sin campo de texto: va directo a la búsqueda: {ctl.log}")
+        ctl.ctx, ctl.url = "text", "https://www.netflix.com/search?q=otra"
+        ctl.log.clear()
+        await http(port, "POST", "/api/text", {"text": "dark"}, H)
+        check(ctl.log == [("navigate", "https://www.netflix.com/search?q=dark")],
+              f"con el buscador de Netflix enfocado (con la búsqueda anterior): la reemplaza, no la alarga: {ctl.log}")
+        ctl.ctx, ctl.url = "profiles", "https://www.netflix.com/browse"
+        _, _, body = await http(port, "POST", "/api/text", {"text": "dark"}, H)
+        r = json.loads(body)
+        check(not r["ok"] and "perfil" in r["error"], f"en «¿Quién está viendo?»: pide elegir el perfil: {r}")
+        ctl.ctx = "browse"
+        yt = ctl.activities["youtube"]
+        yt.search_url = lambda t: "https://www.youtube.com/tv#/search?q=" + t
+        yt_log: list = []
+
+        async def yt_close():
+            yt_log.append("close")
+
+        async def yt_open(url=None):
+            yt_log.append(("open", url))
+            return True
+        yt.close, yt.open = yt_close, yt_open
+        ctl.cur, ctl.page = "youtube", None
+        _, _, body = await http(port, "POST", "/api/text", {"text": "gatitos", "key": "Enter"}, H)
+        check(json.loads(body)["ok"] and yt_log == ["close", ("open", "https://www.youtube.com/tv#/search?q=gatitos")]
+              and not ctl._switching and ctl._switch_until > 0,
+              f"en YouTube: se reabre en la búsqueda con el texto (escribir con el teclado no sirve): {yt_log}")
+        del yt.search_url
+        typed = []
+
+        async def fake_wtype_text(text):
+            typed.append(("text", text))
+            return True
+
+        async def fake_wtype_key(name):
+            typed.append(("key", name))
+            return True
+        server.keyboard.wtype_text = fake_wtype_text  # type: ignore[assignment]
+        server.keyboard.wtype_key = fake_wtype_key  # type: ignore[assignment]
+        ctl.cur, ctl.page = "android", None
+        _, _, body = await http(port, "POST", "/api/text", {"text": "hola", "key": "Enter"}, H)
+        check(json.loads(body)["ok"] and typed == [("text", "hola"), ("key", "Return")],
+              f"en Android (y Tidal): con wtype a la ventana: {typed}")
+        ctl.cur = "videos"
+        _, _, body = await http(port, "POST", "/api/text", {"text": "x"}, H)
+        check(not json.loads(body)["ok"], "en Videos no hay dónde escribir: lo dice")
+        ctl._menu_open, ctl.cur = True, "youtube"
+        _, _, body = await http(port, "POST", "/api/text", {"text": "x"}, H)
+        r = json.loads(body)
+        check(not r["ok"] and "menú" in r["error"], f"con el menú abierto (tiene el teclado) avisa: {r}")
+        ctl._menu_open = False
+
+        print("Tidal: biblioteca, búsqueda, cola y poner a sonar")
+        ctl.music.on, ctl.cur = True, "tidal"
+        _, _, body = await http(port, "GET", "/api/tidal/library?what=tracks&start=0")
+        check(json.loads(body)["items"][0]["title"] == "Uno" and ("data", "lib tracks 0 100") in ctl.log,
+              "Mis canciones")
+        _, _, body = await http(port, "GET", "/api/tidal/library?what=secretos")
+        check("error" in json.loads(body), "una biblioteca que no existe: no")
+        _, _, body = await http(port, "GET", "/api/tidal/list?type=playlist&id=abc-123&start=100")
+        check(json.loads(body)["title"] == "Mi lista" and ("data", "list playlist abc-123 100 100") in ctl.log,
+              "los temas de una playlist, de a páginas")
+        _, _, body = await http(port, "GET", "/api/tidal/list?type=playlist&id=a%0Aquit")
+        check("error" in json.loads(body), "un id con un salto de línea (otro comando escondido): no")
+        _, _, body = await http(port, "GET", "/api/tidal/search?q=soda%0Astereo%20%20")
+        check(json.loads(body)["tracks"][0]["title"] == "soda stereo",
+              "buscar: el texto llega en una sola línea (sin saltos que agreguen otro comando)")
+        _, _, body = await http(port, "GET", "/api/tidal/queue")
+        check(json.loads(body)["current"]["title"] == "Ahora", "la cola")
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/tidal/play", {"type": "fav", "index": 7, "shuffle": True}, H)
+        check(json.loads(body)["ok"] and ("data", "play fav - 7") in ctl.log
+              and ("mpris", "shuffle", "On") in ctl.log, f"Mis canciones desde el tema 8, mezcladas: {ctl.log}")
+        ctl.music.on, ctl.cur = False, None
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/tidal/play", {"type": "album", "id": "999"}, H)
+        check(json.loads(body)["ok"] and ("switch", "tidal", False) in ctl.log
+              and ctl.log.index(("switch", "tidal", False)) < ctl.log.index(("data", "play album 999 0")),
+              f"con Tidal cerrado: lo abre primero y después pone el disco: {ctl.log}")
+        _, _, body = await http(port, "POST", "/api/tidal/enqueue", {"id": "31", "mode": "next"}, H)
+        r = json.loads(body)
+        check(r["ok"] and r["message"].startswith("Suena después de este"), f"agregar a la cola: {r}")
+        _, _, body = await http(port, "POST", "/api/tidal/jump", {"where": "next", "n": 3}, H)
+        check(json.loads(body)["ok"] and ("data", "jump next 3") in ctl.log, "saltar a un tema de lo que sigue")
+        ctl.music.logged = False
+        _, _, body = await http(port, "GET", "/api/tidal/library?what=tracks")
+        r = json.loads(body)
+        check(r.get("login") and "cuenta" in r["error"], f"sin la sesión de Tidal iniciada lo dice: {r}")
     finally:
         await web.close()
 

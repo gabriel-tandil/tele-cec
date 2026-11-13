@@ -12,7 +12,8 @@ from dataclasses import asdict, dataclass
 from ..system.procs import run_cmd
 
 SEP = "\x1f"  # separador que no aparece en un título
-FIELDS = ("playerInstance", "status", "title", "artist", "album", "mpris:artUrl", "position", "mpris:length")
+FIELDS = ("playerInstance", "status", "title", "artist", "album", "mpris:artUrl", "position", "mpris:length",
+          "shuffle", "loop")
 FORMAT = SEP.join("{{" + f + "}}" for f in FIELDS)
 SINK = "@DEFAULT_AUDIO_SINK@"
 
@@ -27,6 +28,8 @@ class Track:
     art: str = ""        # mpris:artUrl (file://… o https://…)
     position: float = 0.0   # segundos
     length: float = 0.0     # segundos (0 = no se sabe, p. ej. en vivo)
+    shuffle: bool | None = None   # None = el reproductor no lo informa
+    loop: str = ""          # None / Playlist / Track ("" = no lo informa)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -46,8 +49,10 @@ def parse_players(text: str) -> list[Track]:
         f = line.split(SEP)
         if len(f) != len(FIELDS) or not f[0]:
             continue
+        shuffle = {"true": True, "false": False}.get(f[8].strip().lower())
+        loop = f[9].strip() if f[9].strip() in ("None", "Playlist", "Track") else ""
         out.append(Track(player=f[0], status=f[1], title=f[2], artist=f[3], album=f[4], art=f[5],
-                         position=_seconds(f[6]), length=_seconds(f[7])))
+                         position=_seconds(f[6]), length=_seconds(f[7]), shuffle=shuffle, loop=loop))
     return out
 
 
@@ -71,10 +76,26 @@ def pick(tracks: list[Track], prefer: list[str]) -> Track | None:
     return None
 
 
-async def control(player: str, command: str) -> bool:
-    if command not in ("play-pause", "next", "previous", "play", "pause"):
+LOOP_NEXT = {"None": "Playlist", "Playlist": "Track", "Track": "None", "": "Playlist"}
+
+
+async def control(player: str, command: str, value: float | str | None = None) -> bool:
+    """play-pause, next, previous, play, pause · seek (value = segundos desde el principio) · shuffle (alterna) ·
+    loop (value = el estado actual: pasa al siguiente, None → Playlist → Track → None)."""
+    if command in ("play-pause", "next", "previous", "play", "pause"):
+        args = [command]
+    elif command == "seek":
+        try:
+            args = ["position", f"{max(0.0, float(value or 0)):.1f}"]
+        except (TypeError, ValueError):
+            return False
+    elif command == "shuffle":
+        args = ["shuffle", "Toggle"]
+    elif command == "loop":
+        args = ["loop", LOOP_NEXT.get(str(value or ""), "Playlist")]
+    else:
         return False
-    rc, _ = await run_cmd(["playerctl", "-p", player, command], 5)
+    rc, _ = await run_cmd(["playerctl", "-p", player, *args], 5)
     return rc == 0
 
 

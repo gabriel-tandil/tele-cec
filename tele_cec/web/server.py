@@ -2,7 +2,10 @@
 
 - el control remoto en la pantalla: las teclas entran a la misma cola que las del control de la TV (contexto, menú,
   reposo: una tecla despierta a la Pi, igual que el control);
-- lo que está sonando (MPRIS) con play/pausa, anterior y siguiente;
+- lo que está sonando (MPRIS) con play/pausa, anterior, siguiente, ir a otra parte del tema, aleatorio, repetir
+  y, en Tidal, «Me gusta»;
+- abrir una app (Netflix, YouTube, Tidal…) y escribir texto en la TV (buscar en Netflix o YouTube);
+- Tidal: la biblioteca, la búsqueda y la cola, a través de High Tide (web/tidal.py);
 - el volumen de la salida actual y la salida de sonido (TV por HDMI, parlante Bluetooth…).
 
 Es un servidor HTTP mínimo con asyncio (sin dependencias). El celular pregunta el estado cada un par de segundos.
@@ -19,20 +22,26 @@ import ipaddress
 import json
 import logging
 import mimetypes
+import re
 import time
 import urllib.parse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..keys import parse_key
-from ..system import audio
+from ..system import audio, keyboard
 from . import nowplaying
+from .tidal import TidalWeb
 
 if TYPE_CHECKING:
     from ..controller import Controller
 
 log = logging.getLogger("web")
 STATIC = Path(__file__).with_name("static")
+ICONS = Path(__file__).resolve().parent.parent / "ui" / "icons"
+TEXT_APPS = {"youtube", "tidal", "android"}
+NETFLIX_SEARCH = "https://www.netflix.com/search?q="   # apps Wayland: el texto se escribe con wtype (Netflix: por el navegador)
+APPS_TTL_S = 30.0
 MAX_BODY = 16 * 1024
 STATE_TTL_S = 0.8       # varios celulares mirando: el estado se arma como mucho una vez por este lapso
 OUTPUTS_TTL_S = 6.0     # las salidas de sonido cambian poco (pw-dump y bluetoothctl tardan un poco)
@@ -88,6 +97,9 @@ class WebRemote:
         self._outputs: list[audio.Output] = []
         self._outputs_at = 0.0
         self._art: str = ""          # archivo de la tapa que se está mostrando (file://)
+        self._apps: list[dict[str, Any]] = []
+        self._apps_at = 0.0
+        self.tidal = TidalWeb(ctl, self.launch)
 
     # ---------------------------------------------------------------- servidor
     async def start(self) -> bool:
@@ -150,8 +162,18 @@ class WebRemote:
                 return _json(await self.state())
             if path == "/api/art":
                 return self._art_file()
+            if path == "/api/tidal/library":
+                return _json(await self.tidal.library(query))
+            if path == "/api/tidal/list":
+                return _json(await self.tidal.items(query))
+            if path == "/api/tidal/search":
+                return _json(await self.tidal.search(query))
+            if path == "/api/tidal/queue":
+                return _json(await self.tidal.queue())
             if path in ("/", "/index.html"):
                 return _static("index.html", no_cache=True)
+            if path.startswith("/icons/"):
+                return _icon(path[len("/icons/"):])
             name = path.lstrip("/")
             if name in ("manifest.webmanifest", "icon.svg"):
                 return _static(name)
@@ -169,7 +191,18 @@ class WebRemote:
         if path == "/api/key":
             return _json(await self.key(str(data.get("key") or "")))
         if path == "/api/media":
-            return _json(await self.media(str(data.get("command") or ""), str(data.get("player") or "")))
+            return _json(await self.media(str(data.get("command") or ""), str(data.get("player") or ""),
+                                          data.get("value")))
+        if path == "/api/app":
+            return _json(await self.launch(str(data.get("id") or "")))
+        if path == "/api/text":
+            return _json(await self.type_text(str(data.get("text") or ""), str(data.get("key") or "")))
+        if path == "/api/tidal/play":
+            return _json(await self.tidal.play(data))
+        if path == "/api/tidal/enqueue":
+            return _json(await self.tidal.enqueue(data))
+        if path == "/api/tidal/jump":
+            return _json(await self.tidal.jump(data))
         if path == "/api/volume":
             ok = await nowplaying.change_volume(str(data.get("change") or ""), self.volume_step)
             self._state = None
@@ -191,15 +224,120 @@ class WebRemote:
         self._state = None
         return {"ok": True}
 
-    async def media(self, command: str, player: str) -> dict[str, Any]:
+    async def media(self, command: str, player: str, value: Any = None) -> dict[str, Any]:
         tracks = await nowplaying.players()
-        if not any(t.player == player for t in tracks):  # solo reproductores que existen ahora
+        track = next((t for t in tracks if t.player == player), None)
+        if track is None:  # solo reproductores que existen ahora
             return {"ok": False, "error": "ese reproductor ya no está"}
         log.info("Celular: %s en %s", command, player)
         self.ctl.power.last_activity = time.monotonic()  # alguien está usando la música: no entrar en reposo
-        ok = await nowplaying.control(player, command)
         self._state = None
-        return {"ok": ok}
+        if command == "like":
+            if not self._is_tidal(player):
+                return {"ok": False, "error": "«Me gusta» es solo para Tidal"}
+            return await self.tidal.like()
+        if command == "loop":
+            value = track.loop
+        ok = await nowplaying.control(player, command, value)
+        return {"ok": ok} if ok else {"ok": False, "error": "Ese reproductor no lo permite"}
+
+    def _is_tidal(self, player: str) -> bool:
+        mpris = self._mpris("tidal")
+        return mpris is not None and (player == mpris.player or player.startswith(mpris.player + "."))
+
+    # ---------------------------------------------------------------- abrir apps
+    def _output_kind(self) -> str:
+        cur = next((o for o in self._outputs if o.default), None)
+        return cur.kind if cur else ""
+
+    async def launch(self, ident: str) -> dict[str, Any]:
+        """Abrir una app desde el celular, como elegirla en el menú. Despierta a la Pi si está en reposo. Tidal con
+        el sonido en un parlante Bluetooth no prende la TV ni le cambia la entrada (es solo música)."""
+        ctl = self.ctl
+        act = ctl.activities.get(ident)
+        if act is None:
+            return {"ok": False, "error": "esa app no existe"}
+        if not await asyncio.to_thread(act.installed):
+            return {"ok": False, "error": f"{act.name} no está instalado"}
+        if time.monotonic() - self._outputs_at > OUTPUTS_TTL_S and audio.available():
+            await self._refresh_outputs()
+        quiet = ident == "tidal" and self._output_kind() == "bluetooth"
+        if ctl.power.asleep:
+            log.info("Celular: despierto la Pi para abrir %s", act.name)
+            ctl.power.wake(by_key=not quiet)
+            task = getattr(ctl.power, "_wake_task", None)
+            if task is not None:
+                await asyncio.wait([task], timeout=30)
+        else:
+            ctl.power.note_key()  # cuenta como uso (cancela una cuenta regresiva de reposo)
+        if ctl._switching:
+            return {"ok": False, "error": "Esperá: está cambiando de app"}
+        if ctl.current_app() == ident:
+            if ctl._menu_open:
+                await ctl.menu_close()
+            return {"ok": True, "message": f"{act.name} ya está abierto"}
+        if ctl._menu_open:
+            await ctl.menu_close()
+        log.info("Celular: abro %s%s", act.name, " (sin prender la TV: el sonido va al Bluetooth)" if quiet else "")
+        before = ctl._no_activate
+        ctl._no_activate = before or quiet
+        ok = False
+        try:
+            await ctl.overlay.busy(f"Abriendo {act.name}…")
+            ok = await ctl.switch_to(ident)
+        finally:
+            ctl._no_activate = before
+            await ctl.overlay.hide()
+            self._state = None
+            self._apps_at = 0.0
+        if not ok:
+            why = getattr(act, "fail_text", "") or f"No pude abrir {act.name}"
+            await ctl.overlay.toast(why, 3000)
+            return {"ok": False, "error": why}
+        return {"ok": True}
+
+    # ---------------------------------------------------------------- escribir
+    async def type_text(self, text: str, key: str) -> dict[str, Any]:
+        """Escribir en la TV (buscar en Netflix o YouTube…): el texto y, si se pide, Enter o Borrar."""
+        ctl = self.ctl
+        text = "".join(ch for ch in text if ch.isprintable())[:200]
+        if key not in ("", "Enter", "BackSpace"):
+            return {"ok": False, "error": "tecla no permitida"}
+        if not text and not key:
+            return {"ok": False, "error": "no hay nada para escribir"}
+        if ctl.power.asleep:
+            return {"ok": False, "error": "La Pi está en reposo: tocá una tecla del control primero"}
+        if ctl._menu_open:
+            return {"ok": False, "error": "Cerrá el menú de la TV primero (Atrás)"}
+        cur = ctl.current_app()
+        ctl.power.note_key()
+        if cur == "netflix" and ctl.page is not None:
+            info = await ctl.js("ctx")
+            where, url = str(info.get("ctx") or ""), str(info.get("url") or "")
+            if where == "profiles":
+                return {"ok": False, "error": "Elegí el perfil en la TV primero"}
+            if text and (where != "text" or "/search" in url):
+                # Sin un campo de texto enfocado (o con el del buscador, que tiene la búsqueda anterior): la
+                # búsqueda de Netflix con ese texto. Un PIN u otro campo sí se escribe letra por letra.
+                log.info("Celular: busco en Netflix «%s»", text)
+                await ctl.navigate(NETFLIX_SEARCH + urllib.parse.quote(text.strip()))
+                return {"ok": True, "message": f"Buscando «{text.strip()}» en Netflix"}
+            for ch in text:
+                await ctl.key(ch)
+            if key:
+                await ctl.key("Backspace" if key == "BackSpace" else "Enter")
+        elif cur == "youtube" and text and hasattr(ctl.activities[cur], "search_url"):
+            return await self._youtube_search(text)
+        elif cur in TEXT_APPS:
+            if text and not await keyboard.wtype_text(text):
+                return {"ok": False, "error": "No pude escribir en la TV"}
+            if key and not await keyboard.wtype_key("Return" if key == "Enter" else "BackSpace"):
+                return {"ok": False, "error": "No pude escribir en la TV"}
+        else:
+            name = ctl.activities[cur].name if cur else "Sin nada abierto, la TV"
+            return {"ok": False, "error": f"{name} no recibe texto"}
+        log.info("Celular: escribo %d letras en %s%s", len(text), cur, f" + {key}" if key else "")
+        return {"ok": True}
 
     async def sound(self, ident: str) -> dict[str, Any]:
         outs = await asyncio.to_thread(audio.list_outputs)
@@ -213,6 +351,26 @@ class WebRemote:
         if ok:
             await self.ctl.overlay.toast(msg, 2000)
         return {"ok": ok, "message": msg}
+
+    async def _youtube_search(self, text: str) -> dict[str, Any]:
+        """YouTube para TV: se reabre en su búsqueda con el texto puesto. Escribir con el teclado no sirve: la
+        primera tecla abre la búsqueda y las siguientes se pierden, el campo conserva lo anterior, y Borrar con el
+        campo vacío es Atrás."""
+        ctl, act = self.ctl, self.ctl.activities["youtube"]
+        log.info("Celular: busco en YouTube «%s»", text)
+        ctl._switching = True
+        ok = False
+        try:
+            await ctl.overlay.busy(f"Buscando «{text.strip()}» en YouTube…")
+            await act.close()
+            ok = await act.open(act.search_url(text))
+        finally:
+            ctl._switching = False
+            ctl._switch_until = time.monotonic() + 5  # que no parezca que YouTube se cerró solo
+            await ctl.overlay.hide()
+        if not ok:
+            return {"ok": False, "error": "No pude abrir la búsqueda de YouTube"}
+        return {"ok": True, "message": f"Buscando «{text.strip()}» en YouTube"}
 
     # ---------------------------------------------------------------- estado
     async def state(self) -> dict[str, Any]:
@@ -266,13 +424,21 @@ class WebRemote:
                 now["art"] = f"/api/art?v={abs(hash(self._art)) % 10 ** 8}"
             elif not track.art.startswith(("http://", "https://")):
                 now["art"] = ""
+            now["tidal"] = self._is_tidal(track.player)
+            if now["tidal"]:
+                now["liked"] = await self.tidal.liked()
         if time.monotonic() - self._outputs_at > OUTPUTS_TTL_S and audio.available():
-            try:
-                self._outputs = await asyncio.to_thread(audio.list_outputs)
-            except Exception:  # noqa: BLE001
-                log.exception("Página del celular: no pude leer las salidas de sonido")
-            self._outputs_at = time.monotonic()
+            await self._refresh_outputs()
+        if time.monotonic() - self._apps_at > APPS_TTL_S:
+            self._apps = await asyncio.to_thread(self._app_list)
+            self._apps_at = time.monotonic()
+        for a in self._apps:
+            a["current"] = a["id"] == cur
         return {
+            "apps": self._apps,
+            "tidal": self.tidal.available(),
+            "tidal_open": bool(self.tidal.music is not None and self.tidal.music.running()),
+            "text": cur in TEXT_APPS or (cur == "netflix" and ctl.page is not None),
             "app": {"id": cur, "name": ctl.activities[cur].name if cur else ""},
             "menu": bool(ctl._menu_open),
             "asleep": bool(ctl.power.asleep),
@@ -281,6 +447,32 @@ class WebRemote:
             "outputs": [{"id": _out_id(o), "name": o.name, "detail": _detail(o), "kind": o.kind,
                          "current": o.default} for o in self._outputs if o.paired],
         }
+
+    async def _refresh_outputs(self) -> None:
+        try:
+            self._outputs = await asyncio.to_thread(audio.list_outputs)
+        except Exception:  # noqa: BLE001
+            log.exception("Página del celular: no pude leer las salidas de sonido")
+        self._outputs_at = time.monotonic()
+
+    def _app_list(self) -> list[dict[str, Any]]:
+        """Las apps del menú que están instaladas, en el orden del menú."""
+        order = list(self.ctl.cfg.menu.get("items") or []) if hasattr(self.ctl, "cfg") else []
+        order += [i for i in self.ctl.activities if i not in order]
+        out = []
+        for ident in order:
+            act = self.ctl.activities.get(ident)
+            if act is None:
+                continue
+            try:
+                if not act.installed():
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            icon = str(getattr(act, "icon", "") or "")
+            out.append({"id": ident, "name": act.name,
+                        "icon": f"/icons/{icon}" if icon.endswith(".svg") and (ICONS / icon).is_file() else ""})
+        return out
 
     def _art_file(self) -> tuple[int, bytes, str, dict[str, str]]:
         """La tapa del tema actual cuando el reproductor la da como archivo local (solo esa, nada más)."""
@@ -294,6 +486,16 @@ class WebRemote:
 
 
 # ---------------------------------------------------------------- HTTP mínimo
+def _icon(name: str) -> tuple[int, bytes, str, dict[str, str]]:
+    """Los íconos del menú (tele_cec/ui/icons/*.svg), solo por nombre: nada de rutas."""
+    if not re.match(r"^[a-z0-9_-]{1,40}\.svg$", name):
+        return 404, b"", "text/plain", {}
+    path = ICONS / name
+    if not path.is_file():
+        return 404, b"", "text/plain", {}
+    return 200, path.read_bytes(), "image/svg+xml", {"Cache-Control": "max-age=86400"}
+
+
 def _detail(o: audio.Output) -> str:
     if o.kind == "bluetooth" and o.sink_id is None:
         return "Bluetooth · desconectado (tocá para conectarlo)"
