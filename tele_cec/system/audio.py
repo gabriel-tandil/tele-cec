@@ -239,6 +239,15 @@ def current_name() -> str:
     return cur.name if cur else ""
 
 
+def default_kind() -> str:
+    """Por dónde sale el sonido ahora: "hdmi", "bluetooth", "analog", "usb", "other" ("" = no se sabe)."""
+    if not available():
+        return ""
+    sinks, default = _sinks(_pw_dump())
+    cur = next((s for s in sinks if (s.get("info") or {}).get("props", {}).get("node.name") == default), None)
+    return _kind(cur["info"]["props"]) if cur else ""
+
+
 def sink_running() -> bool:
     """¿Sale sonido por alguna salida de PipeWire? (también Bluetooth, que no pasa por /proc/asound)."""
     sinks, _ = _sinks(_pw_dump())

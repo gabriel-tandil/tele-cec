@@ -18,6 +18,7 @@ class TidalActivity(Activity):
     name = "Tidal"
     icon = "tidal.svg"
     context = "tidal"
+    audio_only = True
 
     def __init__(self, ctl: Controller, cfg: dict[str, Any] | None = None):
         self.ctl = ctl  # ctl.music se lee cada vez (las pruebas lo reemplazan)

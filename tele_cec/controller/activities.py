@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .. import apps as activities_mod
 from ..apps.photos import MODE_NAMES, MODES
+from ..system import audio as audio_mod
 
 log = logging.getLogger("tele")
 
@@ -32,13 +33,28 @@ class ActivitiesMixin:
         self._no_activate = False      # al volver del reposo porque se prendió la TV: no cambiarle la entrada
         self._music_by_video = False   # un video de Fotos pausó la música de Tidal (vuelve al terminar)
 
-    async def _pause_if_playing(self) -> None:
+    async def _sound_off_tv(self) -> str:
+        """El tipo de salida si el sonido no sale por la TV (p. ej. "bluetooth"); "" si sale por la TV o no se sabe."""
+        kind = await asyncio.to_thread(audio_mod.default_kind)
+        return kind if kind not in ("", "hdmi") else ""
+
+    async def _pause_if_playing(self, everything: bool = False) -> None:
+        """La TV pasó a standby: pausar lo que se ve. La música sigue si suena por otro lado (parlantes Bluetooth),
+        salvo con everything (al entrar en reposo)."""
         if self.page:
             await self.pause_netflix()
             return
+        off_tv: str | None = None  # se pregunta una sola vez, y solo si hace falta
         for ident, act in self.activities.items():  # p. ej. Fotos con música de fondo: pausa las dos
-            if ident != "netflix" and act.running():
-                await act.pause()
+            if ident == "netflix" or not act.running():
+                continue
+            if act.audio_only and not everything:
+                if off_tv is None:
+                    off_tv = await self._sound_off_tv()
+                if off_tv:
+                    log.info("%s sigue sonando: el sonido no sale por la TV (%s)", act.name, off_tv)
+                    continue
+            await act.pause()
 
     # ---------------------------------------------------------------- actividades
     def _holding_for_activity(self) -> bool:

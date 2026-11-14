@@ -622,7 +622,7 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `cec.port` | `""` (autodetectar) | `/dev/cec0` = HDMI 0, `/dev/cec1` = HDMI 1 |
 | `cec.device_type` | `"r"` | Tipo de dispositivo CEC: `r` recording (como cec-mini-kb) o `p` playback |
 | `cec.activate_source` | `"both"` | Cuándo anunciarse como fuente activa (la TV cambia a la Pi): `start`, `launch`, `both`, `never` |
-| `cec.pause_on_standby` | `true` | Pausar si se apaga la TV |
+| `cec.pause_on_standby` | `true` | Pausar si se apaga la TV (Música y Tidal siguen si el sonido sale por parlantes Bluetooth u otra salida que no sea la TV) |
 | `browser.engine` | `"firefox"` | `firefox` o `chromium` (ver [Firefox y Chromium](#firefox-y-chromium)) |
 | `browser.launch` | `"on_key"` | Navegador cerrado: `on_key` (el rojo lo abre), `always` (siempre abierto, salvo mientras está Tidal), `never` |
 | `browser.user_data_dir` | `~/.config/chromium-netflix` | Perfil de Chromium propio |

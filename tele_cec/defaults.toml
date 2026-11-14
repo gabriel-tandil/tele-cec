@@ -16,7 +16,7 @@ osd_name = "Tele-CEC"         # nombre que muestra la TV para esta entrada (máx
 # y le mande las teclas): "start" (al arrancar el servicio), "launch" (al abrir
 # Chromium desde el control), "both" o "never".
 activate_source = "both"
-pause_on_standby = true       # pausar Netflix si la TV se apaga
+pause_on_standby = true       # pausar si la TV se apaga (la música sigue si suena por Bluetooth)
 
 [browser]
 engine = "firefox"                            # "firefox" (por defecto) o "chromium" (ver [browser.firefox] más abajo)

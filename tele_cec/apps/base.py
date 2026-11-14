@@ -33,6 +33,8 @@ class Activity:
     name = ""
     icon = "application-x-executable"
     context = "app"  # contexto de teclas mientras está en primer plano ([keys.<context>])
+    # Solo sonido (Música, Tidal): si se apaga la TV y el sonido sale por otro lado (parlantes Bluetooth), sigue.
+    audio_only = False
 
     def installed(self) -> bool:
         return True

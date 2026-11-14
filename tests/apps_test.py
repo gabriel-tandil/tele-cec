@@ -904,6 +904,11 @@ async def main() -> int:
     check(opened(log[start:]) == ["music:quit", "videos:open"], f"app:videos cambia directo: {opened(log[start:])}")
 
     print("Standby de la TV")
+    async def by_tv() -> str:  # el sonido sale por la TV (sin preguntarle a la PipeWire de esta compu)
+        return ""
+    async def by_bt() -> str:
+        return "bluetooth"
+    ctl._sound_off_tv = by_tv
     log.clear()
     await ctl._pause_if_playing()
     check(log == ["mpv:pause"], f"con Videos: los pausa: {log}")
@@ -966,6 +971,14 @@ async def main() -> int:
     log.clear()
     await ctl._pause_if_playing()
     check(log == ["mpris:pause"], f"standby con fotos y música: pausa la música: {log}")
+    ctl._sound_off_tv = by_bt
+    log.clear()
+    await ctl._pause_if_playing()
+    check(log == [], f"con el sonido por Bluetooth, la música sigue aunque se apague la TV: {log}")
+    log.clear()
+    await ctl._pause_if_playing(everything=True)
+    check(log == ["mpris:pause"], f"pero al entrar en reposo se pausa igual: {log}")
+    ctl._sound_off_tv = by_tv
     out = await press("ROOT_MENU", "NUMBER1")
     check("fotos:close" in out and "music:quit" in out and "browser:launch" in out,
           f"ir a Netflix cierra las fotos y la música: {opened(out)}")
@@ -2177,6 +2190,29 @@ echo '</mame>'
         (audio_mod.available, audio_mod.list_outputs, audio_mod.current_name, audio_mod.select,
          audio_mod.bt_nearby_audio, menu_mod.BT_SCAN_SECONDS, menu_mod.BT_POLL_SECONDS, ctl._bt_scan) = saved_audio
         ctl._sound_on = False
+
+    def dump(default: str) -> list[dict]:
+        node = lambda i, name, **p: {"id": i, "type": "PipeWire:Interface:Node",  # noqa: E731
+                                     "info": {"state": "idle", "props": {"media.class": "Audio/Sink",
+                                                                         "node.name": name, **p}}}
+        return [node(84, "alsa_output.platform-hdmi.stereo", **{"alsa.card_name": "vc4-hdmi-0"}),
+                node(69, "bluez_output.8B_D9.1", **{"device.api": "bluez5"}),
+                {"type": "PipeWire:Interface:Metadata", "props": {"metadata.name": "default"},
+                 "metadata": [{"key": "default.audio.sink", "value": {"name": default}}]}]
+    saved_dump, saved_avail = audio_mod._pw_dump, audio_mod.available
+    audio_mod.available = lambda: True  # type: ignore[assignment]
+    try:
+        audio_mod._pw_dump = lambda: dump("bluez_output.8B_D9.1")  # type: ignore[assignment]
+        check(audio_mod.default_kind() == "bluetooth", "la salida actual: Bluetooth")
+        del ctl._sound_off_tv  # la de verdad
+        check(await ctl._sound_off_tv() == "bluetooth", "con Bluetooth, el sonido no sale por la TV")
+        audio_mod._pw_dump = lambda: dump("alsa_output.platform-hdmi.stereo")  # type: ignore[assignment]
+        check(await ctl._sound_off_tv() == "", "por HDMI, el sonido sale por la TV")
+        audio_mod._pw_dump = lambda: []  # type: ignore[assignment]
+        check(await ctl._sound_off_tv() == "", "sin saber (sin PipeWire), como si saliera por la TV: se pausa")
+    finally:
+        audio_mod._pw_dump, audio_mod.available = saved_dump, saved_avail
+        ctl._sound_off_tv = by_tv
 
     print("Carpetas de contenido")
     usb = tmp / "media" / "gaby" / "KINGSTON"
