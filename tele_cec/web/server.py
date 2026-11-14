@@ -288,6 +288,8 @@ class WebRemote:
             if act.running() and act.serial != serial:
                 await self.menu.close(ident)  # otro celular: se cierra y se abre con el elegido
             act.want_serial = serial
+        elif ident == "juegos" and isinstance(self.ctl.activities.get(ident), activities_mod.MameActivity):
+            return {"ok": False, "error": "Elegí un juego"}  # sin uno por defecto (no el último que se jugó)
         return await self.launch(ident, folder)
 
     async def launch(self, ident: str, folder: str | None = None) -> dict[str, Any]:

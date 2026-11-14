@@ -378,6 +378,7 @@ function tapActivity(it) {
     optionsSheet(`${it.name} está en la TV`, it.sub, options);
     return;
   }
+  if (it.option === "games") return openOption(it);  // Juegos: siempre elegir cuál (no hay uno por defecto)
   openApp(it);
 }
 function openOption(it) {

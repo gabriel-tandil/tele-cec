@@ -351,6 +351,15 @@ async def main() -> int:
               and ctl.log[-1] == ("hide",), f"abrir YouTube: cierra el menú y la abre, como el menú: {ctl.log}")
         _, _, body = await http(port, "POST", "/api/app", {"id": "juegos"}, H)
         check(not json.loads(body)["ok"], "una app no instalada: no")
+        from tele_cec.apps.mame import MameActivity
+        mame = MameActivity.__new__(MameActivity)
+        real_juegos, ctl.activities["juegos"] = ctl.activities["juegos"], mame
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/app", {"id": "juegos"}, H)
+        r = json.loads(body)
+        check(not r["ok"] and "juego" in r["error"] and not ctl.log,
+              f"Juegos sin elegir juego: no abre uno por defecto: {r} {ctl.log}")
+        ctl.activities["juegos"] = real_juegos
 
         print("Abrir Tidal con el sonido en Bluetooth y la Pi en reposo: sin prender la TV")
         outs[0].default, outs[1].default, outs[1].sink_id = False, True, 79
