@@ -219,15 +219,17 @@ class FakeOverlay:
         self.visible = False
         self.items: list[dict] = []
         self.sel = -1
+        self.busy_on = False  # como el panel de verdad: con «Abriendo…» a la vista, los avisos no se ven
 
     async def show(self, items, selected, title="Actividades", hint="", numbers=True, columns=1, chip=False,
                    qr=None) -> bool:
         self.items, self.sel, self.visible, self.columns, self.qr = items, selected, True, columns, qr
+        self.busy_on = False
         self.log.append(f"ov:show:{selected}")
         return True
 
     async def help(self, title, rows, top, page, hint) -> bool:
-        self.help_rows = rows
+        self.help_rows, self.busy_on = rows, False
         self.log.append(f"ov:help:{title}")
         return True
 
@@ -238,6 +240,7 @@ class FakeOverlay:
 
     async def image(self, title, path, lines, status="", hint="", size=9) -> bool:
         self.title, self.image_path, self.status_text = title, path, status
+        self.busy_on = False
         self.log.append(f"ov:image:{title}")
         return True
 
@@ -247,15 +250,16 @@ class FakeOverlay:
         return True
 
     async def busy(self, text: str) -> bool:
+        self.busy_on = True
         self.log.append(f"ov:busy:{text}")
         return True
 
     async def toast(self, text: str, ms: int = 2000) -> bool:
-        self.log.append(f"ov:toast:{text}")
+        self.log.append(f"ov:toast-tapado:{text}" if self.busy_on else f"ov:toast:{text}")
         return True
 
     async def hide(self) -> bool:
-        self.visible = False
+        self.visible = self.busy_on = False
         self.log.append("ov:hide")
         return True
 

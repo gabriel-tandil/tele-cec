@@ -67,6 +67,8 @@ class GamesMenuMixin:
             await self.overlay.busy("Buscando juegos…")
         items, sel = await asyncio.to_thread(self._games_entries)
         if not any(it["id"] == "_game" for it in items):
+            if first:
+                await self.overlay.hide()  # si no, «Buscando juegos…» tapa el aviso y queda ahí
             await self.overlay.toast(act.unavailable_text(), 4000)
             if self._menu_open:
                 await self.menu_open(self._menu_act_sel)

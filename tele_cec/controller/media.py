@@ -209,6 +209,7 @@ class MediaMixin:
             await self.overlay.busy(f"Fotos: {MODE_NAMES[new]}…")
             await f.close()
             ok = await f.open(f.current_folder, mode=new, start=start)
+            await self.overlay.hide()  # el panel no muestra avisos encima de «Fotos: …»: sin esto quedaba ahí
             if not ok:
                 why = f.fail_text or f"No pude pasar a {MODE_NAMES[new]}"
                 await f.open(f.current_folder, mode=old, start=start)  # se queda como estaba
@@ -216,6 +217,9 @@ class MediaMixin:
                 return
             nxt = MODES[(MODES.index(new) + 1) % len(MODES)]
             await self.overlay.toast(f"Fotos: {MODE_NAMES[new]} · ▼ {MODE_NAMES[nxt]}", 3000)
+        except BaseException:
+            await self.overlay.hide()
+            raise
         finally:
             self._switching = False
             self._switch_until = time.monotonic() + 3
