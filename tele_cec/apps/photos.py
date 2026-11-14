@@ -271,6 +271,8 @@ class PhotosActivity(MediaActivity):
         args = base_args(self.mpv.socket_path, self.TITLE) + [
             f"--image-display-duration={delay:g}", "--loop-playlist=inf", "--background-color=#000000",
             "--prefetch-playlist=yes",  # la foto siguiente se lee mientras se ve esta: pasa en 0,2 s (12 MP, en red)
+            # sin buscar subtítulos, audio ni tapas aparte: en una carpeta grande por la red tardaba 3,6 s cada video
+            "--sub-auto=no", "--audio-file-auto=no", "--cover-art-auto=no",
             f"--playlist={playlist}"]
         if self.shuffle:
             args.append("--shuffle")  # al azar no hay «desde dónde» (empezaba siempre por el primero de la lista)

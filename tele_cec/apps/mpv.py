@@ -10,6 +10,7 @@ programa no se puede, porque las tres usan mpv (y thumbfast abre otro mpv para l
 Scripts que se cargan (con --load-scripts=no: nada de la configuración personal de mpv):
 - mpv_scripts/tele_cec_osd.lua: la barra para la TV (título, tiempo, avance con miniatura al adelantar);
 - mpv_scripts/thumbfast.lua (MPL 2.0, https://github.com/po5/thumbfast): las miniaturas del video;
+- mpv_scripts/tele_cec_vo.lua (en la Pi): con qué salida se dibuja cada archivo (ver video_args);
 - mpv-mpris (paquete del sistema), si está: publica lo que suena por MPRIS (la página del celular lo muestra).
 """
 
@@ -33,7 +34,28 @@ MPRIS_PLUGIN = ("/usr/lib/mpv-mpris/mpris.so", "/etc/mpv/scripts/mpris.so", "/us
                 "/usr/lib/x86_64-linux-gnu/mpv-mpris/mpris.so", "/usr/lib/aarch64-linux-gnu/mpv-mpris/mpris.so")
 
 
-HWDEC = "v4l2m2m,drm,auto-safe"
+HWDEC = "auto-safe"   # fuera de la Pi (en la Pi lo elige tele_cec_vo.lua para cada archivo)
+PI_DECODER = "bcm2835-codec-decode"
+
+
+def pi_decoder() -> bool:
+    """¿Está el decodificador de video por hardware de la Raspberry Pi (/dev/video10)?"""
+    try:
+        return any(n.read_text().strip() == PI_DECODER for n in Path("/sys/class/video4linux").glob("*/name"))
+    except OSError:
+        return False
+
+
+def video_args() -> list[str]:
+    """Con qué salida dibuja mpv y si decodifica por hardware.
+
+    En la Pi (con Wayland), Vulkan no sabe leer los cuadros del decodificador por hardware (el video se veía todo
+    azul) y dmabuf-wayland, que sí los muestra (fluido: 1080p a 60 cuadros sin perder), no muestra fotos. Así que
+    arranca en gpu (Vulkan) sin hardware y tele_cec_vo.lua cambia a dmabuf-wayland + hardware para cada video H.264 o
+    HEVC, y vuelve para las fotos. Sin el decodificador de la Pi: la salida y el hardware que elija mpv."""
+    if pi_decoder() and os.environ.get("WAYLAND_DISPLAY"):
+        return ["--vo=gpu", "--hwdec=no", f"--script={SCRIPTS / 'tele_cec_vo.lua'}"]
+    return [f"--hwdec={HWDEC}"]
 
 
 def mpv_pids(socket_path: Path, fresh: bool = False) -> list[int]:
@@ -50,11 +72,9 @@ def mpris_plugin() -> str:
 def base_args(socket_path: Path, title: str) -> list[str]:
     """Lo que comparten todos los mpv de tele-cec: pantalla completa, sin la configuración personal ni la barra
     propia de mpv, sin puntero y con canal de control."""
-    # Decodificar con el hardware de la Pi: v4l2m2m (H.264) y drm (HEVC); si no hay, el automático. Con
-    # «auto-safe» la Pi 400 decodificaba todo con el procesador: en 1080p perdía 130 cuadros cada 12 s (trabado).
     return ["mpv", "--fs", "--no-terminal", "--load-scripts=no", "--osc=no", "--osd-level=0", "--title=" + title,
-            "--force-window=yes", "--cursor-autohide=always", f"--hwdec={HWDEC}", "--keep-open=no",
-            f"--input-ipc-server={socket_path}"]
+            "--force-window=yes", "--cursor-autohide=always", "--keep-open=no", "--ytdl=no",
+            f"--input-ipc-server={socket_path}"] + video_args()
 
 
 class Mpv:

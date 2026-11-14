@@ -2076,6 +2076,26 @@ echo '</mame>'
           and "--playlist-start=3" in margs and any(a.startswith("--input-ipc-server=") for a in margs),
           f"mpv: pantalla completa, el mismo tiempo por foto, desde ahí y con canal de control: {margs}")
     check("--prefetch-playlist=yes" in margs, "mpv lee la foto siguiente mientras se ve esta")
+    check("--sub-auto=no" in margs and "--audio-file-auto=no" in margs,
+          "Fotos no recorre la carpeta buscando subtítulos ni audio aparte (por la red tardaba segundos cada video)")
+    from tele_cec.apps import mpv as mpv_mod
+    real_pi, real_env = mpv_mod.pi_decoder, os.environ.get("WAYLAND_DISPLAY")
+    try:
+        mpv_mod.pi_decoder = lambda: True
+        os.environ["WAYLAND_DISPLAY"] = "wayland-0"
+        pi_args = mpv_mod.video_args()
+        mpv_mod.pi_decoder = lambda: False
+        other = mpv_mod.video_args()
+    finally:
+        mpv_mod.pi_decoder = real_pi
+        if real_env is None:
+            os.environ.pop("WAYLAND_DISPLAY", None)
+        else:
+            os.environ["WAYLAND_DISPLAY"] = real_env
+    check(pi_args[:2] == ["--vo=gpu", "--hwdec=no"] and pi_args[2].endswith("tele_cec_vo.lua")
+          and Path(pi_args[2].split("=", 1)[1]).is_file(),
+          f"en la Pi: arranca en Vulkan sin hardware y el script elige la salida de cada archivo: {pi_args}")
+    check(other == ["--hwdec=auto-safe"], f"fuera de la Pi: lo que elija mpv: {other}")
     real_which = photos_mod.shutil.which
     try:
         photos_mod.shutil.which = lambda name: "/usr/bin/" + name
