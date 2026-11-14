@@ -7,6 +7,9 @@
 --   - un video que la Pi decodifica por hardware (H.264, HEVC): dmabuf-wayland, con el decodificador de hardware;
 --   - una foto, la tapa de un disco o un video en otro formato: gpu, sin el decodificador de hardware.
 -- Cambiar de salida en el mismo mpv anda (la ventana sigue en pantalla completa); solo se cambia cuando hace falta.
+--
+-- Además, la placa de video de la Pi no acepta imágenes de más de 4096 píxeles de lado: una foto de 4160 × 3120
+-- (13 MP) salía negra (o azul). Esas se achican antes de dibujarlas (a 4096 del lado mayor).
 
 local mp = require "mp"
 local msg = require "mp.msg"
@@ -16,6 +19,7 @@ local opts = {
     video_hwdec = "v4l2m2m,drm",   -- v4l2m2m: H.264 (bcm2835-codec); drm: HEVC (rpi-hevc-dec)
     image_vo = "gpu",
     hw_codecs = "h264,hevc",
+    max_texture = 4096,            -- lado máximo de una imagen para la placa de video (0 = no achicar)
 }
 require("mp.options").read_options(opts, "tele_cec_vo")
 
@@ -24,22 +28,40 @@ for c in opts.hw_codecs:gmatch("[^,%s]+") do hw[c] = true end
 
 local current_vo = mp.get_property("options/vo", "")
 
--- "video" (va por hardware), "image" (foto, tapa o video que se decodifica con el procesador) o nil (solo sonido)
+local scaled = false   -- si el filtro para achicar lo puso este script (para sacarlo después)
+
+-- "video" (va por hardware), "image" (foto, tapa o video que se decodifica con el procesador) o nil (solo sonido);
+-- y la pista de imagen (para ver su tamaño)
 local function kind(tracks)
-    local picture = false
+    local picture = nil
     for _, t in ipairs(tracks or {}) do
         if t.type == "video" then
             if not t.image and not t.albumart then
-                return hw[t.codec or ""] and "video" or "image"
+                return (hw[t.codec or ""] and "video" or "image"), t
             end
-            picture = true
+            picture = picture or t
         end
     end
-    return picture and "image" or nil
+    return picture and "image" or nil, picture
+end
+
+local function fit_texture(k, track)
+    local w, h = tonumber(track and track["demux-w"]) or 0, tonumber(track and track["demux-h"]) or 0
+    local big = k == "image" and opts.max_texture > 0 and math.max(w, h) > opts.max_texture
+    if big then
+        local m = opts.max_texture
+        msg.info(string.format("imagen de %dx%d: la achico a %d de lado (la placa de video no acepta más)", w, h, m))
+        mp.set_property("vf", string.format("lavfi=[scale=w=%d:h=%d:force_original_aspect_ratio=decrease]", m, m))
+        scaled = true
+    elseif scaled then
+        mp.set_property("vf", "")
+        scaled = false
+    end
 end
 
 mp.add_hook("on_preloaded", 50, function()
-    local k = kind(mp.get_property_native("track-list"))
+    local k, track = kind(mp.get_property_native("track-list"))
+    fit_texture(k, track)
     if not k then return end   -- sin imagen: que quede la salida que estaba (no hace falta recrear la ventana)
     local vo = (k == "video") and opts.video_vo or opts.image_vo
     local hwdec = (k == "video") and opts.video_hwdec or "no"
