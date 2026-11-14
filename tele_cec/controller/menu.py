@@ -624,24 +624,31 @@ class MenuMixin:
             no_videos = videos == 0
             nothing = no_videos and not has
             vunit = ("video", "videos")
+            # Al azar si hay fotos o videos en las subcarpetas (como lo decide la presentación al abrir).
+            here = len(activities_mod.list_media(path, act.media_exts, None))
+            spread = act.shuffle or (photos + videos > here if counts else bool(subfolders))
+            order = "al azar" if spread else ""
             if photos and has:  # ya se recorrió: cuántas fotos hay en total (con las subcarpetas)
                 items[-1]["sub"] = " · ".join([_plural(photos, act.unit)]
                                               + ([_plural(len(subfolders), ("subcarpeta", "subcarpetas"))]
-                                                 if subfolders else []))
+                                                 if subfolders else []) + ([order] if order else []))
+            elif has and order:
+                items[-1]["sub"] += " · " + order
             if nothing:
                 mixed = "No hay fotos ni videos en esta carpeta"
             elif photos is not None and videos is not None:
-                mixed = f"{_plural(photos, act.unit)} y {_plural(videos, vunit)}, cada uno en su fecha"
+                mixed = f"{_plural(photos, act.unit)} y {_plural(videos, vunit)}, {order or 'intercalados por fecha'}"
             else:
-                mixed = "las fotos y los videos, cada uno en su fecha"
+                mixed = f"las fotos y los videos, {order or 'intercalados por fecha'}"
             items.append({"kind": "play", "mode": "mixed", "path": str(path), "name": "▶ Fotos y videos",
                           "icon": "media-playback-start", "enabled": not nothing, "current": False, "sub": mixed})
             videos_here = 0 if no_videos else len(activities_mod.list_media(path, activities_mod.VIDEO_EXT, None))
             items.append({"kind": "play", "mode": "videos", "path": str(path), "name": "▶ Solo los videos",
                           "icon": "media-playback-start", "enabled": not no_videos, "current": False,
                           "sub": "No hay videos en esta carpeta" if no_videos
-                          else (_plural(videos, vunit) if videos
-                                else _contents_text(videos_here, len(subfolders), vunit) or "con sus subcarpetas")})
+                          else " · ".join(x for x in (_plural(videos, vunit) if videos
+                                                      else _contents_text(videos_here, len(subfolders), vunit)
+                                                      or "con sus subcarpetas", order) if x)})
         for d in subfolders:
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})

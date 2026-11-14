@@ -1075,6 +1075,7 @@ async function poll() {
     state = await r.json();
     stateAt = Date.now();
     failures = 0;
+    checkVersion(state.ui);
   } catch (e) {
     if (++failures === 2) toast("Sin conexión con la Pi", 3000);
     if (failures >= 2) state = null;
@@ -1087,6 +1088,14 @@ async function poll() {
   if (top === TIDAL && tView.kind === "queue" && state && state.now && state.now.title !== lastQueueTitle) tidalQueue(true);
   if (top === MUSIC && mView.kind === "queue" && Date.now() - (poll.queueAt || 0) > 3000) { poll.queueAt = Date.now(); musicQueue(true); }
   schedule(state ? 1500 : 4000);
+}
+// Se instaló otra versión en la Pi: la página abierta se recarga sola (si no se está escribiendo algo).
+function checkVersion(ui) {
+  if (!ui) return;
+  if (!checkVersion.seen) { checkVersion.seen = ui; return; }
+  if (ui === checkVersion.seen) return;
+  const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if (!typing) location.reload();
 }
 function renderStatus() {
   const s = state, st = $("status");

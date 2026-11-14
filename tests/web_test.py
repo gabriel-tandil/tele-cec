@@ -528,6 +528,9 @@ async def main() -> int:
               and s["now"]["app"] == "Tidal" and s["now"]["art"] == "https://img/x.jpg"
               and s["volume"] == {"level": 35, "muted": False},
               f"estado: app en pantalla, lo que suena (con su app y tapa) y volumen: {s['app']} {s['now']}")
+        from tele_cec.web import server as server_mod
+        check(s.get("ui") and s["ui"] == server_mod._ui_version(),
+              f"y la versión de la página (si cambia, la página abierta en el celular se recarga sola): {s.get('ui')}")
         check([o["name"] for o in s["outputs"]] == ["TV (HDMI)", "KN320"] and s["outputs"][0]["current"]
               and "tocá" in s["outputs"][1]["detail"],
               f"salidas emparejadas, con la actual marcada (las nuevas sin emparejar no): {s['outputs']}")

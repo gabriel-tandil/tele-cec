@@ -7,6 +7,8 @@ Tres modos (▼ pasa de uno a otro mientras se mira, y se pueden elegir en «Car
 - «fotos y videos»: las fotos el tiempo de siempre y los videos en el medio (ordenados por la fecha del nombre, así
   cada video cae en su lugar);
 - «solo videos»: los videos de la carpeta.
+Si la carpeta tiene subcarpetas con fotos o videos (los años, los viajes…), la presentación va en orden aleatorio en
+los tres modos (también con [apps.fotos] shuffle = true); al cambiar de modo con ▼ sigue desde la foto que se veía.
 Mientras suena un video, la música de Tidal de fondo se pausa (on_video, lo pone el controlador).
 """
 
@@ -87,6 +89,7 @@ class PhotosActivity(MediaActivity):
         self.rotation = 0
         self._mpv_dirty = False
         self.fail_text = ""
+        self.random_order = False   # la presentación abierta va al azar (la lista ya se mezcló)
         self.reset_view()
 
     def use_mpv(self, mode: str) -> bool:
@@ -122,7 +125,8 @@ class PhotosActivity(MediaActivity):
         if self.cfg.get("zoom_step"):
             args += ["--zoom-step", f"{float(self.cfg['zoom_step']):g}"]
         # Sin --auto-rotate: con Imlib2 ≥ 1.7.5 (Debian trixie) las fotos ya salen derechas según el EXIF.
-        args.append("--randomize" if self.shuffle else "--sort=filename")
+        if filelist is None or not self.random_order:  # la lista ya mezclada va tal cual
+            args.append("--randomize" if self.shuffle or self.random_order else "--sort=filename")
         if filelist is not None:
             return args + ["--filelist", str(filelist)]
         return args + ["--recursive", str(folder)]
@@ -212,6 +216,9 @@ class PhotosActivity(MediaActivity):
             self.fail_text = {"photos": "No hay fotos en esta carpeta", "videos": "No hay videos en esta carpeta",
                               "mixed": "No hay fotos ni videos en esta carpeta"}[mode]
             return False
+        self.random_order = self.shuffled_order(files)
+        if self.random_order:
+            files, start = self.shuffle_from(files, start)
         ok = await (self._open_mpv(files, start) if self.use_mpv(mode) else self._open_feh(folder, files, start))
         if ok:
             self.current_folder, self.mode = folder, mode
@@ -248,6 +255,20 @@ class PhotosActivity(MediaActivity):
             args[-2:-2] = ["--start-at", files[first]]
         return await self.spawn(args)
 
+    def shuffled_order(self, files: list[str]) -> bool:
+        """Al azar: si las fotos están repartidas en subcarpetas (o con shuffle = true)."""
+        if self.shuffle:
+            return True
+        first = os.path.dirname(files[0]) if files else ""
+        return any(os.path.dirname(f) != first for f in files)
+
+    def shuffle_from(self, files: list[str], start: str | None) -> tuple[list[str], str | None]:
+        """La lista mezclada; si se viene de otro modo (start), primero la foto que se veía (o la más cercana)."""
+        first = files[self._start_at(files, start)] if start else None
+        out = [f for f in files if f != first]
+        random.shuffle(out)
+        return ([first, *out], first) if first else (out, None)
+
     @staticmethod
     def _start_at(files: list[str], start: str | None) -> int:
         """Dónde empezar: el archivo `start` o, si no está (otro modo), el siguiente en orden de fecha."""
@@ -274,11 +295,7 @@ class PhotosActivity(MediaActivity):
             "--prefetch-playlist=yes",  # la foto siguiente se lee mientras se ve esta: pasa en 0,2 s (12 MP, en red)
             # sin buscar subtítulos, audio ni tapas aparte: en una carpeta grande por la red tardaba 3,6 s cada video
             "--sub-auto=no", "--audio-file-auto=no", "--cover-art-auto=no",
-            f"--playlist={playlist}"]
-        if self.shuffle:
-            args.append("--shuffle")  # al azar no hay «desde dónde» (empezaba siempre por el primero de la lista)
-        else:
-            args.append(f"--playlist-start={start}")
+            f"--playlist={playlist}", f"--playlist-start={start}"]  # al azar: la lista ya va mezclada
         return args
 
     async def _open_mpv(self, files: list[str], start: str | None) -> bool:

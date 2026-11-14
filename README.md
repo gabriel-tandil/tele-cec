@@ -149,6 +149,7 @@ Al salir del zoom (o al pasar a otra foto con ⏮ ⏭) la presentación sigue so
 **Fotos y videos**: la presentación tiene tres modos.
 - **Solo fotos** (el de siempre).
 - **Fotos y videos**: las fotos el mismo tiempo de siempre y los videos de la carpeta en su lugar, ordenados por la fecha que traen los nombres (`IMG_20201130…`, `VID_20201108…`).
+- **Al azar**: si la carpeta tiene subcarpetas con fotos o videos (los años, los viajes…), la presentación va en orden aleatorio, en los tres modos; si no, en orden (por nombre, o intercalados por fecha). Con `shuffle = true`, siempre al azar. El menú lo dice debajo de cada opción («· al azar»). Al cambiar de modo con ▼ sigue desde la foto que se estaba viendo.
 - **Solo videos**: los videos de esa carpeta y sus subcarpetas.
 
 Los tres usan **mpv** (`sudo apt install mpv`). Al entrar a la presentación se ve unos segundos en qué modo arranca, y **▼** pasa al siguiente sin perder el lugar: sigue desde la foto que se estaba viendo (o el video más cercano por fecha). También se puede elegir en **Carpetas ▸**: dentro de una carpeta, debajo de «Ver las fotos» están «Fotos y videos» y «Solo los videos», y lo mismo en la página del celular. OK sobre Fotos siempre arranca en «solo fotos». Mientras suena un video, la música de Tidal de fondo se pausa y vuelve al terminar el video; ⏯ pausa el video.
@@ -475,9 +476,11 @@ extra_args = []               # más opciones de scrcpy
 
 Lo más fácil: abajo del menú de actividades de la TV hay un **código QR**; apuntale con la cámara del celular y abre la página (lleva la IP de la Pi, así anda aunque el celular no resuelva nombres `.local`; necesita `qrencode`, y `[web] menu_qr = false` lo oculta). O, con el celular en la misma red que la Pi, abrí **`http://raspberrypi.local:8765/`** en el navegador. Si el celular no resuelve nombres `.local`, usá la IP de la Pi, por ejemplo `http://192.168.0.111:8765/`. En el menú del navegador, **Agregar a la pantalla de inicio** la deja como una app más. `#tidal`, `#musica` o `#sonido` al final de la dirección abren directo esa parte.
 
+Si se instala una versión nueva en la Pi, la página abierta en el celular se recarga sola.
+
 La página es el mismo **menú de actividades** de la TV, con sus mismos colores: las mismas apps, con su ícono, el texto de abajo y la etiqueta «en uso» en la que está abierta.
 
-- **Tocar una app** hace lo mismo que elegirla con OK en la TV: la abre y, si la Pi está en reposo, la despierta. Tocar la que está **en uso** ofrece cerrarla (vuelve el menú en la TV) o sus opciones.
+- **Tocar una app** hace lo mismo que elegirla con OK en la TV: la abre y, si la Pi está en reposo, la despierta. **Videos** abre su carpeta para elegir el video y **Música**, Explorar (como OK en la TV: no arrancan con todo). Tocar la que está **en uso** ofrece cerrarla (vuelve el menú en la TV) o sus opciones.
 - **El botoncito de la derecha**, como «Carpetas ▸» / «Conectar ▸» en la TV:
   - **Videos y música**: abre una página con Videos y Música. **Videos, Fotos** · *Carpetas*: elegir carpeta, entrando en las subcarpetas. Solo las configuradas: no se puede abrir cualquier carpeta de la Pi.
   - **Música** · *Explorar*: tu música local, como Tidal (ver abajo).

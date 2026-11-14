@@ -887,11 +887,15 @@ async def main() -> int:
         finally:
             fotos.counts = orig_counts  # type: ignore[method-assign]
         subs = [it["sub"] for it in its if it["kind"] == "play"]
-        check(subs == ["49.403 fotos · 1 subcarpeta", "49.403 fotos y 2.016 videos, cada uno en su fecha", "2.016 videos"],
-              f"ya recorrida: cuántas fotos y videos hay (no «(2016)», que parece un año): {subs}")
+        check(subs == ["49.403 fotos · 1 subcarpeta · al azar", "49.403 fotos y 2.016 videos, al azar",
+                       "2.016 videos · al azar"],
+              f"ya recorrida, con subcarpetas: cuántas fotos y videos hay (no «(2016)», que parece un año), al azar: {subs}")
         _, its = ctl._picker_entries("fotos", fdirs["fotos"])
-        check(its[1]["sub"] == "las fotos y los videos, cada uno en su fecha" and its[0]["sub"] == "1 foto y 1 subcarpeta",
+        check(its[1]["sub"] == "las fotos y los videos, al azar" and its[0]["sub"] == "1 foto y 1 subcarpeta · al azar",
               f"sin recorrer todavía: {[it['sub'] for it in its[:2]]}")
+        _, its = ctl._picker_entries("fotos", fdirs["solo-video"])
+        check(its[1]["sub"] == "las fotos y los videos, intercalados por fecha",
+              f"sin subcarpetas: en orden (intercalados por fecha): {its[1]['sub']}")
 
     print("app:<actividad> (para ponerla en un color)")
     await ctl.run_action("app:tidal")
@@ -2276,11 +2280,26 @@ echo '</mame>'
         check(not activities_mod.PhotosActivity({}).use_mpv("photos"), "sin mpv instalado, «solo fotos» sigue con feh")
     finally:
         photos_mod.shutil.which = real_which
+    one = [str(mix / f"IMG_2020110{i}_000000.jpg") for i in range(6)]
+    many = one + [str(mix / "2019" / f"IMG_2019010{i}_000000.jpg") for i in range(6)]
+    check(not pm.shuffled_order(one) and pm.shuffled_order(many),
+          "al azar si hay subcarpetas con fotos; una carpeta sola, en orden")
     pm.shuffle = True
-    sargs = pm.mpv_args(tmp / "cache" / "p.lst", 3)
-    check("--shuffle" in sargs and not any(a.startswith("--playlist-start") for a in sargs),
-          f"al azar: sin «desde dónde» (si no, empieza siempre por el mismo): {sargs[-3:]}")
+    check(pm.shuffled_order(one), "con shuffle = true, siempre al azar")
     pm.shuffle = False
+    import random as _random
+    _random.seed(7)
+    mixed_up, first = pm.shuffle_from(many, many[8])
+    check(first == many[8] and mixed_up[0] == many[8] and sorted(mixed_up) == sorted(many) and mixed_up != many,
+          f"mezclada, empezando por la foto que se veía (al cambiar de modo con ▼): {[Path(x).name for x in mixed_up[:3]]}")
+    mixed_up, first = pm.shuffle_from(many, None)
+    check(first is None and sorted(mixed_up) == sorted(many), "al abrir: toda mezclada")
+    pm.random_order = True
+    fargs = pm.default_args(tmp / "mix", tmp / "cache" / "x.lst")
+    check("--randomize" not in fargs and "--sort=filename" not in fargs,
+          f"feh con la lista ya mezclada: la deja como viene (sin ordenarla por nombre): {fargs[-4:]}")
+    pm.random_order = False
+    check("--sort=filename" in pm.default_args(tmp / "mix", tmp / "cache" / "x.lst"), "en orden: por nombre")
 
     class FakeMpv:
         def __init__(self):

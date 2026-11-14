@@ -19,6 +19,7 @@ mandarle teclas (el navegador no deja agregar ese encabezado a otro sitio sin pe
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import logging
@@ -46,6 +47,17 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("web")
 STATIC = Path(__file__).with_name("static")
+
+
+def _ui_version() -> str:
+    """Un resumen de la página del celular: si cambia (se instaló otra versión), la página abierta se recarga sola."""
+    try:
+        return hashlib.sha1((STATIC / "index.html").read_bytes()).hexdigest()[:10]
+    except OSError:
+        return ""
+
+
+UI_VERSION = _ui_version()
 ICONS = Path(__file__).resolve().parent.parent / "ui" / "icons"
 TEXT_APPS = {"youtube", "tidal", "android"}
 NETFLIX_SEARCH = "https://www.netflix.com/search?q="   # apps Wayland: el texto se escribe con wtype (Netflix: por el navegador)
@@ -581,6 +593,7 @@ class WebRemote:
             "volume": {"level": vol, "muted": muted},
             "outputs": [{"id": _out_id(o), "name": o.name, "detail": _detail(o), "kind": o.kind,
                          "current": o.default} for o in self._outputs if o.paired],
+            "ui": UI_VERSION,
         }
 
     async def _refresh_outputs(self) -> None:
