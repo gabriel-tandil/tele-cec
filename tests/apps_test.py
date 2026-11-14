@@ -879,6 +879,19 @@ async def main() -> int:
             check(got == want, f"{k}: Ver las fotos / Fotos y videos / Solo los videos habilitadas = {got}")
         _, its = ctl._picker_entries("fotos", fdirs["vacia"])
         check(its[1]["sub"] == "No hay fotos ni videos en esta carpeta", f"y dice por qué: {its[1]['sub']}")
+        (fdirs["fotos"] / "2016").mkdir()
+        orig_counts = fotos.counts
+        fotos.counts = lambda folder: (49403, 2016)  # type: ignore[method-assign]  # ya recorrida
+        try:
+            _, its = ctl._picker_entries("fotos", fdirs["fotos"])
+        finally:
+            fotos.counts = orig_counts  # type: ignore[method-assign]
+        subs = [it["sub"] for it in its if it["kind"] == "play"]
+        check(subs == ["49.403 fotos · 1 subcarpeta", "49.403 fotos y 2.016 videos, cada uno en su fecha", "2.016 videos"],
+              f"ya recorrida: cuántas fotos y videos hay (no «(2016)», que parece un año): {subs}")
+        _, its = ctl._picker_entries("fotos", fdirs["fotos"])
+        check(its[1]["sub"] == "las fotos y los videos, cada uno en su fecha" and its[0]["sub"] == "1 foto y 1 subcarpeta",
+              f"sin recorrer todavía: {[it['sub'] for it in its[:2]]}")
 
     print("app:<actividad> (para ponerla en un color)")
     await ctl.run_action("app:tidal")
