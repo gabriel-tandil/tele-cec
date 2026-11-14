@@ -577,6 +577,8 @@ class Panel:
             return None
         cell = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=round(self.font * 0.55))
         cell.get_style_context().add_class("qr-cell")
+        cell.set_halign(Gtk.Align.END)     # contra el borde derecho (alineado con los botones «Conectar ▸»)
+        cell.set_valign(Gtk.Align.CENTER)
         frame = Gtk.EventBox()  # fondo blanco: el QR se lee mejor con margen claro
         frame.get_style_context().add_class("qr")
         frame.set_valign(Gtk.Align.CENTER)
@@ -591,7 +593,7 @@ class Panel:
         url = Gtk.Label(label=str(qr.get("url") or ""), xalign=0)
         url.get_style_context().add_class("qr-url")
         texts.pack_start(url, False, False, 0)
-        cell.pack_start(texts, True, True, 0)
+        cell.pack_start(texts, False, False, 0)
         return cell
 
     def _set_hint(self, text: str, is_msg: bool = False) -> None:
