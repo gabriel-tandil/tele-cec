@@ -112,6 +112,52 @@ class Device:
         return self.model.replace("_", " ") or self.serial
 
 
+@dataclass
+class UsbPhone:
+    """Un celular enchufado por USB según el kernel (aunque adb no lo vea)."""
+    name: str
+    serial: str
+    adb: bool            # tiene la interfaz de adb: la depuración USB está activada
+
+
+USB_SYSFS = "/sys/bus/usb/devices"
+
+
+def _read(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def usb_phones(root: str = USB_SYSFS) -> list[UsbPhone]:
+    """Los celulares o tablets enchufados por USB, mirando /sys: los que tienen la interfaz de adb (clase ff,
+    subclase 42, protocolo 01) y los que solo ofrecen pasar archivos (MTP/PTP: clase 06, o una interfaz «MTP»).
+    Un cable que solo carga no muestra nada: el celular no aparece."""
+    out = []
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return []
+    for dev in names:
+        if ":" in dev or not re.match(r"^\d+-[\d.]+$", dev):
+            continue  # interfaces y hubs raíz (usb1…)
+        base = os.path.join(root, dev)
+        has_adb = phone = False
+        for itf in (n for n in names if n.startswith(dev + ":")):
+            ib = os.path.join(root, itf)
+            cls = (_read(f"{ib}/bInterfaceClass"), _read(f"{ib}/bInterfaceSubClass"), _read(f"{ib}/bInterfaceProtocol"))
+            if cls == ("ff", "42", "01"):
+                has_adb = phone = True
+            elif cls[0] == "06" or "mtp" in _read(f"{ib}/interface").lower():
+                phone = True
+        if phone:
+            name = " ".join(x for x in (_read(f"{base}/manufacturer"), _read(f"{base}/product")) if x)
+            out.append(UsbPhone(name or dev, _read(f"{base}/serial"), has_adb))
+    return out
+
+
 def parse_devices(text: str) -> list[Device]:
     """Salida de `adb devices -l` → dispositivos."""
     out = []

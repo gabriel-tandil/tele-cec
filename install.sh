@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Instalador de tele-cec. Ejecutalo como tu usuario (sin sudo):
-#     ./install.sh [--chromium] [--tidal] [--apagado-automatico] [--copiar-perfil] [--sin-apt] [--sin-servicio]
+#     ./install.sh [--chromium] [--sin-tidal] [--sin-android] [--apagado-automatico] [--copiar-perfil] [--sin-apt] …
+# Instala lo que falte: los paquetes, las apps del menú (navegador, VLC, feh, High Tide, scrcpy) y el servicio.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,18 +20,32 @@ ENGINE_SET=0
 COPY_PROFILE=0
 NO_APT=0
 NO_SERVICE=0
-TIDAL=0
+NO_ANNOUNCE=0
+# Apps del menú: se instalan las que falten (--sin-<app> para saltear una).
+VIDEOS=1
+FOTOS=1
+TIDAL=1
+ANDROID=1
 AUTO_OFF=0
 HIGHTIDE=io.github.nokse22.high-tide
 RELOGIN=0
+# scrcpy (Android): no está en los repositorios de Debian trixie; se compila esta versión. El servidor (lo que
+# corre en el celular) es el que publica scrcpy, verificado con su SHA-256 (el mismo que usa su install_release.sh).
+SCRCPY_VERSION=5.0.1
+SCRCPY_SERVER_SHA256=764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536
 
 usage() {
   cat <<EOF
 Uso: ./install.sh [opciones]
   --chromium        usar Chromium en vez de Firefox (deja browser.engine = "chromium" en la configuración)
   --firefox         usar Firefox (es el que se usa por defecto; lo deja escrito en la configuración)
-  --tidal           Tidal en el menú de actividades: instala High Tide (Flatpak, para tu usuario) y lo
-                    que hace falta para manejarlo con el control (playerctl, wtype, accesibilidad)
+
+  Instala lo que falte de cada app del menú. Para no instalar alguna:
+  --sin-videos      sin VLC (Videos)
+  --sin-fotos       sin feh (Fotos)
+  --sin-tidal       sin High Tide (Tidal; Flatpak para tu usuario, con playerctl, wtype y accesibilidad)
+  --sin-android     sin scrcpy ni adb (Android: la pantalla del celular). scrcpy no está en los repositorios:
+                    se compila la versión $SCRCPY_VERSION (unos minutos en una Pi)
   --apagado-automatico
                     la Pi se apaga sola tras un rato sin sonido ni teclas del control ([power] en la
                     configuración): instala una regla de polkit para que el servicio pueda apagarla
@@ -38,8 +53,10 @@ Uso: ./install.sh [opciones]
                     que volver a iniciar sesión en Netflix. Cerrá el navegador antes.
                       Chromium: ~/.config/chromium -> ~/.config/chromium-netflix
                       Firefox:  tu perfil de ~/.mozilla/firefox -> ~/.config/firefox-netflix
-  --sin-apt         no instalar paquetes (solo avisar si falta algo)
+  --sin-apt         no instalar paquetes (solo avisar si falta algo; las apps que falten no aparecen en el menú)
   --sin-servicio    no habilitar ni iniciar el servicio de systemd
+  --sin-anunciar    al reiniciar el servicio no anunciarse a la TV (no la prende ni le cambia la entrada); solo
+                    ese arranque
 EOF
 }
 
@@ -47,11 +64,17 @@ for arg in "$@"; do
   case "$arg" in
     --firefox) ENGINE=firefox; ENGINE_SET=1 ;;
     --chromium) ENGINE=chromium; ENGINE_SET=1 ;;
-    --tidal) TIDAL=1 ;;
+    --tidal) TIDAL=1 ;;          # se aceptan por compatibilidad: ahora se instalan siempre
+    --android) ANDROID=1 ;;
+    --sin-videos) VIDEOS=0 ;;
+    --sin-fotos) FOTOS=0 ;;
+    --sin-tidal) TIDAL=0 ;;
+    --sin-android) ANDROID=0 ;;
     --apagado-automatico) AUTO_OFF=1 ;;
     --copiar-perfil) COPY_PROFILE=1 ;;
     --sin-apt) NO_APT=1 ;;
     --sin-servicio) NO_SERVICE=1 ;;
+    --sin-anunciar) NO_ANNOUNCE=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Opción desconocida: $arg"; usage; exit 1 ;;
   esac
@@ -67,45 +90,101 @@ warn() { printf '\033[33mAVISO:\033[0m %s\n' "$*"; }
 
 # ---------------------------------------------------------------- dependencias
 step "Dependencias"
-need=()
+# ¿Hay un paquete con ese nombre en los repositorios? (los nombres cambian entre Raspberry Pi OS y Debian)
+apt_has() { LC_ALL=C apt-cache policy "$1" 2>/dev/null | grep -q 'Candidate: [^(]'; }
+# El primero que exista de una lista de nombres de paquete.
+first_pkg() { for p in "$@"; do if apt_has "$p"; then echo "$p"; return 0; fi; done; return 1; }
+scrcpy_ok() { command -v scrcpy >/dev/null 2>&1 && scrcpy --version 2>/dev/null | head -1 | grep -q "scrcpy $SCRCPY_VERSION"; }
+
+need=()        # imprescindibles para el servicio
+apps=()        # para las apps del menú (sin ellos, esa app no aparece)
+add_app() { for p in "$@"; do [[ " ${apps[*]} " == *" $p "* ]] || apps+=("$p"); done; }
+
 command -v cec-client >/dev/null 2>&1 || need+=(cec-utils)
 python3 -c 'import websockets' 2>/dev/null || need+=(python3-websockets)
 python3 -c 'import tomllib' 2>/dev/null || python3 -c 'import tomli' 2>/dev/null || need+=(python3-tomli)
 # Menú de actividades: panel en pantalla con GTK 3 y gtk-layer-shell (encima de las apps en pantalla completa).
 python3 -c 'import gi; gi.require_version("Gtk", "3.0")' 2>/dev/null || need+=(python3-gi gir1.2-gtk-3.0)
 python3 -c 'import gi; gi.require_version("GtkLayerShell", "0.1")' 2>/dev/null || need+=(gir1.2-gtklayershell-0.1)
-# Videos (VLC) y subtítulos/pausa de fotos: controles por MPRIS y teclas a la ventana.
+# Controles por MPRIS (VLC, YouTube, Tidal) y teclas a las ventanas: wtype (Wayland) y xdotool (feh, por Xwayland).
 command -v playerctl >/dev/null 2>&1 || need+=(playerctl)
 command -v wtype >/dev/null 2>&1 || need+=(wtype)
-# Fotos: feh es X11 (Xwayland) y sus teclas (pausa, zoom, girar) van con xdotool.
 command -v xdotool >/dev/null 2>&1 || need+=(xdotool)
-if ((TIDAL)); then
-  command -v flatpak >/dev/null 2>&1 || need+=(flatpak)
-  command -v playerctl >/dev/null 2>&1 || need+=(playerctl)
-  command -v wtype >/dev/null 2>&1 || need+=(wtype)
-  command -v gdbus >/dev/null 2>&1 || need+=(libglib2.0-bin)
-  python3 -c 'import gi; gi.require_version("Atspi", "2.0")' 2>/dev/null || need+=(gir1.2-atspi-2.0 at-spi2-core python3-gi)
-fi
-if ((${#need[@]})); then
-  if ((NO_APT)); then
-    echo "Faltan paquetes: ${need[*]}  ->  sudo apt install ${need[*]}"
-    exit 1
-  fi
-  echo "Instalando: ${need[*]}"
-  sudo apt-get update
-  sudo apt-get install -y "${need[@]}"
-else
-  echo "cec-utils, python3-websockets, GTK y gtk-layer-shell (menú), playerctl, wtype, xdotool: OK"
-fi
-command -v vlc >/dev/null 2>&1 || warn "no encontré VLC: «Videos» no va a aparecer en el menú (sudo apt install vlc)."
-command -v feh >/dev/null 2>&1 || warn "no encontré feh: «Fotos» no va a aparecer en el menú (sudo apt install feh)."
+
+# Navegador (Netflix y YouTube): Firefox o Chromium, con el nombre de paquete que tenga esta distribución.
 if [ "$ENGINE" = firefox ]; then
   if ! command -v firefox >/dev/null 2>&1 && ! command -v firefox-esr >/dev/null 2>&1; then
-    warn "no encontré Firefox (firefox / firefox-esr)."
+    if pkg="$(first_pkg firefox firefox-esr)"; then add_app "$pkg"; else warn "no encontré un paquete de Firefox: instalalo a mano."; fi
   fi
-elif ! command -v chromium-browser >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1; then
-  warn "no encontré Chromium (chromium-browser / chromium)."
+elif ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
+  if pkg="$(first_pkg chromium chromium-browser)"; then add_app "$pkg"; else warn "no encontré un paquete de Chromium: instalalo a mano."; fi
 fi
+((VIDEOS)) && { command -v vlc >/dev/null 2>&1 || add_app vlc; }
+((FOTOS)) && { command -v feh >/dev/null 2>&1 || add_app feh; }
+if ((TIDAL)); then
+  command -v flatpak >/dev/null 2>&1 || add_app flatpak
+  command -v gdbus >/dev/null 2>&1 || add_app libglib2.0-bin
+  python3 -c 'import gi; gi.require_version("Atspi", "2.0")' 2>/dev/null || add_app gir1.2-atspi-2.0 at-spi2-core
+fi
+if ((ANDROID)); then
+  command -v adb >/dev/null 2>&1 || add_app adb
+  # Vincular por Wi‑Fi desde el menú: el adb de Debian no busca celulares en la red (mDNS) y el QR hay que dibujarlo.
+  command -v avahi-browse >/dev/null 2>&1 || add_app avahi-utils
+  command -v qrencode >/dev/null 2>&1 || add_app qrencode
+  if ! scrcpy_ok; then  # para compilar scrcpy y para usarlo (SDL3, FFmpeg, libusb)
+    for pkg in wget ca-certificates gcc pkg-config meson ninja-build libsdl3-0 libsdl3-dev libavcodec-dev \
+               libavdevice-dev libavformat-dev libavutil-dev libswresample-dev libusb-1.0-0 libusb-1.0-0-dev \
+               libv4l-dev libdrm-dev; do
+      dpkg -s "$pkg" >/dev/null 2>&1 || add_app "$pkg"
+    done
+  fi
+fi
+
+APT_OK=1   # ¿están los paquetes de las apps? (con --sin-apt puede que no)
+if ((${#need[@]} + ${#apps[@]})); then
+  if ((NO_APT)); then
+    if ((${#need[@]})); then
+      echo "Faltan paquetes: ${need[*]}  ->  sudo apt install ${need[*]}"
+      exit 1
+    fi
+    warn "faltan paquetes para algunas apps del menú (no van a aparecer): sudo apt install ${apps[*]}"
+    APT_OK=0
+  else
+    echo "Instalando: ${need[*]} ${apps[*]}"
+    sudo apt-get update
+    sudo apt-get install -y "${need[@]}" "${apps[@]}"
+  fi
+else
+  echo "Paquetes: OK (CEC, GTK y gtk-layer-shell, playerctl, wtype, xdotool y las apps del menú)"
+fi
+
+if ((ANDROID)); then
+  step "scrcpy (Android)"
+  if scrcpy_ok; then
+    echo "scrcpy $SCRCPY_VERSION: OK"
+  elif ! ((APT_OK)); then
+    warn "no compilo scrcpy (--sin-apt y faltan paquetes): «Android» no va a aparecer en el menú."
+  else
+    build="${XDG_CACHE_HOME:-$HOME/.cache}/tele-cec/scrcpy-$SCRCPY_VERSION"
+    rm -rf "$build" && mkdir -p "$build"
+    echo "Bajando scrcpy $SCRCPY_VERSION…"
+    wget -q "https://github.com/Genymobile/scrcpy/archive/refs/tags/v$SCRCPY_VERSION.tar.gz" -O "$build/src.tar.gz"
+    tar xzf "$build/src.tar.gz" -C "$build" --strip-components=1
+    wget -q "https://github.com/Genymobile/scrcpy/releases/download/v$SCRCPY_VERSION/scrcpy-server-v$SCRCPY_VERSION" \
+      -O "$build/scrcpy-server"
+    echo "$SCRCPY_SERVER_SHA256  $build/scrcpy-server" | sha256sum --check --quiet
+    echo "Compilando (unos minutos)…"
+    (cd "$build" && meson setup build-auto --buildtype=release --strip -Db_lto=true \
+       -Dprebuilt_server=scrcpy-server >/dev/null && ninja -C build-auto >/dev/null)
+    sudo ninja -C "$build/build-auto" install >/dev/null
+    scrcpy --version | head -1
+    rm -rf "$build"
+  fi
+fi
+((VIDEOS)) || echo "Videos: salteado (--sin-videos)"
+((FOTOS)) || echo "Fotos: salteado (--sin-fotos)"
+((TIDAL)) || echo "Tidal: salteado (--sin-tidal)"
+((ANDROID)) || echo "Android: salteado (--sin-android)"
 
 # ---------------------------------------------------------------- permisos CEC
 step "Adaptador CEC"
@@ -225,6 +304,10 @@ EOF
 echo "Acceso en el menú: Netflix (TV)"
 
 # ---------------------------------------------------------------- Tidal (High Tide)
+if ((TIDAL)) && ! command -v flatpak >/dev/null 2>&1; then
+  warn "no está flatpak (--sin-apt): no instalo High Tide; «Tidal» no va a aparecer en el menú."
+  TIDAL=0
+fi
 if ((TIDAL)); then
   step "Tidal (High Tide)"
   if ! flatpak remotes --columns=name 2>/dev/null | grep -qx flathub; then
@@ -376,6 +459,10 @@ if ((NO_SERVICE)); then
   echo "  systemctl --user enable --now tele-cec"
 else
   systemctl --user enable tele-cec.service
+  if ((NO_ANNOUNCE)); then
+    mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/tele-cec"
+    touch "${XDG_CACHE_HOME:-$HOME/.cache}/tele-cec/no-anunciar-al-arrancar"
+  fi
   systemctl --user restart tele-cec.service
   sleep 2
   systemctl --user --no-pager --lines=0 status tele-cec.service || true
@@ -390,7 +477,8 @@ cat <<EOF
 Próximos pasos:
   1. Probá el control:          tele-cec aprender      (Ctrl+C para salir)
   2. Elegí una actividad:       apretá Menú en el control (o OK con todo cerrado) y elegí Netflix,
-                                Tidal, Videos o Fotos. También: "Netflix (TV)" en el menú del escritorio.
+                                YouTube, Tidal, Videos, Fotos o Android. También: "Netflix (TV)" en el
+                                menú del escritorio.
      La primera vez iniciá sesión en Netflix (salvo que hayas usado --copiar-perfil).
   3. Revisá que todo esté bien: tele-cec diagnostico
   Logs en vivo:                 journalctl --user -u tele-cec -f

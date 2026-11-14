@@ -11,6 +11,15 @@ Se abre con OK sobre Android cuando no hay ningún celular listo, o con ▶ sobr
 
 Mientras tanto se buscan en la red los celulares ya vinculados (con la depuración inalámbrica activa) y se conectan
 solos: aparecen en la lista. Si se entró con OK y queda uno solo, se abre directo.
+
+La lista se actualiza sola mientras está abierta (`adb devices` cada 1,5 s): un celular que se enchufa, que se
+desenchufa o que pasa de «sin autorizar» a listo (se tocó «Permitir depuración USB») aparece al momento, y en ese
+último caso se abre su pantalla directo.
+
+Mientras se ve la pantalla de un celular, la lista empieza con «Seguir viendo» y «Dejar de compartir la
+pantalla» (cierra scrcpy y deja la lista a la vista). Se llega con Menú › OK sobre Android (el menú ya abre parado
+ahí), con ▶ sobre Android o con el verde (android:list, si la TV lo manda); Atrás vuelve a la pantalla del celular
+si se entró desde ahí.
 """
 
 from __future__ import annotations
@@ -20,7 +29,7 @@ import logging
 import time
 
 from .. import apps as activities_mod
-from ..apps.android import CONNECT, PAIRING, STATE_TEXT, AndroidActivity, Device, Service
+from ..apps.android import CONNECT, PAIRING, STATE_TEXT, AndroidActivity, Device, Service, UsbPhone, usb_phones
 from ..system.procs import LOG_DIR
 
 log = logging.getLogger("tele")
@@ -30,18 +39,24 @@ CODE_HINT = "0 – 9 escribir el código · ◀ borrar · Atrás volver"
 QR_HINT = "Atrás volver"
 PAIR_WAIT_S = 180      # cuánto se espera a que el celular lea el QR o muestre el código
 SCAN_EVERY_S = 2.0
+WATCH_EVERY_S = 1.5    # cada cuánto se mira `adb devices` con la lista abierta
+WAITING = {"unauthorized", "authorizing"}   # esperando «Permitir depuración USB» en el celular
 CODE_LEN = 6
 
 
 class AndroidMenuMixin:
     def _init_android_menu(self) -> None:
         self._and_devices: list[Device] = []
+        self._and_usb: list[UsbPhone] = []             # lo que ve el kernel por USB (aunque adb no lo vea)
         self._and_task: asyncio.Task | None = None     # búsqueda en la red / espera de la vinculación
         self._and_scanning = False
         self._and_autostart = False                    # se entró con OK: si aparece un solo celular, abrirlo
         self._and_code = ""
         self._and_pairing: Service | None = None       # el servicio de vinculación encontrado (código)
         self._and_status = ""
+        self._and_watch: asyncio.Task | None = None    # `adb devices` cada tanto, con la lista abierta
+        self._and_running = False                      # se estaba compartiendo al dibujar la lista
+        self._and_back_closes = False                  # se entró desde la pantalla del celular: Atrás vuelve ahí
 
     def _android(self) -> AndroidActivity | None:
         act = self.activities.get("android")
@@ -52,6 +67,9 @@ class AndroidMenuMixin:
             self._and_task.cancel()
         self._and_task = None
         self._and_scanning = False
+        if self._and_watch and not self._and_watch.done() and self._and_watch is not asyncio.current_task():
+            self._and_watch.cancel()
+        self._and_watch = None
 
     def _in_android(self, mode: str = "android") -> bool:
         return self._menu_open and self._menu_mode == mode and not self._switching
@@ -61,25 +79,51 @@ class AndroidMenuMixin:
         act = self._android()
         if act is None:
             return
+        entering = not (self._menu_open and self._menu_mode.startswith("android"))
+        if entering:
+            # Desde la pantalla del celular (verde): Atrás vuelve a ella. Desde el menú: Atrás vuelve al menú.
+            self._and_back_closes = not self._menu_open and act.running()
+            if not self._menu_open or self._menu_mode == "activities":
+                self._menu_act_sel = next((i for i, it in enumerate(self._menu_items) if it.get("id") == "android"),
+                                          self._menu_sel if self._menu_open else 0)
+        self._sound_scan_stop()
         self._android_stop()
         self._and_autostart = autostart
         self._and_devices = await asyncio.to_thread(act.devices)
-        if autostart and self._open_if_single():
+        self._and_usb = await asyncio.to_thread(usb_phones)
+        if autostart and not act.running() and self._open_if_single():
             return
         self._and_scanning = act.discovery_available()
-        await self._android_render(0)
+        await self._android_render(0)  # compartiendo: sobre «Seguir viendo»
+        self._menu_open = True
         log.info("Menú: Android · conectar (%s)", ", ".join(d.label() for d in self._and_devices) or "sin celulares")
         if self._and_scanning:
             self._and_task = asyncio.get_running_loop().create_task(self._android_scan())
+        self._and_watch = asyncio.get_running_loop().create_task(self._android_watch())
 
     def _android_items(self) -> list[dict]:
         act = self._android()
         items = []
+        running = bool(act and act.running())
+        self._and_running = running
+        if running:
+            assert act is not None
+            shown = next((d.nice_name() for d in self._and_devices if d.serial == act.serial), "el celular")
+            items.append({"id": "_resume", "name": f"Seguir viendo {shown}", "icon": "media-playback-start",
+                          "sub": "Volver a la pantalla del celular", "enabled": True, "current": True})
+            items.append({"id": "_stop", "name": "Dejar de compartir la pantalla", "icon": "media-playback-stop",
+                          "sub": f"Cierra la pantalla de {shown} y vuelve a esta lista", "enabled": True,
+                          "current": False})
         for d in self._and_devices:
+            if running and act is not None and act.serial == d.serial:
+                continue  # ya está arriba, en «Seguir viendo»
             if d.ready:
+                now = False
                 items.append({"id": "_dev", "serial": d.serial, "name": d.nice_name(), "icon": "android.svg",
-                              "sub": f"{'Wi‑Fi' if d.wifi else 'USB'} · OK para ver su pantalla", "enabled": True,
-                              "current": bool(act and act.running() and act.serial == d.serial)})
+                              "sub": (f"{'Wi‑Fi' if d.wifi else 'USB'} · "
+                                      + ("compartiendo ahora · OK para volver a verlo" if now
+                                         else "OK para ver su pantalla")),
+                              "enabled": True, "current": now})
             else:
                 items.append({"id": "_bad", "serial": d.serial, "name": d.nice_name(), "icon": "android.svg",
                               "sub": STATE_TEXT.get(d.state, f"Celular: {d.state}"), "enabled": False,
@@ -96,12 +140,43 @@ class AndroidMenuMixin:
             items.append({"id": "_code", "name": "Vincular por Wi‑Fi con código", "icon": "dialog-password",
                           "sub": "Celular: Depuración inalámbrica › Vincular con código", "enabled": True,
                           "current": False})
-        items.append({"id": "_usb", "name": "Por USB: enchufalo a la Pi", "icon": "drive-removable-media",
-                      "sub": "y aceptá «Permitir depuración USB» en el celular", "enabled": False, "current": False})
+        items.append(self._android_usb_item())
         if not self._and_scanning and wifi:
             items.append({"id": "_rescan", "name": "Buscar otra vez", "icon": "view-refresh",
                           "sub": "Celulares conectados y vinculados", "enabled": True, "current": False})
         return items
+
+    def _android_usb_item(self) -> dict:
+        """La fila «Por USB», con lo que ve la Pi en el puerto (OK la vuelve a mirar)."""
+        name, sub = self._android_usb_status()
+        return {"id": "_usb", "name": name, "icon": "drive-removable-media", "sub": sub, "enabled": True,
+                "current": False}
+
+    def _android_usb_status(self) -> tuple[str, str]:
+        listed = {d.serial for d in self._and_devices if not d.wifi}
+        phones = [p for p in self._and_usb if p.serial not in listed]
+        if any(not d.wifi for d in self._and_devices):
+            return "Por USB: otro celular", "Enchufalo y aceptá «Permitir depuración USB»"
+        if not phones:
+            return ("Por USB: no detecto ningún celular",
+                    "Enchufalo con un cable de datos (uno de solo carga no sirve)")
+        p = phones[0]
+        if not p.adb:
+            return (f"Por USB: {p.name}, sin depuración",
+                    "Activá «Depuración USB» en Opciones de desarrollador")
+        return f"Por USB: {p.name}", "Esperando a adb… desbloqueá el celular y aceptá «Permitir»"
+
+    def _android_signature(self) -> tuple:
+        return (tuple((d.serial, d.state) for d in self._and_devices),
+                tuple((p.serial, p.adb) for p in self._and_usb))
+
+    async def _android_rerender(self) -> None:
+        """Redibujar la lista quedándose sobre la misma fila (aunque aparezcan o desaparezcan otras)."""
+        old = self._menu_items[self._menu_sel] if 0 <= self._menu_sel < len(self._menu_items) else {}
+        items = self._android_items()
+        sel = next((i for i, it in enumerate(items)
+                    if it["id"] == old.get("id") and it.get("serial") == old.get("serial")), self._menu_sel)
+        await self._android_render(sel)
 
     async def _android_render(self, sel: int) -> None:
         items = self._android_items()
@@ -109,6 +184,45 @@ class AndroidMenuMixin:
         self._menu_mode, self._menu_items, self._menu_sel = "android", items, sel
         await self.overlay.show(items, sel, title="Android · conectar el celular", hint=ANDROID_HINT, numbers=False)
         self._menu_restart_timer()
+
+    async def _android_watch(self) -> None:
+        """Con la lista abierta: vuelve a mirar `adb devices` y la redibuja si algo cambió (se enchufó, se
+        desenchufó, se autorizó un celular, se cortó la pantalla que se estaba mostrando)."""
+        act = self._android()
+        if act is None:
+            return
+        try:
+            while True:
+                await asyncio.sleep(WATCH_EVERY_S)
+                if not self._in_android():
+                    if self._menu_open and self._menu_mode.startswith("android"):
+                        continue  # mostrando el QR o el código, o cambiando: la lista vuelve después
+                    return
+                devices = await asyncio.to_thread(act.devices)
+                usb = await asyncio.to_thread(usb_phones)
+                if not self._in_android():
+                    continue
+                before = {d.serial: d.state for d in self._and_devices}
+                old_sig = self._android_signature()
+                self._and_devices, self._and_usb = devices, usb
+                if self._android_signature() == old_sig and act.running() == self._and_running:
+                    continue
+                log.info("Android: celulares: %s · USB: %s",
+                         ", ".join(f"{d.label()} ({d.state})" for d in devices) or "ninguno",
+                         ", ".join(f"{p.name}{'' if p.adb else ' (sin depuración)'}" for p in usb) or "nada")
+                # Se acaba de tocar «Permitir depuración USB» (o, entrando con OK, se enchufó uno ya autorizado):
+                # mostrar su pantalla directo.
+                now = [d for d in devices if d.ready and before.get(d.serial) != "device"
+                       and (before.get(d.serial) in WAITING or (self._and_autostart and d.serial not in before))]
+                if len(now) == 1 and not act.running():
+                    log.info("Android: %s listo: muestro su pantalla", now[0].label())
+                    self._android_start(now[0].serial)
+                    return
+                await self._android_rerender()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("Android: error mirando los celulares conectados")
 
     def _open_if_single(self) -> bool:
         """Con un solo celular listo (y entrando con OK): abrirlo directo."""
@@ -135,7 +249,7 @@ class AndroidMenuMixin:
             self._and_scanning = False
             if self._and_autostart and self._open_if_single():
                 return
-            await self._android_render(self._menu_sel)
+            await self._android_rerender()
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
@@ -149,17 +263,67 @@ class AndroidMenuMixin:
             await self.overlay.select(index)
         item = self._menu_items[index]
         kind = item["id"]
-        if kind == "_dev":
+        act = self._android()
+        if kind == "_stop":
+            await self._android_disconnect()
+        elif kind == "_resume" and act is not None and act.running():
+            log.info("Menú: sigo viendo el celular")
+            await self.menu_close()
+        elif kind == "_dev" and item.get("current") and act is not None and act.running():
+            log.info("Menú: sigo viendo %s", item["name"])
+            await self.menu_close()
+        elif kind == "_dev":
             self._android_start(item["serial"])
+        elif kind == "_bad" and act is not None:
+            # ¿Ya se tocó «Permitir»? Mirar otra vez antes de repetir el aviso.
+            self._and_devices = await asyncio.to_thread(act.devices)
+            dev = next((d for d in self._and_devices if d.serial == item["serial"]), None)
+            if dev and dev.ready:
+                self._android_start(dev.serial)
+                return
+            await self._android_render(index)
+            await self.overlay.toast(STATE_TEXT.get(dev.state, f"Celular: {dev.state}") if dev
+                                     else "Ese celular ya no está conectado", 2500)
+            self._menu_restart_timer()
         elif kind == "_qr":
             await self._android_qr_open()
         elif kind == "_code":
             await self._android_code_open()
+        elif kind == "_usb" and act is not None:
+            # Mirar otra vez el USB y adb, y decir qué pasa (o abrir el celular si ya está listo).
+            self._and_devices = await asyncio.to_thread(act.devices)
+            self._and_usb = await asyncio.to_thread(usb_phones)
+            usb_ready = [d for d in self._and_devices if d.ready and not d.wifi]
+            if len(usb_ready) == 1 and not act.running():
+                self._android_start(usb_ready[0].serial)
+                return
+            await self._android_rerender()
+            name, sub = self._android_usb_status()
+            log.info("Android: USB: %s · %s", name, sub)
+            await self.overlay.toast(f"{name} · {sub}", 4000)
+            self._menu_restart_timer()
         elif kind == "_rescan":
             await self.android_connect_open(autostart=False)
         else:
             await self.overlay.toast(item.get("sub") or "", 2500)
             self._menu_restart_timer()
+
+    async def _android_disconnect(self) -> None:
+        """Dejar de compartir: cierra scrcpy (y el shell de adb) y deja la lista de celulares a la vista."""
+        act = self._android()
+        if act is None:
+            return
+        log.info("Menú: dejo de compartir la pantalla de %s", act.serial or "el celular")
+        self._android_stop()
+        self._switching = True
+        await self.overlay.busy("Dejando de compartir…")
+        try:
+            self._foreground = None  # se cierra a propósito: que no parezca que se desconectó solo
+            await act.close()
+        finally:
+            self._switching = False
+        self._and_back_closes = False
+        await self.android_connect_open(autostart=False)
 
     def _android_start(self, serial: str) -> None:
         """Abrir la pantalla de ese celular (como elegir Android en el menú)."""
@@ -356,7 +520,11 @@ class AndroidMenuMixin:
                 await self._android_choose(self._menu_sel)
             elif sub in ("left", "back"):
                 self._android_stop()
-                await self.menu_open(self._menu_act_sel)
+                act = self._android()
+                if self._and_back_closes and act is not None and act.running():
+                    await self.menu_close()  # se había entrado desde la pantalla del celular: volver a ella
+                else:
+                    await self.menu_open(self._menu_act_sel)
             elif sub == "close":
                 await self.menu_close()
             else:

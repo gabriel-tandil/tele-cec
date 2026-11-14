@@ -1,0 +1,23 @@
+[Unit]
+Description=tele-cec: Netflix, YouTube, música, videos y fotos en la TV con su control remoto (HDMI-CEC)
+Documentation=file://%h/.local/share/tele-cec/README.md
+# Reintentar siempre, sin límite de arranques.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PYTHONPATH=%h/.local/share/tele-cec
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m tele_cec servicio
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+# cec-client es hijo del servicio y se detiene con él. El navegador, en cambio, se
+# abre en su propio scope (systemd-run --scope): reiniciar o detener este
+# servicio no lo cierra. Con Firefox, al detenerse el servicio cierra su sesión
+# de control: en una Pi lenta (o con la CPU frenada por baja tensión) Firefox puede
+# tardar más de 10 s en confirmarlo, por eso el margen de 30 s. Si systemd lo corta antes,
+# la sesión queda tomada y al volver a arrancar hay que reiniciar Firefox.
+
+[Install]
+WantedBy=default.target

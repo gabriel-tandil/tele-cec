@@ -27,10 +27,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from netflix_cec import config as config_mod  # noqa: E402
-from netflix_cec.browser import Browser, find_binary  # noqa: E402
-from netflix_cec.controller import Controller  # noqa: E402
-from netflix_cec.keys import parse_key  # noqa: E402
+from tele_cec import config as config_mod  # noqa: E402
+from tele_cec.apps.netflix.browser import Browser
+from tele_cec.apps.webprofile import find_binary  # noqa: E402
+from tele_cec.controller import Controller  # noqa: E402
+from tele_cec.keys import parse_key  # noqa: E402
 
 HTTP_PORT = 8765
 DEBUG_PORT = 9333
@@ -89,7 +90,7 @@ profile = "{tmp / 'profile'}"
 extra_args = ["--headless", "--window-size=1280,720"]
 [netflix]
 profiles_url = "{HOST}/ProfilesGate"
-page_delay_ms = 650
+page_delay_ms = 0
 [feedback]
 key_echo = true
 """)
@@ -146,7 +147,7 @@ key_echo = true
             return [x[len("busy-on:"):] for x in lg if x.startswith("busy-on:")]
 
         if browser.firefox:
-            check(browser.is_splash(cmd[-1]), f"Firefox abre primero la pantalla de carga: {cmd[-1]}")
+            check(browser.is_blank(cmd[-1]), f"Firefox abre primero la página negra: {cmd[-1][:40]}…")
 
         print("Perfiles")
         check(await ctl.context() == "profiles", "contexto 'profiles' en ¿Quién está viendo?")
@@ -282,17 +283,17 @@ key_echo = true
         check(not await ctl.cdp.evaluate("!!document.querySelector('#nfx-busy.on')"), "no queda ningún indicador encendido")
 
         print("Seguir viendo + reproductor")
-        await press("F3_GREEN", pause=1.5)
+        await press("F2_RED", pause=1.5)
         s = await st()
-        check(s["path"] == "/watch/80001", f"verde abre lo último de «Seguir viendo»: {s['path']}")
+        check(s["path"] == "/watch/80001", f"rojo (Netflix) con Netflix abierto = lo último de «Seguir viendo»: {s['path']}")
         check(await ctl.context() == "player", "contexto 'player'")
-        await press("F4_YELLOW", pause=0.6)
-        check(bool(await last_log("skip-intro")), "amarillo salta la intro")
-        await press("F4_YELLOW", pause=0.3)
+        await press("FORWARD", pause=0.6)
+        check(bool(await last_log("skip-intro")), "⏭ salta la intro")
+        await press("FORWARD", pause=0.3)
         await shot("5-nada-para-saltar")
-        await press("F4_YELLOW", pause=1.5)
+        await press("FORWARD", pause=1.5)
         s = await st()
-        check("next-episode" in s["log"] and s["path"] == "/watch/80002", f"amarillo x2 sin nada para saltar -> siguiente episodio: {s['path']}")
+        check("next-episode" in s["log"] and s["path"] == "/watch/80002", f"⏭ x2 sin nada para saltar -> siguiente episodio: {s['path']}")
         await press("RIGHT", "RIGHT", pause=0.2)
         seeks = await last_log("seek:")
         check(seeks[-2:] == ["seek:70000", "seek:80000"], f"derecha x2 = +10 s acumulado: {seeks[-2:]}")
@@ -345,8 +346,8 @@ key_echo = true
         check(s["path"] == "/browse" and "exit-player" in s["log"], f"Atrás sale del reproductor con «volver»: {s['path']}")
 
         print("Perfiles desde el inicio + macro")
-        await press("F2_RED", pause=1.2)
-        check(await ctl.context() == "profiles", "rojo en el inicio abre ¿Quién está viendo?")
+        await press("NUMBER0", pause=1.2)
+        check(await ctl.context() == "profiles", "0 en el inicio abre ¿Quién está viendo?")
         await ctl.run_action(["profile:1", "wait:800", "continue_watching"])
         await asyncio.sleep(1.5)
         s = await st()

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import time
 from pathlib import Path
 
@@ -16,12 +17,14 @@ from .activities import KEEP_PLAYING
 log = logging.getLogger("tele")
 
 # Ayuda al pie del menú.
-MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ otra carpeta (Videos, Fotos) · Atrás cerrar"
+MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Juegos, Android) · Atrás cerrar"
+GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar"
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
 SOUND_HINT = "▲ ▼ elegir · OK usar esta salida · ◀ volver"
 BT_SCAN_SECONDS = 25   # cuánto se buscan parlantes y auriculares Bluetooth al abrir «Sonido»
 BT_POLL_SECONDS = 2.0  # cada cuánto se mira qué encontró la búsqueda
 HELP_HINT = "◀ ▶ otra app · ▲ ▼ más filas · Atrás volver"
+BACKGROUND_BADGE = {"Playing": "sonando", "Paused": "en pausa"}  # si no, «abierto» (sin nada cargado)
 
 
 class MenuMixin:
@@ -31,6 +34,11 @@ class MenuMixin:
         self._menu_sel = 0
         self._menu_timer: asyncio.Task | None = None
         self._menu_timeout = float(self.cfg.menu.get("timeout_s", 10) or 0)
+        # En grilla (2 columnas, sin desplazar), ◀ ▶ cambian de columna. Videos, Fotos y Android tienen un
+        # botoncito en la fila («Carpetas», «Conectar»): ▶ lo enfoca y OK abre esas opciones; OK sobre la fila
+        # abre de una. Con 1 columna, ▶ es «más opciones».
+        self._menu_columns = max(1, min(int(self.cfg.menu.get("columns", 2) or 1), 3))
+        self._menu_chip = False
         # Selector de carpetas (▶ sobre Videos o Fotos): qué actividad, en qué carpeta (None = las configuradas)
         # y por dónde se vino (para volver con ◀ a la carpeta de arriba y a la misma fila).
         self._menu_mode = "activities"
@@ -38,6 +46,8 @@ class MenuMixin:
         self._picker_act = ""
         self._picker_path: Path | None = None
         self._picker_stack: list[tuple[Path | None, int]] = []
+        # Lista de juegos: si se abrió desde el juego (menú cerrado), Atrás vuelve al juego en vez de al menú.
+        self._games_back_closes = False
         # Ayuda (desde el menú o con la tecla Info/Ayuda): páginas por app y desde dónde se abrió.
         self._menu_from_ctx = "offline"
         self._help_pages: list[tuple[str, str]] = []
@@ -47,6 +57,7 @@ class MenuMixin:
         # Salida de sonido (entrada «Sonido» del menú): las salidas que se mostraron.
         self._sound_outputs: list[audio.Output] = []
         self._sound_on = bool(self.cfg.menu.get("sound", True))
+        self.phone_qr = None  # la página del celular lo pone (WebRemote.phone_qr): el QR abajo del menú
         self._bt_scan = audio.BluetoothScan()
         self._sound_scan_task: asyncio.Task | None = None
         self._sound_scanning = False
@@ -69,7 +80,7 @@ class MenuMixin:
         out = [i for i in items if i in self.activities]
         for unknown in (i for i in items if i not in self.activities):
             log.warning("menu.items: no hay ninguna actividad «%s»", unknown)
-        out += [k for k in self.activities if k not in out and k not in ("netflix", "youtube", "tidal", "videos", "fotos")]
+        out += [k for k in self.activities if k not in out and k not in activities_mod.BUILTIN]
         return out
 
     def _menu_entries(self) -> list[dict]:
@@ -87,8 +98,12 @@ class MenuMixin:
                 continue
             item = {"id": ident, "name": act.name, "icon": act.icon, "sub": sub, "enabled": enabled,
                     "current": ident == cur}
+            if self._menu_columns > 1 and isinstance(act, (activities_mod.MediaActivity,
+                                                           activities_mod.AndroidActivity)):
+                item["action"] = "Conectar" if isinstance(act, activities_mod.AndroidActivity) else "Carpetas"
             if ident != cur and ident in KEEP_PLAYING.get(cur or "", set()) and act.running():
                 item["badge"] = "sonando"  # p. ej. Tidal de fondo mientras pasan las fotos
+                item["background"] = True  # _menu_playback la corrige si en realidad está en pausa
             out.append(item)
         if self._sound_on and audio.available():
             try:
@@ -112,8 +127,10 @@ class MenuMixin:
 
     def _menu_wait(self) -> float:
         """Cuánto espera el menú sin teclas antes de cerrarse (la ayuda se lee con más calma, y en «Sonido» se
-        espera a que aparezcan los Bluetooth)."""
-        return max(self._menu_timeout, 60.0) if self._menu_mode in ("help", "sound") else self._menu_timeout
+        espera a que aparezcan los Bluetooth; al vincular un celular, a que lea el QR o se escriba el código)."""
+        if self._menu_mode.startswith("android"):
+            return max(self._menu_timeout, 180.0)
+        return max(self._menu_timeout, 60.0) if self._menu_mode in ("help", "sound", "games") else self._menu_timeout
 
     async def _menu_autoclose(self) -> None:
         wait = self._menu_wait()
@@ -122,9 +139,23 @@ class MenuMixin:
             log.info("Menú cerrado solo (sin teclas en %.0f s)", wait)
             await self.menu_close()
 
+    async def _menu_playback(self, items: list[dict]) -> None:
+        """La app abierta de fondo (Tidal detrás de Fotos) dice «sonando» solo si de verdad suena."""
+        for item in items:
+            if not item.get("background"):
+                continue
+            try:
+                st = await self.activities[item["id"]].playback()
+            except Exception:  # noqa: BLE001
+                log.exception("Menú: no pude ver si %s está sonando", item["id"])
+                continue
+            item["badge"] = BACKGROUND_BADGE.get(st, "sonando" if not st else "abierto")
+
     async def menu_open(self, sel: int | None = None) -> None:
         self._sound_scan_stop()
+        self._android_stop()
         items = await asyncio.to_thread(self._menu_entries)
+        await self._menu_playback(items)
         if not items:
             await self.toast("No hay actividades para elegir")
             return
@@ -133,9 +164,20 @@ class MenuMixin:
         sel = max(0, min(sel, len(items) - 1))
         if self._menu_mode == "activities" and not self._menu_open and self._ctx != "menu":
             self._menu_from_ctx = self._ctx  # para que la ayuda empiece por la app que se estaba usando
+        mame = self.activities.get("juegos")
+        if not self._menu_open and isinstance(mame, activities_mod.MameActivity) and self.current_app() == "juegos":
+            await mame.freeze()  # el menú encima del juego: en pausa
         self._menu_mode = "activities"
         self._menu_items, self._menu_sel = items, sel
-        if not await self.overlay.show(items, sel, hint=MENU_HINT):
+        self._menu_chip = False
+        qr = None
+        if self.phone_qr is not None:
+            try:
+                qr = await asyncio.to_thread(self.phone_qr)
+            except Exception:  # noqa: BLE001  (sin QR el menú igual se abre)
+                log.exception("Menú: no pude armar el QR del celular")
+        if not await self.overlay.show(items, sel, hint=GRID_HINT if self._grid() else MENU_HINT,
+                                       columns=self._menu_columns if self._grid() else 1, qr=qr):
             log.warning("No pude mostrar el menú: %s", self.overlay.error or "?")
             await self.toast("No pude mostrar el menú")
             return
@@ -146,18 +188,73 @@ class MenuMixin:
 
     async def menu_close(self) -> None:
         self._sound_scan_stop()
+        self._android_stop()
         self._menu_open = False
         self._menu_mode = "activities"
         if self._menu_timer:
             self._menu_timer.cancel()
             self._menu_timer = None
         await self.overlay.hide()
+        mame = self.activities.get("juegos")
+        if isinstance(mame, activities_mod.MameActivity) and mame.frozen:
+            await mame.unfreeze()  # se vuelve al juego
+
+    def _grid(self) -> bool:
+        return self._menu_columns > 1 and self._menu_mode == "activities" and len(self._menu_items) > 1
+
+    async def _grid_move(self, drow: int, dcol: int) -> None:
+        """Moverse por la grilla del menú (la primera columna se llena primero, como la dibuja el panel)."""
+        n = len(self._menu_items)
+        per_col = -(-n // self._menu_columns)
+        cols = -(-n // per_col)
+        col, row = divmod(self._menu_sel, per_col)
+        has_chip = bool(self._menu_items[self._menu_sel].get("action"))
+        if (dcol > 0 and has_chip and not self._menu_chip) or (dcol < 0 and self._menu_chip):
+            # ▶ enfoca el botoncito de la fila («Carpetas», «Conectar»); ◀ vuelve a la fila.
+            self._menu_chip = dcol > 0
+            await self.overlay.select(self._menu_sel, chip=self._menu_chip)
+            self._menu_restart_timer()
+            return
+        chip_before, self._menu_chip = self._menu_chip, False
+        if dcol:
+            col = max(0, min(cols - 1, col + dcol))
+            length = min(per_col, n - col * per_col)
+            row = min(row, length - 1)
+        else:
+            length = min(per_col, n - col * per_col)
+            row = (row + drow) % length  # dentro de la columna, dando la vuelta
+        sel = col * per_col + row
+        if sel != self._menu_sel or chip_before:
+            self._menu_sel = sel
+            await self.overlay.select(sel)
+            log.debug("Menú: %s", self._menu_items[sel]["name"])
+        self._menu_restart_timer()
+
+    async def _menu_options(self, index: int) -> bool:
+        """Las opciones de una fila del menú (el botoncito, o el amarillo): carpetas, conectar, juegos, salidas."""
+        item = self._menu_items[index]
+        act = self.activities.get(item["id"])
+        self._menu_act_sel = index
+        self._menu_chip = False
+        if isinstance(act, activities_mod.MediaActivity):
+            self._menu_sel = index
+            await self._picker_open(item["id"])
+        elif isinstance(act, activities_mod.AndroidActivity):
+            await self.android_connect_open(autostart=False)
+        elif isinstance(act, activities_mod.MameActivity):
+            await self.games_open()
+        elif item["id"] == "_sound":
+            await self._sound_open()
+        else:
+            return False
+        return True
 
     async def _menu_move(self, delta: int) -> None:
         n = len(self._menu_items)
         if not n:
             return
         self._menu_sel = (self._menu_sel + delta) % n
+        self._menu_chip = False
         await self.overlay.select(self._menu_sel)
         log.debug("Menú: %s", self._menu_items[self._menu_sel]["name"])
         self._menu_restart_timer()
@@ -172,6 +269,9 @@ class MenuMixin:
         if self._menu_mode == "sound":
             await self._sound_choose(index)
             return
+        if self._menu_mode == "games":
+            await self._games_choose(index)
+            return
         if self._menu_mode == "help":
             self._menu_restart_timer()
             return
@@ -184,12 +284,30 @@ class MenuMixin:
             self._menu_act_sel = index
             await self._sound_open()
             return
+        act = self.activities.get(item["id"])
+        if isinstance(act, activities_mod.AndroidActivity) and not act.ready and item["id"] != self.current_app():
+            # Sin celular listo: elegirlo, conectarlo por USB o vincularlo por Wi‑Fi, en el mismo panel.
+            self._menu_act_sel = index
+            await self.android_connect_open(autostart=True)
+            return
         if index != self._menu_sel:
             self._menu_sel = index
             await self.overlay.select(index)
+        if isinstance(act, activities_mod.MameActivity) and item["enabled"] and item["id"] != self.current_app():
+            self._menu_act_sel = index
+            await self.games_open()  # hay que elegir qué juego
+            return
+        if self._grid() and self._menu_chip and index == self._menu_sel and item.get("action"):
+            await self._menu_options(index)  # OK sobre el botoncito («Carpetas», «Conectar»)
+            return
         if not item["enabled"]:
             await self.overlay.toast(self.activities[item["id"]].unavailable_text(), 2500)
             self._menu_restart_timer()
+            return
+        if item["id"] == self.current_app() and isinstance(act, activities_mod.AndroidActivity):
+            # Compartiendo la pantalla del celular: «Seguir viendo», «Dejar de compartir» u otro celular.
+            self._menu_act_sel = index
+            await self.android_connect_open(autostart=False)
             return
         if item["id"] == self.current_app():
             log.info("Menú: sigo en %s", item["name"])
@@ -206,7 +324,7 @@ class MenuMixin:
     async def _menu_switch(self, item: dict) -> None:
         ok = False
         try:
-            ok = await self.switch_to(item["id"], item.get("folder"))
+            ok = await self.switch_to(item["id"], item.get("folder"), item.get("mode"))
         except asyncio.CancelledError:
             pass
         except Exception:  # noqa: BLE001
@@ -216,7 +334,9 @@ class MenuMixin:
             self._menu_open = False
             await self.overlay.hide()
         if not ok:
-            await self.overlay.toast(f"No pude abrir {item['name']}", 3000)
+            # La actividad puede saber por qué (Android: «Aceptá el aviso en el celular»…).
+            why = getattr(self.activities.get(item["id"]), "fail_text", "")
+            await self.overlay.toast(why or f"No pude abrir {item['name']}", 4000 if why else 3000)
 
     async def a_menu(self, arg: str) -> None:
         """menu (abrir; abierto = siguiente opción), menu:up|down|left|right|ok|back|close|open|pick:N.
@@ -233,6 +353,9 @@ class MenuMixin:
             self._menu_act_sel = self._menu_sel if self._menu_open else 0
             await self.help_open(from_menu=self._menu_open)
             return
+        if self._menu_open and self._menu_mode.startswith("android"):
+            await self._android_key(sub, rest)
+            return
         if sub in ("", "next", "toggle"):
             if self._menu_open:
                 await self._menu_move(+1)
@@ -247,22 +370,40 @@ class MenuMixin:
             log.debug("menu:%s con el menú cerrado: lo abro", arg)
             await self.menu_open()
             return
-        if sub in ("up", "prev", "previous"):
+        if sub in ("up", "prev", "previous", "down", "left", "right") and self._grid():
+            await self._grid_move({"up": -1, "prev": -1, "previous": -1, "down": 1}.get(sub, 0),
+                                  {"left": -1, "right": 1}.get(sub, 0))
+        elif sub in ("up", "prev", "previous"):
             await self._menu_move(-1)
         elif sub == "down":
             await self._menu_move(+1)
         elif sub == "close":
             await self.menu_close()
+        elif sub == "options":
+            # Amarillo: las opciones de la fila resaltada (carpetas, conectar el celular, juegos, salidas).
+            if not (self._menu_mode == "activities" and await self._menu_options(self._menu_sel)):
+                self._menu_restart_timer()
         elif sub == "right":
             if self._menu_mode == "folders":
                 await self._picker_enter(self._menu_sel)
             elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] == "_sound":
                 self._menu_act_sel = self._menu_sel
                 await self._sound_open()
+            elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] == "android":
+                self._menu_act_sel = self._menu_sel
+                await self.android_connect_open(autostart=False)
             elif self._menu_mode == "activities" and self._is_media(self._menu_items[self._menu_sel]["id"]):
                 await self._picker_open(self._menu_items[self._menu_sel]["id"])
+            elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] == "juegos":
+                self._menu_act_sel = self._menu_sel
+                await self.games_open()
             else:
                 self._menu_restart_timer()
+        elif sub in ("left", "back") and self._menu_mode == "games":
+            if self._games_back_closes:
+                await self.menu_close()  # se había abierto desde el juego: seguir jugando
+            else:
+                await self.menu_open(self._menu_act_sel)
         elif sub == "left":
             if self._menu_mode == "folders":
                 await self._picker_back()
@@ -319,6 +460,18 @@ class MenuMixin:
         has = activities_mod.count_media(path, act.exts) > 0  # corta en el primero (y tiene tope de tiempo)
         items.append({"kind": "play", "path": str(path), "name": act.play_label, "icon": "media-playback-start",
                       "sub": "con sus subcarpetas" if has else act.empty_in_folder, "enabled": has, "current": False})
+        if isinstance(act, activities_mod.PhotosActivity) and not act.command and shutil.which("mpv"):
+            # Los otros modos (▼ también los cambia mientras se mira). Cuántos hay se sabe si ya se recorrió.
+            counts = act.counts(path)
+            videos = counts[1] if counts else None
+            no_videos = videos == 0
+            items.append({"kind": "play", "mode": "mixed", "path": str(path), "name": "▶ Fotos y videos",
+                          "icon": "media-playback-start", "enabled": True, "current": False,
+                          "sub": "las fotos y, en su lugar, los videos" + (f" ({videos})" if videos else "")})
+            items.append({"kind": "play", "mode": "videos", "path": str(path), "name": "▶ Solo los videos",
+                          "icon": "media-playback-start", "enabled": not no_videos, "current": False,
+                          "sub": "No hay videos en esta carpeta" if no_videos
+                          else (f"{videos} videos" if videos else "con sus subcarpetas")})
         for d in activities_mod.list_subfolders(path):
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})
@@ -378,7 +531,8 @@ class MenuMixin:
         self._switching = True
         await self.overlay.busy(f"Abriendo {act.name}…")
         self._macro_task = asyncio.create_task(
-            self._menu_switch({"id": self._picker_act, "name": act.name, "folder": item["path"]}))
+            self._menu_switch({"id": self._picker_act, "name": act.name, "folder": item["path"],
+                               "mode": item.get("mode")}))
 
     # ---------------------------------------------------------------- salida de sonido
     # La lista aparece enseguida con lo que ya se conoce (HDMI, Bluetooth emparejados…) y, mientras tanto, se buscan

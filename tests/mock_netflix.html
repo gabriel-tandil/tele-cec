@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Netflix (simulado)</title>
 <!--
-  Imita la web de Netflix lo justo para probar netflix-cec sin cuenta ni DRM.
+  Imita la web de Netflix lo justo para probar tele-cec sin cuenta ni DRM.
 
   Dos diseños:
     - "nuevo" (por defecto): el sitio actual (2026). Perfiles con data-uia="profile-selector+tile-…",
@@ -107,7 +107,7 @@
 
   // Lo que ve un script de la página al cargar (Firefox con control remoto pone true si no se oculta).
   log('webdriver:' + navigator.webdriver);
-  // Registra cuándo aparece y desaparece el indicador "trabajando" de netflix-cec (y con qué texto).
+  // Registra cuándo aparece y desaparece el indicador "trabajando" de tele-cec (y con qué texto).
   let busyWas = false;
   setInterval(() => {
     const b = document.getElementById('nfx-busy');

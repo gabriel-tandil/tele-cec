@@ -47,6 +47,7 @@ class SleepMixin:
             if await act.active():
                 log.info("Reposo: cierro %s", act.name)
                 await act.close()
+        self._foreground = None  # se cerraron a propósito: que no parezca que se cerraron solas
         await self.overlay.hide()
 
     async def restore(self, state: dict[str, Any], activate: bool = False) -> None:

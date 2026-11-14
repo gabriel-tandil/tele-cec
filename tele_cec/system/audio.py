@@ -302,4 +302,22 @@ async def _select(out: Output, connect_timeout: float) -> tuple[bool, str]:
         log.warning("wpctl set-default %s: %s", sink_id, text.strip() or rc)
         return False, "No pude cambiar la salida de sonido"
     log.info("Sonido por %s (%s)", out.name, sink_id)
+    if out.kind != "bluetooth":
+        await disconnect_bluetooth()
     return True, f"Sonido por {out.name}"
+
+
+async def disconnect_bluetooth() -> list[str]:
+    """Al pasar el sonido a la TV (u otra salida que no es Bluetooth), los parlantes y auriculares Bluetooth
+    conectados se desconectan: no quedan tomados (ni gastando batería) y al reiniciar la Pi no vuelven solos."""
+    gone = []
+    for o in await asyncio.to_thread(list_outputs):
+        if o.kind == "bluetooth" and o.sink_id is not None and o.mac:
+            log.info("Desconecto %s (%s): el sonido ya no sale por ahí", o.name, o.mac)
+            rc, text = await run_cmd(["bluetoothctl", "disconnect", o.mac], 15)
+            if rc != 0 or "Failed" in text:
+                log.warning("No pude desconectar %s: %s", o.name, text.strip()[-200:] or rc)
+            else:
+                gone.append(o.name)
+    return gone
+

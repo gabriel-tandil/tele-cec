@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from .. import apps as activities_mod
 from ..system import keyboard
@@ -76,8 +77,17 @@ class MediaMixin:
     async def a_android(self, arg: str) -> None:
         """Android (scrcpy): android:key:<Tecla> (flechas, Return, números: van a la ventana de scrcpy, que se las
         pasa al celular), android:back|home|apps|notifications (botones de Android), android:play_pause|play|pause|
-        stop|next|previous|fast_forward|rewind (teclas multimedia), android:keyevent:<N> (cualquier KEYCODE)."""
+        stop|next|previous|fast_forward|rewind (teclas multimedia), android:keyevent:<N> (cualquier KEYCODE),
+        android:list (la lista de celulares, con «Dejar de compartir la pantalla»), android:disconnect (dejar de
+        compartir y mostrar esa lista)."""
         a = self.activities.get("android")
+        cmd = arg.strip().partition(":")[0].lower()
+        if isinstance(a, activities_mod.AndroidActivity) and cmd in ("list", "lista", "disconnect", "desconectar"):
+            if cmd in ("disconnect", "desconectar") and a.running():
+                await self._android_disconnect()
+            else:
+                await self.android_connect_open(autostart=False)
+            return
         if not isinstance(a, activities_mod.AndroidActivity) or not a.running():
             log.info("Android no está abierto: no ejecuto android:%s", arg)
             return
@@ -99,15 +109,13 @@ class MediaMixin:
             log.warning("android:%s desconocida", arg)
 
     async def a_fotos(self, arg: str) -> None:
-        """Fotos (feh): fotos:next, previous, pause, rotate, random, info, zoom_in, zoom_out, fit (sin zoom),
-        scroll:left|right|up|down (mover la foto con zoom)."""
+        """Fotos: fotos:next, previous, pause, rotate, random, info, zoom_in, zoom_out, fit (sin zoom),
+        scroll:left|right|up|down (mover la foto con zoom), mode (solo fotos → fotos y videos → solo videos)."""
         f = self.activities.get("fotos")
         if not isinstance(f, activities_mod.PhotosActivity) or not f.running():
             log.info("Fotos no está abierto: no ejecuto fotos:%s", arg)
             return
         cmd, _, rest = arg.strip().lower().partition(":")
-        # Atajos de feh: > girar, z foto al azar, d el nombre en letra chica de feh (filename).
-        keys = {"rotate": "greater", "random": "z", "filename": "d"}
         if cmd == "next":
             await f.next()
             await f.photo_changed()
@@ -116,20 +124,22 @@ class MediaMixin:
             await f.photo_changed()
         elif cmd == "pause":
             await f.toggle_pause()
-        elif cmd in ("media_play_pause", "media_next", "media_previous"):
-            if self.music.running():  # Tidal sonando de fondo: estas teclas son de la música
-                mpris = {"media_play_pause": "play-pause", "media_next": "next", "media_previous": "previous"}[cmd]
-                await self.music.ctl(mpris)
+        elif cmd in ("media_next", "media_previous"):
+            # Antes pasaban los temas de Tidal de fondo; ahora siempre las fotos (con zoom son las cómodas).
+            await (f.next() if cmd == "media_next" else f.previous())
+            await f.photo_changed()
+        elif cmd == "media_play_pause":
+            if f._video_now:  # suena un video (la música ya está en pausa): ⏯ es del video
+                await f.toggle_pause()
+            elif self.music.running():  # Tidal de fondo: ⏯ es de la música
+                await self.music.ctl("play-pause")
                 await asyncio.sleep(0.4)
                 st = await self.music.status()
                 what = {"Playing": "♪", "Paused": "♪ en pausa"}.get(st.get("status", ""), "♪")
                 title = " — ".join(x for x in (st.get("title"), st.get("artist")) if x)
                 await self.toast(f"{what} {title}".strip(), 2500)
-            elif cmd == "media_play_pause":
-                await f.toggle_pause()
             else:
-                await (f.next() if cmd == "media_next" else f.previous())
-                await f.photo_changed()
+                await f.toggle_pause()
         elif cmd == "info":
             info = await f.photo_info()
             if info:
@@ -137,11 +147,17 @@ class MediaMixin:
                 log.info("Fotos: %s", text.replace("\n", " · "))
                 await self.toast(text, 6000)
             else:
-                await f.key("d")  # sin el título de la ventana: el texto chico de feh
-        elif cmd in keys:
-            await f.key(keys[cmd])
-            if cmd != "filename":
-                await f.photo_changed()
+                await f.filename()  # sin el título de la ventana: el texto chico del visor
+        elif cmd == "filename":
+            await f.filename()
+        elif cmd == "rotate":
+            await f.rotate()
+            await f.photo_changed()
+        elif cmd == "random":
+            await f.random()
+            await f.photo_changed()
+        elif cmd == "mode":
+            await self._fotos_cycle(f, rest)
         elif cmd == "zoom_in":
             entering = not f.zoom
             if await f.zoom_in() and entering:
@@ -156,6 +172,37 @@ class MediaMixin:
                 log.debug("fotos:scroll:%s sin zoom o dirección inválida (left, right, up, down)", rest)
         else:
             log.warning("fotos:%s desconocida", arg)
+
+    async def _fotos_cycle(self, f: activities_mod.PhotosActivity, want: str = "") -> None:
+        """▼ en Fotos: solo fotos → fotos y videos → solo videos → solo fotos, en la misma carpeta y siguiendo
+        desde la foto que se estaba viendo (fotos:mode:mixed elige uno en particular)."""
+        from ..apps.photos import MODE_NAMES, MODES
+        if f.command or f.current_folder is None:
+            await self.toast("Con un visor propio ([apps.fotos] command) no hay otros modos", 3000)
+            return
+        old = f.mode
+        new = want if want in MODES else MODES[(MODES.index(old) + 1) % len(MODES)]
+        if new == old:
+            return
+        info = await f.photo_info()
+        start = info["path"] if info else None
+        log.info("Fotos: paso de «%s» a «%s»", MODE_NAMES[old], MODE_NAMES[new])
+        self._switching = True
+        self._switch_until = time.monotonic() + 60
+        try:
+            await self.overlay.busy(f"Fotos: {MODE_NAMES[new]}…")
+            await f.close()
+            ok = await f.open(f.current_folder, mode=new, start=start)
+            if not ok:
+                why = f.fail_text or f"No pude pasar a {MODE_NAMES[new]}"
+                await f.open(f.current_folder, mode=old, start=start)  # se queda como estaba
+                await self.overlay.toast(why, 3500)
+                return
+            nxt = MODES[(MODES.index(new) + 1) % len(MODES)]
+            await self.overlay.toast(f"Fotos: {MODE_NAMES[new]} · ▼ {MODE_NAMES[nxt]}", 3000)
+        finally:
+            self._switching = False
+            self._switch_until = time.monotonic() + 3
 
     async def a_music(self, arg: str) -> None:
         """Controles de Tidal (High Tide): music:play_pause, next, previous, volume:+, seek:-10, like, shuffle,

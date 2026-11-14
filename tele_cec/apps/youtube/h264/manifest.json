@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "tele-cec: YouTube en H.264",
+  "description": "Como h264ify: YouTube no usa VP9 ni AV1, así la Raspberry Pi decodifica el video por hardware.",
+  "version": "1.0",
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["h264.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ]
+}

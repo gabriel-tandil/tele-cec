@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -111,12 +112,17 @@ class YouTubeActivity(ProcActivity):
             prefs.update(extra)
         return prefs
 
-    def args(self, binary: str) -> list[str]:
+    def search_url(self, text: str) -> str:
+        """La búsqueda de YouTube para TV con ese texto ya escrito (#/search?q=…, probado en la Pi)."""
+        return self.url.split("#", 1)[0] + "#/search?q=" + urllib.parse.quote(text.strip())
+
+    def args(self, binary: str, url: str | None = None) -> list[str]:
+        url = url or self.url
         if self.firefox:
             args = [binary, "--no-remote", "--profile", str(self.profile)]
             if self.cfg.get("kiosk", True):
                 args.append("--kiosk")
-            return args + [self.url]
+            return args + [url]
         args = [binary, f"--user-data-dir={self.profile}", f"--user-agent={self.user_agent}",
                 "--no-first-run", "--no-default-browser-check", "--noerrdialogs", "--disable-session-crashed-bubble",
                 "--hide-crash-restore-bubble", "--disable-features=Translate", "--password-store=basic",
@@ -130,7 +136,7 @@ class YouTubeActivity(ProcActivity):
         args.append("--kiosk" if self.cfg.get("kiosk", True) else "--start-fullscreen")
         extra = self.cfg.get("extra_args") or []
         args += extra.split() if isinstance(extra, str) else [str(a) for a in extra]
-        return args + [self.url]
+        return args + [url]
 
     def prepare_profile(self) -> None:
         if self.firefox:
@@ -139,7 +145,8 @@ class YouTubeActivity(ProcActivity):
             self.profile.mkdir(parents=True, exist_ok=True)
             mark_clean_exit(self.profile)
 
-    async def open(self) -> bool:
+    async def open(self, url: str | None = None) -> bool:
+        """Abre YouTube para TV (o esa dirección, p. ej. una búsqueda: search_url)."""
         binary = self.binary()
         if not binary:
             log.error("YouTube: no encontré %s", NAMES[self.engine])
@@ -149,7 +156,7 @@ class YouTubeActivity(ProcActivity):
         except OSError as exc:
             log.error("YouTube: no pude preparar el perfil %s: %s", self.profile, exc)
             return False
-        if not await self.spawn(self.args(binary)):
+        if not await self.spawn(self.args(binary, url)):
             return False
         # El navegador tarda en abrir la ventana: el menú sigue mostrando «Abriendo YouTube…» un rato.
         await asyncio.sleep(float(self.cfg.get("open_wait_s", 10)))

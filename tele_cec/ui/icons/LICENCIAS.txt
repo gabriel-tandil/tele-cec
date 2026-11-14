@@ -1,0 +1,5 @@
+Íconos del menú de actividades (baldosas armadas para tele-cec):
+
+- netflix.svg, youtube.svg, tidal.svg, videos.svg: glifos de Simple Icons (https://simpleicons.org), licencia CC0 1.0.
+  Netflix, YouTube, TIDAL y VLC son marcas de sus dueños; se usan solo para identificar cada app en el menú.
+- fotos.svg, juegos.svg, musica.svg, peliculas.svg, ayuda.svg, sonido.svg, android.svg: glifos de Lucide (https://lucide.dev), licencia ISC.

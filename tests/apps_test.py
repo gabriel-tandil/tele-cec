@@ -10,6 +10,7 @@ No abre nada: verifica qué hace cada tecla según qué actividad está abierta 
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import sys
 import tempfile
@@ -22,7 +23,7 @@ from tele_cec import apps as activities_mod  # noqa: E402
 from tele_cec import config as config_mod  # noqa: E402
 from tele_cec.system import keyboard as keyboard_mod  # noqa: E402
 from tele_cec.controller import Controller  # noqa: E402
-from tele_cec.keys import parse_key  # noqa: E402
+from tele_cec.keys import key_name, parse_key  # noqa: E402
 
 results: list[tuple[bool, str]] = []
 
@@ -138,8 +139,16 @@ class FakeMusic:
         self.log.append("mpris:" + " ".join(args))
         return True
 
+    state = "Playing"
+
     async def status(self) -> dict:
-        return {"status": "Playing", "title": "Volver a Volver", "artist": "Gabo Ferro"}
+        if not self.state:
+            return {"status": "Stopped"}
+        return {"status": self.state, "title": "Volver a Volver", "artist": "Gabo Ferro"}
+
+    async def command(self, line: str, timeout: float = 10.0, wait: float = 0.0) -> str:
+        self.log.append(f"music:cmd:{line}")
+        return "ok"
 
     async def volume(self, sign: str) -> bool:
         self.log.append(f"mpris:volume{sign}")
@@ -211,8 +220,9 @@ class FakeOverlay:
         self.items: list[dict] = []
         self.sel = -1
 
-    async def show(self, items, selected, title="Actividades", hint="", numbers=True) -> bool:
-        self.items, self.sel, self.visible = items, selected, True
+    async def show(self, items, selected, title="Actividades", hint="", numbers=True, columns=1, chip=False,
+                   qr=None) -> bool:
+        self.items, self.sel, self.visible, self.columns, self.qr = items, selected, True, columns, qr
         self.log.append(f"ov:show:{selected}")
         return True
 
@@ -221,9 +231,9 @@ class FakeOverlay:
         self.log.append(f"ov:help:{title}")
         return True
 
-    async def select(self, index: int) -> bool:
-        self.sel = index
-        self.log.append(f"ov:select:{index}")
+    async def select(self, index: int, chip: bool = False) -> bool:
+        self.sel, self.chip = index, chip
+        self.log.append(f"ov:select:{index}" + (":chip" if chip else ""))
         return True
 
     async def image(self, title, path, lines, status="", hint="", size=9) -> bool:
@@ -290,9 +300,12 @@ class FakeProcMixin:
     def source(self):
         return ("Pendrive TEST", True) if self.content else (self.empty_text, False)
 
-    async def open(self, folder=None) -> bool:
-        self.log.append(f"{self.id}:open" + (f":{Path(folder).name}" if folder else ""))
+    async def open(self, folder=None, mode=None, start=None) -> bool:
+        self.log.append(f"{self.id}:open" + (f":{Path(folder).name}" if folder else "")
+                        + (f":{mode}" if mode and mode != "photos" else "") + (f":desde:{Path(start).name}" if start else ""))
         self.on = True
+        if mode:
+            self.mode = mode
         if hasattr(self, "reset_view"):  # como el real: abrir Fotos empieza sin zoom
             self.reset_view()
         if folder:
@@ -346,6 +359,8 @@ def help_rows(ctl, ctx):
 
 
 async def main() -> int:
+    from tele_cec.controller import activities as ctl_activities
+    ctl_activities.FOTOS_REMINDER_S = 0.0  # el aviso del modo de Fotos, sin esperar en las pruebas
     tmp = Path(tempfile.mkdtemp(prefix="nfx-apps-"))
     cfg_file = tmp / "config.toml"
     cfg_file.write_text('[browser]\nengine = "firefox"\nlaunch = "on_key"\n[feedback]\nbusy = false\n'
@@ -357,6 +372,7 @@ async def main() -> int:
     browser.ctl = ctl
     ctl.music = FakeMusic(log)  # type: ignore[assignment]
     ctl.overlay = FakeOverlay(log)  # type: ignore[assignment]
+    ctl._menu_columns = 1  # los tests de siempre, con el menú en una columna (la grilla se prueba aparte)
     videos, fotos = FakeVideos(log), FakePhotos(log)
     ctl.activities["videos"], ctl.activities["fotos"] = videos, fotos
     cw: list[str] = []
@@ -495,10 +511,22 @@ async def main() -> int:
     check(out == ["feh:greater", "feh:z", f"ov:toast:{where} › 2017 › 07\nIMG_0001.jpg\nFoto 12 de 49.403"],
           f"rojo gira, amarillo al azar, azul = qué foto es (carpeta, archivo, número): {out}")
 
+    print("Fotos: modos (▼)")
+    fotos.current_folder = fotos.current_folder or Path("/mnt/fotosRemotas")
+    out = await press("DOWN")
+    opened_now = [x for x in out if x.startswith("fotos:")]
+    check(opened_now == ["fotos:close", f"fotos:open:{fotos.current_folder.name}:mixed:desde:IMG_0001.jpg"]
+          and fotos.mode == "mixed" and any(x.startswith("ov:toast:Fotos: fotos y videos") for x in out)
+          and ctl.current_app() == "fotos" and not ctl._switching,
+          f"▼ pasa a «fotos y videos» en la misma carpeta, desde la foto que se veía, y avisa: {out}")
+    out = await press("DOWN")
+    check(fotos.mode == "videos" and any(":videos:" in x for x in out), f"▼ otra vez: «solo videos»: {out}")
+    out = await press("DOWN")
+    check(fotos.mode == "photos" and any(x.startswith("ov:toast:Fotos: solo fotos") for x in out),
+          f"y otra vez: vuelve a «solo fotos»: {out}")
+
     print("Fotos: zoom")
     fotos.RENDER_DELAY = 0.05
-    out = await press("DOWN")
-    check(out == [] and await ctl.context() == "fotos", f"▼ sin zoom no hace nada: {out}")
     out = await press("UP")
     check(out[:2] == ["feh:h", "feh:Up"] and any(x.startswith("ov:toast:Zoom") for x in out),
           f"▲ pausa la presentación, acerca y avisa: {out}")
@@ -667,17 +695,50 @@ async def main() -> int:
           f"abrir Fotos con Tidal sonando no cierra la música: {opened(out)}")
     check(await ctl.context() == "fotos" and ctl.current_app() == "fotos",
           "las teclas van a Fotos (la que está en pantalla)")
-    out = await press("PAUSE_PLAY_FUNCTION", "FORWARD", "BACKWARD")
-    check([x for x in out if x.startswith("mpris:")] == ["mpris:play-pause", "mpris:next", "mpris:previous"]
-          and any(x.startswith("ov:toast:♪") for x in out),
-          f"⏯ ⏭ ⏮ manejan la música (y avisan qué suena): {out}")
+    out = await press("PAUSE_PLAY_FUNCTION")
+    check(out[:1] == ["mpris:play-pause"] and any(x.startswith("ov:toast:♪") for x in out),
+          f"⏯ maneja la música (y avisa qué suena): {out}")
+    out = await press("FORWARD", "BACKWARD")
+    check(out == ["feh:next", "feh:previous"], f"⏭ ⏮ pasan las fotos aunque suene música: {out}")
+    out = await press("UP", "FORWARD")
+    check("feh:next" in out and await ctl.context() == "fotos", f"con zoom, ⏭ pasa de foto y sale del zoom: {out}")
     out = await press("SELECT", "RIGHT")
     check(out == ["feh:h", "feh:next"], f"OK pausa las fotos y ▶ pasa de foto: {out}")
+    log.clear()
+    await fotos._set_video(True)
+    check(log == ["mpis:pause".replace("mpis", "mpris")] and ctl._music_by_video,
+          f"suena un video de Fotos: la música se pausa: {log}")
+    ctl.music.state = "Paused"
+    out = await press("PAUSE_PLAY_FUNCTION")
+    check(out == ["feh:h"], f"mientras suena el video, ⏯ es del video (no de la música): {out}")
+    await press("PAUSE_PLAY_FUNCTION")
+    log.clear()
+    await fotos._set_video(False)
+    check(log == ["mpris:play"] and not ctl._music_by_video, f"terminó el video: la música sigue: {log}")
+    ctl.music.state = "Playing"
     await press("SELECT")
     await press("ROOT_MENU")
     tid = next(it for it in ctl.overlay.items if it["id"] == "tidal")
     check(tid.get("badge") == "sonando", f"en el menú Tidal figura «sonando»: {tid}")
     await press("EXIT")
+    ctl.music.state = "Paused"
+    await press("ROOT_MENU")
+    tid = next(it for it in ctl.overlay.items if it["id"] == "tidal")
+    check(tid.get("badge") == "en pausa", f"con la música en pausa, Tidal figura «en pausa»: {tid}")
+    await press("EXIT")
+    ctl.music.state = ""
+    await press("ROOT_MENU")
+    tid = next(it for it in ctl.overlay.items if it["id"] == "tidal")
+    check(tid.get("badge") == "abierto", f"High Tide abierto sin nada cargado: «abierto»: {tid}")
+    await press("EXIT")
+    ctl.music.state = "Playing"
+    log.clear()
+    await ctl.run_action("app:tidal")
+    check("fotos:close" in log and "music:launch" not in log and "music:cmd:show" in log
+          and ctl.current_app() == "tidal",
+          f"elegir Tidal (de fondo) desde Fotos cierra las fotos y muestra Tidal, sin reabrirlo: {log}")
+    out = await press("ROOT_MENU", "NUMBER4")
+    check(opened(out) == ["fotos:open"] and ctl.current_app() == "fotos", f"y se vuelve a las fotos: {out}")
     log.clear()
     await ctl._pause_if_playing()
     check(log == ["mpris:pause"], f"standby con fotos y música: pausa la música: {log}")
@@ -821,6 +882,7 @@ async def main() -> int:
                 self.fail_text = "Aceptá «Permitir depuración USB» en el celular"
                 return False
             self.log.append(f"android:open:{self.want_serial}")
+            self.serial = self.want_serial or self.serial
             self.want_serial = ""
             self.on = True
             return True
@@ -887,6 +949,8 @@ async def main() -> int:
 
     android_ctl = sys.modules["tele_cec.controller.android"]
     android_ctl.SCAN_EVERY_S = 0.01  # type: ignore[attr-defined]
+    fake_usb: list = []
+    android_ctl.usb_phones = lambda: list(fake_usb)  # type: ignore[attr-defined]
     await ctl.run_action("app:videos")
     await press("ROOT_MENU")
     idx = [it["id"] for it in ctl._menu_items].index("android")
@@ -953,6 +1017,127 @@ async def main() -> int:
     await settle()
     check("connect:192.168.0.62:42000" in log[start:] and "android:open:192.168.0.62:42000" in log[start:],
           f"un celular ya vinculado se conecta y se abre directo: {log[start:]}")
+
+    print("Android por USB: autorizar desde el celular, y dejar de compartir")
+    android_ctl.WATCH_EVERY_S = 0.01  # type: ignore[attr-defined]
+
+    async def wait_for(cond, tries: int = 200) -> None:
+        for _ in range(tries):
+            if cond():
+                break
+            await asyncio.sleep(0.005)
+        await settle()
+
+    await ctl.run_action("app:videos")
+    andr.net_devices = [android_mod.Device("ZY327", "unauthorized", "moto_e7_plus")]
+    andr.connect_services = []
+    await press("ROOT_MENU")
+    idx = [it["id"] for it in ctl._menu_items].index("android")
+    start = len(log)
+    await press(f"NUMBER{idx + 1}")
+    await settle()
+    ids = [it["id"] for it in ctl.overlay.items]
+    check(ctl._menu_mode == "android" and ids[0] == "_bad" and ctl._menu_sel == 0,
+          f"enchufado sin autorizar: la lista lo muestra esperando «Permitir»: {ids}")
+    out = await press("SELECT")
+    check("ov:toast:Aceptá «Permitir depuración USB» en el celular" in out,
+          f"OK sobre él todavía sin autorizar: repite el aviso: {out[-2:]}")
+    andr.net_devices = [android_mod.Device("ZY327", "device", "moto_e7_plus")]  # se tocó «Permitir»
+    await wait_for(lambda: ctl._macro_task is not None or "android:open:ZY327" in log[start:])
+    check("android:open:ZY327" in log[start:] and ctl.current_app() == "android" and not ctl._menu_open,
+          f"apenas se acepta en el celular, la lista se entera sola y muestra su pantalla: {log[start:][-4:]}")
+
+    ctl._switch_until = 0.0
+    out = await press("F3_GREEN")
+    items = ctl.overlay.items
+    check(ctl._menu_open and ctl._menu_mode == "android" and [it["id"] for it in items[:2]] == ["_resume", "_stop"]
+          and ctl._menu_sel == 0 and "moto e7 plus" in items[0]["name"] and andr.on
+          and not any(it["id"] == "_dev" for it in items),
+          f"verde, compartiendo: «Seguir viendo» y «Dejar de compartir» arriba (el celular no se repite): "
+          f"{[(it['id'], it['name']) for it in items]}")
+    out = await press("EXIT")
+    check(not ctl._menu_open and andr.on and ctl.current_app() == "android",
+          f"Atrás (entrando desde la pantalla) vuelve a la pantalla del celular: {out}")
+    await press("F3_GREEN")
+    out = await press("SELECT")
+    check(not ctl._menu_open and andr.on, f"OK sobre «Seguir viendo»: vuelve a la pantalla: {out}")
+    await press("ROOT_MENU")
+    check(ctl._menu_mode == "activities" and ctl._menu_items[ctl._menu_sel]["id"] == "android",
+          "compartiendo, el menú abre parado sobre Android")
+    out = await press("SELECT")
+    check(ctl._menu_open and ctl._menu_mode == "android" and ctl.overlay.items[0]["id"] == "_resume" and andr.on,
+          f"Menú › OK sobre Android (sin el verde): la lista con «Seguir viendo» y «Dejar de compartir»: {out}")
+    out = await press("EXIT")
+    check(ctl._menu_mode == "activities" and ctl._menu_open and andr.on,
+          f"ahí Atrás vuelve al menú (y la pantalla sigue): {out}")
+    await press("SELECT")
+    start = len(log)
+    out = await press("DOWN", "SELECT")
+    await settle()
+    ids = [it["id"] for it in ctl.overlay.items]
+    check("android:close" in log[start:] and not andr.on and ctl._menu_open and ctl._menu_mode == "android"
+          and "_stop" not in ids and "_dev" in ids and ctl._left_alone() is None and ctl.current_app() is None,
+          f"«Dejar de compartir» cierra scrcpy y queda la lista (sin el aviso de «se desconectó»): {log[start:]} {ids}")
+    out = await press("EXIT")
+    check(ctl._menu_mode == "activities" and ctl._menu_open, f"ahí Atrás vuelve al menú de actividades: {out}")
+    andr.net_devices = [android_mod.Device("ZY327", "device", "moto_e7_plus")]
+    await press("EXIT")
+    await ctl.run_action("app:android")
+    ctl._switch_until = 0.0
+    start = len(log)
+    await ctl.run_action("android:disconnect")
+    await settle()
+    check("android:close" in log[start:] and not andr.on and ctl._menu_mode == "android" and ctl._menu_open,
+          f"android:disconnect hace lo mismo desde la pantalla: {log[start:]}")
+    andr.net_devices = []  # se desenchufó
+    await wait_for(lambda: not any(it["id"] == "_dev" for it in ctl.overlay.items))
+    check(not any(it["id"] == "_dev" for it in ctl.overlay.items),
+          f"desenchufado: la lista se actualiza sola: {[it['id'] for it in ctl.overlay.items]}")
+    await press("EXIT")
+    await press("EXIT")
+
+    print("Android · la fila «Por USB» dice qué ve la Pi")
+    with tempfile.TemporaryDirectory() as sysfs:
+        def mk(path: str, **files: str) -> None:
+            os.makedirs(os.path.join(sysfs, path), exist_ok=True)
+            for k, v in files.items():
+                Path(sysfs, path, k).write_text(v + "\n")
+        mk("usb1")
+        mk("1-1", product="USB2.0 Hub")
+        mk("1-1:1.0", bInterfaceClass="09", bInterfaceSubClass="00", bInterfaceProtocol="00")
+        mk("1-1.1", manufacturer="motorola", product="moto e(7) plus", serial="ZY327X8THP")
+        mk("1-1.1:1.0", bInterfaceClass="ff", bInterfaceSubClass="ff", bInterfaceProtocol="00", interface="MTP")
+        mk("1-1.1:1.1", bInterfaceClass="ff", bInterfaceSubClass="42", bInterfaceProtocol="01", interface="ADB Interface")
+        mk("1-1.2", manufacturer="Samsung", product="Galaxy", serial="R5CR")
+        mk("1-1.2:1.0", bInterfaceClass="06", bInterfaceSubClass="01", bInterfaceProtocol="01")
+        mk("1-1.3", product="Raspberry Pi Internal Keyboard")
+        mk("1-1.3:1.0", bInterfaceClass="03", bInterfaceSubClass="01", bInterfaceProtocol="01")
+        found = android_mod.usb_phones(sysfs)
+    check([(p.name, p.serial, p.adb) for p in found]
+          == [("motorola moto e(7) plus", "ZY327X8THP", True), ("Samsung Galaxy", "R5CR", False)],
+          f"/sys: encuentra los celulares (con y sin depuración USB) y no el hub ni el teclado: {found}")
+    await ctl.run_action("app:videos")
+    andr.net_devices = []
+    await press("ROOT_MENU")
+    idx = [it["id"] for it in ctl._menu_items].index("android")
+    await press(f"NUMBER{idx + 1}")
+    await settle()
+    usb_row = next(it for it in ctl.overlay.items if it["id"] == "_usb")
+    check("no detecto ningún celular" in usb_row["name"] and "cable de datos" in usb_row["sub"] and usb_row["enabled"],
+          f"sin nada enchufado lo dice (y sugiere el cable): {usb_row}")
+    ctl._menu_sel = [it["id"] for it in ctl.overlay.items].index("_usb")
+    out = await press("SELECT")
+    check(any(o.startswith("ov:toast:Por USB: no detecto") for o in out), f"OK sobre «Por USB» vuelve a mirar y avisa: {out}")
+    fake_usb.append(android_mod.UsbPhone("motorola moto e(7) plus", "ZY327X8THP", False))
+    await wait_for(lambda: "sin depuración" in next(it for it in ctl.overlay.items if it["id"] == "_usb")["name"])
+    usb_row = next(it for it in ctl.overlay.items if it["id"] == "_usb")
+    check("sin depuración" in usb_row["name"] and "Depuración USB" in usb_row["sub"]
+          and ctl.overlay.items[ctl._menu_sel]["id"] == "_usb",
+          f"enchufado sin la depuración: lo dice solo, y la selección sigue en esa fila: {usb_row}")
+    fake_usb.clear()
+    await press("EXIT")
+    await press("EXIT")
+
     del andr.source
     andr.net_devices = []
     ctl.cfg.menu["items"] = ["netflix", "tidal", "videos", "fotos"]
@@ -1154,7 +1339,422 @@ async def main() -> int:
     check(not opened(out) and ctl._menu_open and "as" not in sent,
           f"al prender la TV: el menú, sin cambiarle la entrada: {out} {sent}")
     await ctl.menu_close()
+
+    print("Solo el menú, sin nada abierto: reposo corto")
+    mp = power_mod.IdleShutdown(ctl, {"enabled": True})
+    ctl.power = mp
+    check(mp.menu_idle == 10 * 60, f"por defecto, a los 10 min: {mp.menu_idle / 60:g}")
+    check(ctl.nothing_open(), "sin ninguna actividad abierta")
+    t0 = mp.last_activity
+    mp._note_open(t0)
+    check(mp.idle_since == t0 and mp.reason(t0 + 9 * 60) is None and mp.reason(t0 + 11 * 60),
+          f"a los 10 min sin teclas: reposo ({mp.reason(t0 + 11 * 60)})")
+    mp.last_activity = t0 + 5 * 60
+    check(mp.reason(t0 + 11 * 60) is None and mp.reason(t0 + 16 * 60), "una tecla reinicia la cuenta corta")
+    mp.last_activity = t0 - 3600  # p. ej. una presentación de fotos sin música que terminó sola
+    mp.idle_since = None
+    mp._note_open(t0)
+    check(mp.reason(t0 + 60) is None, "la cuenta corta arranca cuando se cerró la última app, no antes")
+    await ctl.switch_to("fotos", tmp / "pick" / "media" / "gaby" / "USB")
+    mp._note_open(t0 + 20 * 60)
+    check(not ctl.nothing_open() and mp.idle_since is None and mp.reason(t0 + 20 * 60) is None,
+          "con una actividad abierta no cuenta (vale idle_minutes)")
+    off = power_mod.IdleShutdown(ctl, {"menu_idle_minutes": 0})
+    off.idle_since = off.last_activity
+    check(off.reason(off.last_activity + 60 * 60) is None, "menu_idle_minutes = 0: espera idle_minutes")
+    await mp.sleep("prueba")
+    mp._asleep_at -= 60
+    mp.on_frame(CecFrame(initiator=0, destination=1, opcode=0x90, params=[0x00]))
+    await mp._wake_task
+    check(not mp.tv_ours, "despertada porque se prendió la TV: puede estar en otra entrada")
+    sent.clear()
+    await mp.sleep("prueba")
+    check("standby 0" not in sent, f"si nadie tocó el control, vuelve al reposo sin apagar la TV: {sent}")
+    await press("RIGHT")
+    await mp._wake_task
+    check(mp.tv_ours, "con una tecla, la TV está en la Pi")
+    sent.clear()
+    await mp.sleep("prueba")
+    check(sent == ["standby 0"], f"y entonces sí apaga la TV: {sent}")
+    await press("RIGHT")
+    await mp._wake_task
+    await ctl.menu_close()
     ctl.power = power_mod.IdleShutdown(ctl, {})
+
+    print("Menú con el teclado")
+    from tele_cec.keys import NAME_TO_CODE
+    from tele_cec.ui.overlay import Overlay
+    got: list = []
+    kov = Overlay(True, lambda c: got.append(c), lambda: got.append("suelta"))
+    check(kov.extra_env == {"TELE_CEC_MENU_KEYBOARD": "1"}, f"le avisa al panel que tome el teclado: {kov.extra_env}")
+    check(Overlay().extra_env == {"TELE_CEC_MENU_KEYBOARD": "0"}, "por defecto (sin [menu] keyboard) no")
+    for m in ({"key": "UP"}, {"release": True}, {"key": "SELECT"}, {"key": "NUMBER3"}, {"key": "???"}):
+        kov.on_message(m)
+    check(got == [NAME_TO_CODE["UP"], "suelta", NAME_TO_CODE["SELECT"], NAME_TO_CODE["NUMBER3"]],
+          f"las teclas del panel llegan como las del control: {got}")
+    try:
+        from tele_cec.ui import menu_ui
+        from gi.repository import Gdk
+    except Exception as exc:  # noqa: BLE001  (sin GTK en esta máquina)
+        print(f"  (sin GTK: no pruebo el mapa de teclas: {exc})")
+    else:
+        kb_names = {k: menu_ui.keyboard_key(Gdk.keyval_from_name(k))
+                 for k in ("Up", "Down", "Left", "Right", "Return", "KP_Enter", "Escape", "BackSpace", "5", "KP_7",
+                           "F1", "a")}
+        check(kb_names == {"Up": "UP", "Down": "DOWN", "Left": "LEFT", "Right": "RIGHT", "Return": "SELECT",
+                        "KP_Enter": "SELECT", "Escape": "EXIT", "BackSpace": "EXIT", "5": "NUMBER5", "KP_7": "NUMBER7",
+                        "F1": "HELP", "a": None}, f"teclas del teclado → teclas del control: {kb_names}")
+        check(all(menu_ui.KEYBOARD_KEYS[k] in NAME_TO_CODE for k in menu_ui.KEYBOARD_KEYS),
+              "todas tienen código CEC")
+        bindings = ctl.cfg.bindings.get("menu") or {}
+        check(all(NAME_TO_CODE[v] in bindings for v in set(menu_ui.KEYBOARD_KEYS.values())),
+              "y todas hacen algo en el menú")
+    start = len(log)
+    await ctl.menu_open()
+    ctl.overlay.on_key = ctl.on_key  # type: ignore[attr-defined]
+    ctl.on_key(NAME_TO_CODE["DOWN"])
+    code, ts = await ctl.queue.get()
+    await ctl.handle_key(code, ts)
+    check("ov:select:1" in log[start:], f"▼ del teclado mueve la selección del menú: {log[start:]}")
+    await ctl.menu_close()
+
+    print("Joystick")
+    from tele_cec.system import gamepad as gp
+    devices = """I: Bus=0003 Vendor=045e Product=028e Version=0114
+N: Name="Microsoft X-Box 360 pad"
+H: Handlers=event7 js0
+B: EV=20000b
+B: KEY=7cdb000000000000 0 0 0 0
+
+I: Bus=0003 Vendor=04d9 Product=0006 Version=0111
+N: Name="Teclado"
+H: Handlers=sysrq kbd event3 leds
+B: KEY=1000000000007 ff9f207ac14057ff febeffdfffefffff fffffffffffffffe
+
+I: Bus=0005 Vendor=2dc8 Product=6101 Version=0001
+N: Name="8BitDo SN30 Pro"
+H: Handlers=event9
+B: KEY=7fff000000000000 0 0 0 0
+"""
+    found = gp.find_joysticks(devices)
+    check(found == {"/dev/input/event7": "Microsoft X-Box 360 pad", "/dev/input/event9": "8BitDo SN30 Pro"},
+          f"detecta los joysticks (y no el teclado): {found}")
+    keys: list = []
+    pads = gp.Gamepads({"repeat_delay_ms": 30, "repeat_ms": 20, "buttons": {"X": "", "Y": "F2_RED"}},
+                       lambda c, b="": keys.append(key_name(c)), lambda: keys.append("suelta"))
+    pad = gp.Pad("/dev/input/event7", "Xbox", -1)
+    for ax in (gp.ABS_X, gp.ABS_Y, gp.ABS_RX, gp.ABS_RY):
+        pad.axes[ax] = gp.Axis(-32768, 32767)
+    pad.axes[gp.ABS_Z] = pad.axes[gp.ABS_RZ] = gp.Axis(0, 255)
+    pad.axes[gp.ABS_HAT0X] = pad.axes[gp.ABS_HAT0Y] = gp.Axis(-1, 1)
+    pad.triggers_on_z = True
+    ev = lambda t, c, v: pads.handle(pad, t, c, v)  # noqa: E731
+    ev(gp.EV_KEY, 0x130, 1); ev(gp.EV_KEY, 0x130, 0)
+    ev(gp.EV_KEY, 0x133, 1); ev(gp.EV_KEY, 0x133, 0)
+    ev(gp.EV_KEY, 0x134, 1); ev(gp.EV_KEY, 0x134, 0)
+    ev(gp.EV_KEY, 0x13C, 1); ev(gp.EV_KEY, 0x13C, 0)
+    check(keys == ["SELECT", "suelta", "F2_RED", "suelta", "CONTENTS_MENU", "suelta"],
+          f"A = OK, X anulado, Y cambiado a rojo, el botón del medio = Menú: {keys}")
+    keys.clear()
+    ev(gp.EV_ABS, gp.ABS_HAT0Y, 1); ev(gp.EV_ABS, gp.ABS_HAT0Y, 0)
+    check(keys == ["DOWN", "suelta"], f"la cruz: {keys}")
+    keys.clear()
+    ev(gp.EV_ABS, gp.ABS_X, 30000)
+    await asyncio.sleep(0.1)
+    ev(gp.EV_ABS, gp.ABS_X, 15000)   # todavía lejos del centro: sigue apretada
+    n = len(keys)
+    ev(gp.EV_ABS, gp.ABS_X, 1000)
+    await asyncio.sleep(0.05)
+    check(keys[0] == "RIGHT" and n >= 3 and all(k == "RIGHT" for k in keys[:n]) and keys[n:] == ["suelta"],
+          f"la palanca: mantenerla repite, y se suelta cerca del centro: {keys}")
+    keys.clear()
+    ev(gp.EV_ABS, gp.ABS_Y, -30000); ev(gp.EV_ABS, gp.ABS_X, 30000); ev(gp.EV_ABS, gp.ABS_Y, 0); ev(gp.EV_ABS, gp.ABS_X, 0)
+    check(keys == ["UP", "suelta", "RIGHT", "suelta"], f"de arriba a la derecha: {keys}")
+    keys.clear()
+    ev(gp.EV_ABS, gp.ABS_RZ, 250); ev(gp.EV_ABS, gp.ABS_RZ, 120); ev(gp.EV_ABS, gp.ABS_RZ, 10)
+    ev(gp.EV_ABS, gp.ABS_RY, -32000); ev(gp.EV_ABS, gp.ABS_RY, 0)
+    check(keys == ["FAST_FORWARD", "suelta", "VOLUME_UP", "suelta"], f"gatillo derecho y palanca derecha: {keys}")
+    pads._stop_repeat()
+    keys.clear()
+    held_btns: list = []
+    pads.on_key = lambda c, b="": held_btns.append(b)  # type: ignore[assignment]
+    pads.hold_time = 0.05
+    ev(gp.EV_KEY, 0x13A, 1); ev(gp.EV_KEY, 0x13A, 0)
+    await asyncio.sleep(0.1)
+    ev(gp.EV_KEY, 0x13A, 1)
+    await asyncio.sleep(0.1)
+    ev(gp.EV_KEY, 0x13A, 0)
+    check(held_btns == ["BACK", "BACK", "BACK:HOLD"], f"Back mantenido avisa «BACK:HOLD» (un toque corto no): {held_btns}")
+    check(gp.Axis(0, 255).norm(128) < 0.01 and gp.Axis(0, 255).norm(255) == 1.0, "palancas de 0 a 255 (otros joysticks)")
+
+    from tele_cec.ui import help as help_mod
+    jrows = dict(help_mod.rows(ctl.cfg, "joystick"))
+    check(jrows.get("A") == "como OK del control" and jrows.get("Y") == "como Amarillo del control"
+          and "▲ ▼ ◀ ▶" in jrows.get("Cruz y palanca izq.", ""), f"página de ayuda del joystick: {jrows}")
+
+    got.clear()
+    real_on_key = ctl.on_key
+    ctl.on_key = lambda c: got.append(key_name(c))  # type: ignore[method-assign]
+    ctl._gamepad_menu_only = {"fotos"}
+    await ctl.switch_to("fotos", tmp / "pick" / "media" / "gaby" / "USB")
+    for code, btn in (("RIGHT", "DPAD_RIGHT"), ("CONTENTS_MENU", "START"), ("F1_BLUE", "BACK"),
+                      ("F1_BLUE", "BACK+START"), ("F1_BLUE", "BACK:HOLD")):
+        ctl.on_gamepad_key(NAME_TO_CODE[code], btn)
+    check(got == [], f"en un programa que usa el joystick, sus botones son suyos (Start, Back…): {got}")
+    ctl.on_gamepad_key(NAME_TO_CODE["CONTENTS_MENU"], "GUIDE")
+    check(len(got) == 1 and got[0] in ("ROOT_MENU", "CONTENTS_MENU", "SETUP_MENU"),
+          f"el botón del medio abre nuestro menú: {got}")
+    got.clear()
+    ctl._gamepad_exit_buttons = {"BACK:HOLD"}
+    ctl.on_gamepad_key(NAME_TO_CODE["F1_BLUE"], "BACK:HOLD")
+    check(len(got) == 1, f"con exit_buttons = [\"BACK:HOLD\"], mantener Back abre el menú (fuera de Juegos): {got}")
+    ctl._gamepad_exit_buttons = set()
+    got.clear()
+    ctl._gamepad_menu_only = set()
+    ctl.on_gamepad_key(NAME_TO_CODE["F1_BLUE"], "BACK+START")
+    ctl.on_gamepad_key(NAME_TO_CODE["F1_BLUE"], "BACK:HOLD")
+    check(got == [], f"fuera de los juegos, Back+Start y Back mantenido no hacen nada extra: {got}")
+    ctl._gamepad_menu_only = {"app"}
+    got.clear()
+    ctl.on_gamepad_key(NAME_TO_CODE["RIGHT"])
+    check(got == ["RIGHT"], f"en las demás, todo: {got}")
+    ctl._gamepad_menu_only = {"juegos", "app"}
+    ctl.on_key = real_on_key  # type: ignore[method-assign]
+    await ctl.activities["fotos"].close()
+    ctl._foreground = None
+
+    print("Juegos (MAME)")
+    from tele_cec.apps import mame as mame_mod
+    check(mame_mod.split_title("Bubble Bobble (Japan, Ver 0.1)") == ("Bubble Bobble", "Japan, Ver 0.1")
+          and mame_mod.split_title("Bubble 2000") == ("Bubble 2000", ""), "separa el nombre de la versión")
+    mroot = tmp / "mame"
+    (mroot / "roms").mkdir(parents=True)
+    (mroot / "roms2").mkdir()
+    for f in ("bublbobl.zip", "wboy.zip", "neogeo.zip", "drivedroid.img", "drivedroid.nfo"):
+        (mroot / "roms" / f).write_bytes(b"x")
+    (mroot / "roms2" / "suprmrio.7z").write_bytes(b"x")
+    (mroot / "mame.ini").write_text(f"window 0\nrompath   {mroot}/roms;{mroot}/roms2;/no/existe\n")
+    check(mame_mod.mame_ini_rompath(mroot / "mame.ini") == [f"{mroot}/roms", f"{mroot}/roms2", "/no/existe"],
+          "lee el rompath de mame.ini")
+    calls = mroot / "calls.txt"
+    fake_mame = mroot / "mame"
+    fake_mame.write_text(f"""#!/bin/sh
+echo "$@" >> {calls}
+[ "$1" = "-listxml" ] || exit 0
+shift
+echo '<?xml version="1.0"?><mame build="0.276">'
+for r in "$@"; do case $r in
+  bublbobl) echo '<machine name="bublbobl"><description>Bubble Bobble (Japan, Ver 0.1)</description><year>1986</year><manufacturer>Taito</manufacturer></machine>';;
+  wboy) echo '<machine name="wboy" sourcefile="x"><description>Wonder Boy (set 1, 315-5177)</description><year>1986</year><manufacturer>Escape (Sega license)</manufacturer></machine>';;
+  suprmrio) echo '<machine name="suprmrio"><description>Vs. Super Mario Bros. (set SM4-4 E)</description><year>1986</year><manufacturer>Nintendo</manufacturer></machine>';;
+  neogeo) echo '<machine name="neogeo" isbios="yes"><description>Neo-Geo MV-6F</description></machine>';;
+esac; done
+echo '</mame>'
+""")
+    fake_mame.chmod(0o755)
+    real_mame = mame_mod.MameActivity({"binary": str(fake_mame), "rompath": [str(mroot / "roms"), str(mroot / "roms2")]},
+                                      cache_dir=mroot / "cache")
+    games = real_mame.games()
+    check([g.title for g in games] == ["Bubble Bobble", "Vs. Super Mario Bros.", "Wonder Boy"],
+          f"lista los juegos (sin el BIOS ni lo que no es de MAME), por nombre: {[g.rom for g in games]}")
+    check(games[0].sub == "1986 · Taito · Japan, Ver 0.1", f"con año, fabricante y versión: {games[0].sub}")
+    check(real_mame.source() == ("3 juegos", True), f"en el menú: {real_mame.source()}")
+    n_calls = len(calls.read_text().splitlines())
+    again = mame_mod.MameActivity({"binary": str(fake_mame), "rompath": [str(mroot / "roms"), str(mroot / "roms2")]},
+                                  cache_dir=mroot / "cache")
+    check([g.rom for g in again.games()] == [g.rom for g in games] and len(calls.read_text().splitlines()) == n_calls,
+          "la segunda vez sale del caché, sin preguntarle a MAME")
+    (mroot / "roms" / "wboy.zip").unlink()
+    check([g.rom for g in again.games()] == ["bublbobl", "suprmrio"], "si se borra una ROM, deja de aparecer")
+    margs = real_mame.args("bublbobl")
+    check(margs == [str(fake_mame), "-rompath", f"{mroot}/roms;{mroot}/roms2", "-ctrlrpath", f"{mroot}/cache/mame-ctrlr",
+                    "-ctrlr", "tele-cec", "-autoboot_script", f"{mroot}/cache/mame-tele-cec.lua", "-autoboot_delay", "0",
+                    "bublbobl"], f"cómo abre MAME (con su archivo de controles y el script de órdenes): {margs}")
+    real_mame.write_lua()
+    lua = (mroot / "cache" / "mame-tele-cec.lua").read_text()
+    check("emu.pause()" in lua and "manager.machine:exit()" in lua and str(real_mame.cmd_file) in lua,
+          "el script Lua pausa, sigue y sale con la API de MAME")
+    real_mame.write_ctrlr()
+    ctrlr = (mroot / "cache" / "mame-ctrlr" / "tele-cec.cfg").read_text()
+    check('<port type="UI_MENU">' in ctrlr and "KEYCODE_TAB" in ctrlr and "JOYCODE" not in ctrlr,
+          "el menú de MAME queda solo en Tab (el botón del medio es del nuestro)")
+    check("-ctrlr" not in mame_mod.MameActivity({"guide_menu": False}).args("x"), "guide_menu = false: sin eso")
+    empty = mame_mod.MameActivity({"binary": str(fake_mame), "rompath": [str(mroot / "vacia")]}, cache_dir=mroot / "c2")
+    check(empty.source()[1] is False, f"sin ROMs no se puede elegir: {empty.source()}")
+
+    class FakeMame(FakeProcMixin, mame_mod.MameActivity):
+        def __init__(self, log):
+            mame_mod.MameActivity.__init__(self, {"binary": str(fake_mame), "rompath": [str(mroot / "roms"),
+                                                                                         str(mroot / "roms2")]},
+                                           cache_dir=mroot / "cache")
+            self.setup(log)
+
+        async def open(self, rom=None) -> bool:
+            self.log.append(f"juegos:open:{rom}")
+            self.on, self.current_game, self.frozen = True, rom or self.current_game, False
+            return True
+
+        async def key(self, name) -> bool:
+            self.log.append(f"mame:key:{name}")
+            return True
+
+        async def command(self, what, timeout=1.5) -> bool:
+            self.log.append(f"mame:cmd:{what}")
+            return self.on
+
+        async def close(self) -> None:
+            self.frozen = False
+            await FakeProcMixin.close(self)
+    mnames = lambda: [it["name"] for it in ctl.overlay.items]  # noqa: E731
+    jm = FakeMame(log)
+    ctl.activities["juegos"] = jm
+    menu_items_before = ctl.cfg.menu.get("items")
+    ctl.cfg.menu["items"] = ["netflix", "tidal", "videos", "fotos", "juegos"]
+    await ctl.menu_open()
+    check("Juegos" in mnames(), f"«Juegos» en el menú: {mnames()}")
+    jm.current_game, start = "bublbobl", len(log)
+    await ctl.run_action("app:juegos")
+    check(ctl._menu_mode == "games" and not any(x.startswith("juegos:open") for x in log[start:]),
+          f"app:juegos sin elegir juego: la lista, no el último que se jugó: {log[start:]}")
+    jm.current_game = ""
+    await ctl.menu_open()
+    await ctl.menu_open(mnames().index("Juegos"))
+    await press("SELECT")
+    check(ctl._menu_mode == "games" and mnames() == ["Bubble Bobble", "Vs. Super Mario Bros."],
+          f"OK sobre Juegos muestra la lista: {mnames()}")
+    out = await press("DOWN", "SELECT")
+    check("juegos:open:suprmrio" in out and ctl.current_app() == "juegos" and not ctl._menu_open,
+          f"OK abre ese juego: {[x for x in out if not x.startswith('ov:')]}")
+    check(await ctl.context() == "juegos", "contexto «juegos»")
+    start = len(log)
+    out = await press("EXIT")
+    check(ctl._menu_mode == "games" and mnames()[:4] == ["Seguir jugando", "Salir del juego", "Opciones de MAME",
+                                                         "Otras actividades"] and ctl.overlay.sel == 0,
+          f"Atrás (jugando) muestra la lista encima del juego: {mnames()} {ctl.overlay.sel}")
+    check(out.index("mame:cmd:pause") < out.index("ov:show:0") and jm.frozen,
+          f"y pausa el juego antes de mostrarla: {out}")
+    out = await press("EXIT")
+    check(not ctl._menu_open and jm.on and not jm.frozen and "mame:cmd:resume" in out, f"Atrás otra vez: sigue jugando, sin pausa: {out}")
+    while not ctl.queue.empty():
+        ctl.queue.get_nowait()
+    ctl.on_gamepad_key(NAME_TO_CODE["CONTENTS_MENU"], "START")
+    ctl.on_gamepad_key(NAME_TO_CODE["F1_BLUE"], "BACK")
+    check(ctl.queue.empty(), "Start y Back del joystick son del juego")
+    ctl.on_gamepad_key(NAME_TO_CODE["CONTENTS_MENU"], "GUIDE")
+    code, ts = await ctl.queue.get()
+    await ctl.handle_key(code, ts)
+    check(ctl._menu_open and ctl._menu_mode == "games" and jm.frozen,
+          f"el botón del medio del joystick muestra nuestra lista (con el juego en pausa): {mnames()}")
+    out = await press("SELECT")
+    check(not ctl._menu_open and not jm.frozen, "«Seguir jugando» la cierra y saca la pausa")
+    await press("EXIT")
+    out = await press("DOWN", "DOWN", "SELECT")
+    check(not ctl._menu_open and out[-2:] == ["mame:cmd:resume", "mame:key:Tab"] and not jm.frozen,
+          f"«Opciones de MAME»: saca la pausa y abre el menú de MAME (Tab): {out}")
+    await press("EXIT")
+    await ctl.menu_open(0)  # ▼▼▼ seguidas las descarta el filtro de repeticiones: se elige directo
+    await ctl.menu_close()
+    await press("EXIT")
+    ctl._menu_sel = 3
+    await press("SELECT")
+    check(ctl._menu_open and ctl._menu_mode == "activities" and jm.frozen and jm.on,
+          "«Otras actividades»: el menú principal, con el juego todavía en pausa")
+    await ctl.menu_close()
+    check(not jm.frozen, "al cerrar el menú, el juego sigue")
+    await press("EXIT")
+    ctl._menu_sel = mnames().index("Bubble Bobble")
+    out = await press("SELECT")
+    check("juegos:open:bublbobl" in out and not jm.frozen,
+          f"elegir otro juego lo cambia: {[x for x in out if not x.startswith('ov:')]}")
+    await press("EXIT")
+    ctl._menu_sel = 1
+    await press("SELECT")  # «Salir del juego»
+    check(not jm.on and ctl._menu_open and ctl._menu_mode == "activities", "«Salir del juego» cierra MAME y vuelve al menú")
+    ctl._gamepad_exit_buttons = {"BACK:HOLD"}
+    await ctl.menu_close()
+    await ctl.switch_to("juegos", "wboy")
+    ctl.on_gamepad_key(NAME_TO_CODE["F1_BLUE"], "BACK:HOLD")
+    await ctl._macro_task
+    check(not jm.on and ctl._menu_open and ctl._menu_mode == "games",
+          f"con exit_buttons = [\"BACK:HOLD\"], mantener Back sale del juego y muestra la lista: {mnames()}")
+    ctl._gamepad_exit_buttons = set()
+    await ctl.menu_close()
+    await ctl.switch_to("juegos", "bublbobl")
+    jm.on = False   # el jugador salió con Esc en MAME
+    ctl._switch_until = 0.0
+    await ctl._app_gone("juegos")
+    check(ctl._menu_open and ctl._menu_mode == "games" and "Bubble Bobble" in mnames(),
+          f"si MAME se cierra solo, aparece la lista de juegos: {mnames()}")
+    await press("EXIT")
+    check(ctl._menu_open and ctl._menu_mode == "activities", "y Atrás vuelve al menú (no había juego abierto)")
+    await ctl.menu_close()
+    del ctl.activities["juegos"]
+    if menu_items_before is None:
+        ctl.cfg.menu.pop("items", None)
+    else:
+        ctl.cfg.menu["items"] = menu_items_before
+
+    print("Menú en dos columnas")
+    ctl._menu_columns = 2
+    menu_items_before = ctl.cfg.menu.get("items")
+    ctl.cfg.menu["items"] = ["netflix", "tidal", "videos", "fotos", "juegos"]
+    jm.on = False
+    ctl.activities["juegos"] = jm
+    await ctl.menu_open(0)
+    grid = mnames()
+    check(ctl.overlay.columns == 2 and grid == ["Netflix", "Tidal", "Videos", "Fotos", "Juegos", "Ayuda"],
+          f"el menú va en dos columnas: {grid} ({ctl.overlay.columns})")
+    # 6 opciones → 3 por columna: Netflix Tidal Videos | Fotos Juegos Ayuda
+    moves = []
+    for k in ("DOWN", "RIGHT", "UP", "LEFT", "UP", "RIGHT"):
+        await ctl.run_action(f"menu:{k.lower()}")
+        moves.append(grid[ctl._menu_sel])
+    check(moves == ["Tidal", "Juegos", "Fotos", "Netflix", "Videos", "Videos"] and ctl._menu_chip,
+          f"▲ ▼ dentro de la columna (dando la vuelta), ◀ ▶ a la otra (en Videos, ▶ va a su botoncito): {moves}")
+    await ctl.run_action("menu:right")
+    check(grid[ctl._menu_sel] == "Ayuda", "▶ desde el botoncito: la otra columna")
+    await ctl.run_action("menu:right")
+    check(grid[ctl._menu_sel] == "Ayuda", "▶ en la última columna no hace nada")
+    check([it.get("action") for it in ctl.overlay.items] == [None, None, "Carpetas", "Carpetas", None, None],
+          f"Videos y Fotos muestran el botoncito «Carpetas»: {[it.get('action') for it in ctl.overlay.items]}")
+    await ctl.menu_open(grid.index("Videos"))
+    out = await press("RIGHT")
+    check(out == ["ov:select:2:chip"] and ctl._menu_chip, f"▶ sobre Videos enfoca su botoncito: {out}")
+    out = await press("LEFT")
+    check(out == ["ov:select:2"] and not ctl._menu_chip, f"◀ vuelve a la fila: {out}")
+    await ctl.run_action("menu:right")
+    await ctl.run_action("menu:right")
+    check(grid[ctl._menu_sel] == "Ayuda" and not ctl._menu_chip, "▶ otra vez pasa a la otra columna")
+    await ctl.run_action("menu:left")
+    check(grid[ctl._menu_sel] == "Videos" and not ctl._menu_chip, "◀ desde la otra columna vuelve a la fila (no al botoncito)")
+    await ctl.run_action("menu:right")
+    await press("SELECT")
+    check(ctl._menu_mode == "folders" and all(it.get("kind") == "dir" for it in ctl.overlay.items)
+          and ctl.overlay.items[0]["sub"] == "predeterminada",
+          f"OK sobre el botoncito: la lista de carpetas (sin repetir la de siempre): {mnames()}")
+    await press("EXIT")
+    check(ctl._menu_mode == "activities" and grid[ctl._menu_sel] == "Videos" and not ctl._menu_chip,
+          "Atrás desde la lista vuelve a la misma casilla")
+    await press("F4_YELLOW")
+    check(ctl._menu_mode == "folders", "el amarillo también abre las carpetas de la fila")
+    await press("EXIT")
+    start = len(log)
+    await press("SELECT")
+    check("videos:open" in log[start:] and ctl.current_app() == "videos" and not ctl._menu_open,
+          f"OK sobre la fila abre de una: {[x for x in log[start:] if not x.startswith('ov:')]}")
+    await ctl.menu_open()
+    check(grid[ctl._menu_sel] == "Videos", "con Videos abierto, el menú lo marca")
+    out = await press("SELECT")
+    check(not ctl._menu_open and not opened(out), "OK sobre la que está en uso: solo cierra el menú")
+    await ctl.menu_close()
+    await ctl.activities["videos"].close()
+    ctl._foreground = None
+    del ctl.activities["juegos"]
+    if menu_items_before is None:
+        ctl.cfg.menu.pop("items", None)
+    else:
+        ctl.cfg.menu["items"] = menu_items_before
+    ctl._menu_columns = 1
 
     print("Menú al arrancar")
     ov_running = True
@@ -1186,6 +1786,21 @@ async def main() -> int:
         ctl.cfg.menu["open_on_start"] = True
     finally:
         menu_mod.asyncio.sleep = real_sleep  # type: ignore[assignment]
+
+    print("QR del celular en el menú")
+    qr = {"path": "/tmp/q.svg", "url": "192.168.0.111:8765", "title": "Manejá la TV desde el celular", "text": "…"}
+    ctl.phone_qr = lambda: qr
+    await ctl.menu_open()
+    check(ctl.overlay.qr == qr, f"el menú de actividades muestra el QR de la página del celular: {ctl.overlay.qr}")
+    await ctl.menu_close()
+
+    def broken_qr():
+        raise OSError("sin qrencode")
+    ctl.phone_qr = broken_qr
+    await ctl.menu_open()
+    check(ctl._menu_open and ctl.overlay.qr is None, "si el QR falla, el menú igual se abre (sin QR)")
+    await ctl.menu_close()
+    ctl.phone_qr = None
 
     print("Sonido")
     menu_names = lambda: [it["name"] for it in ctl.overlay.items]  # noqa: E731
@@ -1318,6 +1933,71 @@ async def main() -> int:
     fargs = ph.default_args(tmp / "fotos", tmp / "cache" / "fotos.feh.lst")
     check(fargs[-2:] == ["--filelist", str(tmp / "cache" / "fotos.feh.lst")] and "--recursive" not in fargs,
           f"feh arranca con la lista (--filelist), sin recorrer la carpeta: {fargs[-2:]}")
+    print("Fotos y videos (mpv)")
+    from tele_cec.apps import photos as photos_mod
+    mix = tmp / "mix" / "2020" / "11"
+    mix.mkdir(parents=True)
+    for n in ("IMG_20201130_185306.jpg", "VID_20201108_154412.3gp", "IMG_20201101_090000.jpg",
+              "VID-20201120-WA0001.mp4", "sin_fecha.png"):
+        (mix / n).write_bytes(b"")
+    pm = activities_mod.PhotosActivity({"folders": [str(tmp / "mix")], "delay_s": 6})
+    pm.list_file = lambda folder: tmp / "cache" / "mix.lst"  # type: ignore[method-assign]
+    pm.write_list(tmp / "mix")
+    names = lambda files: [Path(f).name for f in files]  # noqa: E731
+    mixed = pm.mode_files(tmp / "mix", "mixed")
+    check(names(mixed) == ["IMG_20201101_090000.jpg", "VID_20201108_154412.3gp", "VID-20201120-WA0001.mp4",
+                           "IMG_20201130_185306.jpg", "sin_fecha.png"],
+          f"fotos y videos: por la fecha del nombre (cada video en su lugar): {names(mixed)}")
+    check(names(pm.mode_files(tmp / "mix", "videos")) == ["VID_20201108_154412.3gp", "VID-20201120-WA0001.mp4"]
+          and len(pm.mode_files(tmp / "mix", "photos")) == 3 and pm.counts(tmp / "mix") == (3, 2),
+          f"solo videos / solo fotos / cuántos hay: {pm.counts(tmp / 'mix')}")
+    vids = pm.mode_files(tmp / "mix", "videos")
+    check(pm._start_at(vids, str(mix / "IMG_20201110_120000.jpg")) == 1 and pm._start_at(mixed, mixed[3]) == 3,
+          "al cambiar de modo sigue desde ahí (el mismo archivo o el siguiente por fecha)")
+    margs = pm.mpv_args(tmp / "cache" / "p.lst", 3)
+    check(margs[0] == "mpv" and "--fs" in margs and "--image-display-duration=6" in margs
+          and "--playlist-start=3" in margs and any(a.startswith("--input-ipc-server=") for a in margs),
+          f"mpv: pantalla completa, el mismo tiempo por foto, desde ahí y con canal de control: {margs}")
+
+    class FakeMpv:
+        def __init__(self):
+            self.sent, self.props = [], {"playlist-count": 5, "playlist-pos-1": 2, "path": mixed[1]}
+
+        async def command(self, *a, timeout=3.0):
+            self.sent.append(" ".join(map(str, a)))
+            return True, None
+
+        async def get(self, prop):
+            return self.props.get(prop)
+
+        async def set(self, prop, value):
+            self.sent.append(f"{prop}={value}")
+            self.props[prop] = value
+            return True
+
+        def stop_watch(self):
+            pass
+    fm = FakeMpv()
+    pm.mpv, pm.mode = fm, "mixed"  # type: ignore[assignment]
+    events = []
+
+    async def on_video(now):
+        events.append(now)
+    pm.on_video = on_video
+    await pm.next()
+    await pm.zoom_in()
+    await pm.rotate()
+    check(fm.sent == ["playlist-next force", "pause=True", "video-zoom=0.32", "video-rotate=90"] and pm.paused,
+          f"con mpv: siguiente, zoom (pausa la presentación) y girar van por su canal: {fm.sent}")
+    fm.sent.clear()
+    await pm._mpv_file(mixed[1])
+    check({"video-zoom=0", "video-rotate=0", "pause=False"} <= set(fm.sent) and events == [True] and not pm.zoom,
+          f"pasa a un video: entero, derecho, sigue la presentación y avisa que suena un video: {fm.sent} {events}")
+    await pm._mpv_file(mixed[3])
+    check(events == [True, False], f"y al volver a una foto, avisa que terminó: {events}")
+    info = await pm.photo_info()
+    check(info == {"path": mixed[1], "index": 2, "total": 5}, f"qué foto es, preguntado a mpv: {info}")
+
     args = activities_mod.VideosActivity({}).default_args(usb)
     check(args[:3] == ["vlc", "-I", "dummy"] and "--extraintf=dbus:oldrc" in args
           and any(a.startswith("--rc-unix=") for a in args) and args[-1] == str(usb),
@@ -1425,6 +2105,34 @@ async def main() -> int:
     finally:
         desktop_mod.PairingNoticeCloser = real_closer  # type: ignore[misc]
         audio_mod2.pair = real_pair  # type: ignore[assignment]
+
+    print("Pasar el sonido a la TV desconecta el Bluetooth")
+    real = (audio_mod2.list_outputs, audio_mod2.run_cmd)
+    cmds: list[str] = []
+    speaker_on = [True]
+
+    async def fake_run(cmd, timeout=5.0):
+        cmds.append(" ".join(cmd))
+        if cmd[:2] == ["bluetoothctl", "disconnect"]:
+            speaker_on[0] = False
+        return 0, ""
+    tv = audio_mod2.Output("TV (HDMI)", "hdmi", 55)
+    try:
+        audio_mod2.run_cmd = fake_run
+        audio_mod2.list_outputs = lambda: [tv, audio_mod2.Output("KN320", "bluetooth", 77 if speaker_on[0] else None,
+                                                                 mac="8B:D9:43:D1:A1:AE")]
+        r = await audio_mod2.select(tv)
+        check(r[0] and cmds == ["wpctl set-default 55", "bluetoothctl disconnect 8B:D9:43:D1:A1:AE"],
+              f"elegir la TV: el sonido pasa a la TV y el parlante se desconecta: {cmds}")
+        cmds.clear()
+        r = await audio_mod2.select(tv)
+        check(r[0] and cmds == ["wpctl set-default 55"], f"con el parlante ya desconectado, no hace nada más: {cmds}")
+        cmds.clear()
+        speaker_on[0] = True
+        r = await audio_mod2.select(audio_mod2.Output("KN320", "bluetooth", 77, mac="8B:D9:43:D1:A1:AE"))
+        check(r[0] and cmds == ["wpctl set-default 77"], f"elegir el parlante no desconecta nada: {cmds}")
+    finally:
+        audio_mod2.list_outputs, audio_mod2.run_cmd = real
 
     bad = [t for ok, t in results if not ok]
     print(f"\n{len(results) - len(bad)}/{len(results)} verificaciones OK")

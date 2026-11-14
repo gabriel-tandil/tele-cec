@@ -89,6 +89,7 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #    videos      -> global             Videos (VLC) abierto
 #    fotos       -> global             Fotos (feh) abierto
 #    fotos_zoom  -> fotos -> global    Fotos con zoom (▲ lo activa): las flechas recorren la foto
+#    android     -> global             Android (la pantalla del celular, con scrcpy) abierto
 #    app         -> global             un programa de [activities.<id>] abierto
 #    menu                              el menú de actividades está abierto (captura todas las teclas)
 #    offline                           nada abierto
@@ -108,10 +109,14 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #    music:page:inicio|explorar|coleccion  music:back  music:key:<Tecla>
 #  Videos: video:play_pause|play|pause|next|previous|stop  video:seek:+10|-10  video:volume:+|-
 #    video:subtitles  video:audio
-#  Fotos: fotos:next  fotos:previous  fotos:pause  fotos:rotate  fotos:random  fotos:info  fotos:filename
+#  Fotos: fotos:next  fotos:previous  fotos:pause  fotos:rotate  fotos:random  fotos:info  fotos:filename  fotos:mode
 #    fotos:zoom_in  fotos:zoom_out  fotos:fit (sin zoom)  fotos:scroll:left|right|up|down
 #  Netflix: my_list (Mi lista)   Tidal: music:lyrics (letras)   Videos: video:aspect (proporción)
 #  YouTube: yt:key:<Tecla> (Up, Down, Left, Right, Return, Escape)  yt:play_pause|play|pause  yt:seek:+10|-10
+#  Android: android:key:<Tecla> (a la ventana de scrcpy: Up, Down, Left, Right, Return, 0-9, BackSpace)
+#    android:back|home|apps|notifications  android:play_pause|play|pause|stop|next|previous|fast_forward|rewind
+#    android:keyevent:<N> (cualquier KEYCODE de Android, por adb)
+#    android:list (lista de celulares, con «Dejar de compartir»)  android:disconnect (dejar de compartir)
 # -----------------------------------------------------------------------------
 
 [keys.global]
@@ -199,10 +204,11 @@ HELP = "help"
 DISPLAY_INFORMATION = "help"
 
 [keys.menu]                   # menú de actividades abierto
+F4_YELLOW = "menu:options"    # amarillo: opciones de la fila (carpetas, conectar el celular, juegos, salidas)
 UP = "menu:up"
 DOWN = "menu:down"
 LEFT = "menu:left"            # en el selector de carpetas: subir a la carpeta de arriba
-RIGHT = "menu:right"          # sobre Videos o Fotos: elegir otra carpeta; en una carpeta: entrar
+RIGHT = "menu:right"          # sobre Videos o Fotos: elegir otra carpeta; en una carpeta: entrar; sobre Android: conectar
 SELECT = "menu:ok"
 ENTER = "menu:ok"
 EXIT = "menu:back"            # cierra el menú (en el selector de carpetas: vuelve atrás)
@@ -210,6 +216,7 @@ AN_RETURN = "menu:back"
 ROOT_MENU = "menu"            # Menú otra vez = siguiente opción
 CONTENTS_MENU = "menu"
 SETUP_MENU = "menu"
+NUMBER0 = "menu:pick:0"       # (en «Android · vincular con código» los números escriben el código)
 NUMBER1 = "menu:pick:1"       # los números eligen directo
 NUMBER2 = "menu:pick:2"
 NUMBER3 = "menu:pick:3"
@@ -284,6 +291,44 @@ REWIND = "yt:seek:-10"
 FORWARD = ""
 F1_BLUE = ""
 
+[keys.juegos]                 # Juegos (MAME): el joystick es del juego
+EXIT = "juegos:list"          # Atrás: la lista de juegos (OK sobre el actual sigue jugando)
+AN_RETURN = "juegos:list"
+
+[keys.android]                # Android: la pantalla del celular (scrcpy). Las flechas, OK y los números van al
+                              # celular como un teclado; Atrás, Inicio y las multimedia, como sus botones (adb).
+UP = "android:key:Up"
+DOWN = "android:key:Down"
+LEFT = "android:key:Left"
+RIGHT = "android:key:Right"
+SELECT = "android:key:Return"
+ENTER = "android:key:Return"
+EXIT = "android:back"
+AN_RETURN = "android:back"
+F1_BLUE = "android:home"            # azul = Inicio de Android
+F2_RED = "android:apps"             # rojo = apps recientes
+F4_YELLOW = "android:notifications" # amarillo = notificaciones (otra vez: cerrarlas)
+F3_GREEN = "android:list"            # verde = la lista de celulares, con «Dejar de compartir» (también: Menú › OK en Android)
+PLAY = "android:play"
+PAUSE = "android:pause"
+PAUSE_PLAY_FUNCTION = "android:play_pause"
+STOP = "android:stop"
+FORWARD = "android:next"
+BACKWARD = "android:previous"
+FAST_FORWARD = "android:fast_forward"
+REWIND = "android:rewind"
+NUMBER0 = "android:key:0"           # los números se escriben (p. ej. el PIN para desbloquear)
+NUMBER1 = "android:key:1"
+NUMBER2 = "android:key:2"
+NUMBER3 = "android:key:3"
+NUMBER4 = "android:key:4"
+NUMBER5 = "android:key:5"
+NUMBER6 = "android:key:6"
+NUMBER7 = "android:key:7"
+NUMBER8 = "android:key:8"
+NUMBER9 = "android:key:9"
+CLEAR = "android:key:BackSpace"
+
 [keys.videos]                 # Videos (VLC)
 SELECT = "video:play_pause"
 ENTER = "video:play_pause"
@@ -309,16 +354,16 @@ F4_YELLOW = "video:aspect"    # amarillo = proporción de la imagen (16:9, 4:3�
 EXIT = ""
 AN_RETURN = ""
 
-[keys.fotos]                  # Fotos (feh)
+[keys.fotos]                  # Fotos (feh; con videos, mpv)
 LEFT = "fotos:previous"
 RIGHT = "fotos:next"
-BACKWARD = "fotos:media_previous"
-FORWARD = "fotos:media_next"
+BACKWARD = "fotos:previous"    # ⏮ ⏭ siempre pasan las fotos (también con zoom, donde las flechas mueven la foto)
+FORWARD = "fotos:next"
 CHANNEL_DOWN = "fotos:previous"
 CHANNEL_UP = "fotos:next"
 SELECT = "fotos:pause"        # pausar o seguir la presentación
 ENTER = "fotos:pause"
-# Con Tidal sonando de fondo (abrir Fotos no la cierra), ⏯ ⏭ ⏮ manejan la música; sin música, las fotos.
+# Con Tidal de fondo (abrir Fotos no la cierra), ⏯ pausa la música; sin música, la presentación.
 PLAY = "fotos:media_play_pause"
 PAUSE = "fotos:media_play_pause"
 PAUSE_PLAY_FUNCTION = "fotos:media_play_pause"
@@ -328,6 +373,7 @@ F1_BLUE = "fotos:info"        # azul = qué foto es: carpeta, archivo y número 
 F2_RED = "fotos:rotate"       # rojo = girar la foto
 F4_YELLOW = "fotos:random"    # amarillo = una foto al azar
 UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
+DOWN = "fotos:mode"           # ▼ = solo fotos → fotos y videos → solo videos (sigue desde la foto que se veía)
 
 [keys.fotos_zoom]             # Fotos con zoom: las flechas mueven la foto, OK acerca y Atrás aleja
 UP = "fotos:scroll:up"
@@ -355,8 +401,8 @@ PAUSE_PLAY_FUNCTION = ""
 
 # Reposo automático: si no sale sonido y nadie toca el control, la Raspberry Pi descansa (antes avisa en
 # pantalla; cualquier tecla lo cancela) y apaga la TV por CEC.
-#   mode = "reposo": guarda lo que estaba abierto, lo pausa y lo cierra. Vuelve al apretar una tecla o al
-#                    prenderse la TV, y restaura todo en pausa.
+#   mode = "reposo": pausa y cierra todo. Vuelve al apretar una tecla o al prenderse la TV y muestra el menú de
+#                    actividades (con resume_apps = true reabre lo que estaba abierto, en pausa).
 #   mode = "apagar": apaga la Pi. El control no la vuelve a prender (en una Pi 400: Fn+F10, o desenchufar y
 #                    enchufar), y hace falta una regla de polkit (./install.sh --apagado-automatico).
 [power]
@@ -364,18 +410,76 @@ enabled = false
 mode = "reposo"
 idle_minutes = 180            # sin sonido ni teclas del control (una presentación de fotos sin música no cuenta)
 tv_off_minutes = 15           # si la TV avisó por CEC que se apagó (standby): alcanza con menos
+menu_idle_minutes = 10        # sin ninguna actividad abierta (solo el menú en pantalla) y sin teclas (0 = idle_minutes)
 warn_seconds = 60             # cuenta regresiva en pantalla antes
 tv_standby = true             # apagar también la TV por CEC
 wake_on_tv = true             # en reposo: volver cuando se prende la TV (sin cambiarle la entrada)
+resume_apps = false           # al volver: false = el menú de actividades; true = reabrir lo que estaba abierto, en pausa
 off_after_hours = 72          # en reposo tantas horas seguidas sin que nadie la despierte: apagarla de verdad
                               # (0 = nunca). Apagada, el control no la prende: Fn+F10 en la Pi 400 o desenchufar.
 command = ["systemctl", "poweroff"]   # para mode = "apagar"
 
+# Joysticks (Xbox 360/One, 8BitDo, PlayStation…): cada botón hace lo mismo que una tecla del control, en
+# todas las apps. Se detectan solos al conectarlos (USB, receptor inalámbrico o Bluetooth).
+[gamepad]
+enabled = true
+menu_only_in = ["juegos", "app"]   # contextos donde el joystick es del programa (los juegos de MAME, un emulador
+                              # en [activities.*]): ahí el servicio solo atiende exit_buttons y menu_buttons
+menu_buttons = ["GUIDE"]      # el botón del medio: nuestro menú encima (en los juegos, la lista, con el juego en
+                              # pausa). Otros: "BACK+START" (los dos juntos), "BACK:HOLD" (Back mantenido)
+exit_buttons = []             # botones que salen del juego directo, p. ej. ["BACK:HOLD"] (un toque de Back
+                              # sigue siendo la moneda de MAME)
+hold_buttons = ["BACK", "GUIDE"]   # botones que avisan «mantenido» (BACK:HOLD, GUIDE:HOLD)
+hold_ms = 1000
+deadzone = 0.55               # cuánto hay que mover la palanca (0–1)
+repeat_delay_ms = 400         # mantener una dirección la repite, como el control
+repeat_ms = 130
+
+[gamepad.buttons]             # botón → tecla del control (nombres de tele-cec aprender); "" = nada
+A = "SELECT"
+B = "EXIT"
+X = "PAUSE_PLAY_FUNCTION"
+Y = "F4_YELLOW"               # en el Xbox los colores coinciden: Y amarillo
+LB = "BACKWARD"
+RB = "FORWARD"
+LT = "REWIND"
+RT = "FAST_FORWARD"
+BACK = "F1_BLUE"
+START = "CONTENTS_MENU"       # abre el menú
+GUIDE = "CONTENTS_MENU"       # el botón del medio (Xbox), también
+LS = "F2_RED"                 # apretar la palanca izquierda
+RS = "F3_GREEN"               # apretar la palanca derecha
+DPAD_UP = "UP"                # la cruz y la palanca izquierda
+DPAD_DOWN = "DOWN"
+DPAD_LEFT = "LEFT"
+DPAD_RIGHT = "RIGHT"
+RS_UP = "VOLUME_UP"           # la palanca derecha
+RS_DOWN = "VOLUME_DOWN"
+RS_LEFT = ""
+RS_RIGHT = ""
+
 # Menú de actividades.
 [menu]
-items = ["netflix", "youtube", "tidal", "videos", "fotos"]   # orden; las no instaladas no aparecen. Las de
+items = ["netflix", "youtube", "tidal", "videos", "fotos", "juegos", "android"]   # orden; las no instaladas no aparecen. Las de
                                                   # [activities.<id>] se agregan al final si no están acá.
-timeout_s = 10                # se cierra solo si no tocás nada (sin cambiar de actividad)
+columns = 2                   # en dos columnas (sin desplazar): ◀ ▶ cambian de columna. OK abre de una; Videos,
+                              # Fotos y Android tienen un botoncito («Carpetas», «Conectar»): ▶ lo enfoca y OK lo
+                              # abre (o el amarillo). 1 = una columna, con ▶ = más opciones
+timeout_s = 10                # con una app abierta, se cierra solo si no tocás nada (sin nada abierto queda a la vista)
+open_on_start = true          # al prender la Pi (al arrancar el servicio), el menú aparece abierto
+sound = true                  # opción «Sonido» al final del menú: elegir la salida (TV por HDMI, Bluetooth…)
+keyboard = true               # mientras el menú está a la vista, también se maneja con el teclado: flechas,
+                              # Enter elige, Esc o Retroceso vuelve, números, F1 ayuda, tecla Menú = siguiente
+
+# Control desde el celular: una página en http://raspberrypi.local:8765/ (en la misma red Wi‑Fi) con el control
+# remoto, lo que está sonando (play/pausa, anterior, siguiente), el volumen y la salida de sonido. En el celular:
+# «Agregar a la pantalla de inicio» y queda como una app. No tiene contraseña: solo atiende a la red de la casa.
+[web]
+enabled = true
+port = 8765
+lan_only = true               # rechazar lo que no venga de la red local (direcciones privadas)
+volume_step = 5               # cuánto sube o baja el volumen cada toque (%)
+menu_qr = true                # el menú de actividades de la TV muestra un QR para abrir esta página en el celular
 
 [apps.netflix]
 on_reselect = "continue_watching"   # app:netflix con Netflix ya abierto
@@ -393,12 +497,13 @@ gsk_renderer = "ngl"                 # "" = el que elija GTK
 focus_color = "#FFD400"              # marco y fondo del elemento con el foco (GTK lo dibuja muy tenue); "" = no tocar
 keyboard_cards = true                # portadas de discos/playlists elegibles con el control y OK (parche al abrir High Tide)
 
-[apps.youtube]                       # YouTube para TV, en un Firefox aparte (perfil propio)
+[apps.youtube]                       # YouTube para TV, en un navegador aparte (perfil propio)
 url = "https://www.youtube.com/tv"
-profile = "~/.config/firefox-youtube"
+engine = ""                          # "" = el mismo que Netflix (browser.engine); o "firefox" / "chromium"
+profile = ""                         # "" = ~/.config/firefox-youtube o ~/.config/chromium-youtube según el navegador
 force_h264 = true                    # como h264ify: la Pi decodifica H.264 por hardware (VP9/AV1 van por CPU)
-user_agent = ""                      # "" = el de una consola (YouTube muestra la versión para TV solo a TVs)
-open_wait_s = 10                     # Firefox tarda en abrir: el menú muestra «Abriendo YouTube…» este tiempo
+user_agent = ""                      # "" = el de una TV (YouTube muestra la versión para TV solo a TVs)
+open_wait_s = 10                     # el navegador tarda en abrir: el menú muestra «Abriendo YouTube…» este tiempo
 
 [apps.videos]                        # Videos con VLC: reproduce la carpeta entera en pantalla completa
 # Se usa la primera carpeta que tenga videos: los pendrives van primero.
@@ -408,13 +513,37 @@ volume_step = 0.05
 command = []                         # otro comando en vez de VLC; {carpeta} = la carpeta elegida, p. ej.
                                      #   ["vlc", "--qt-minimal-view", "--fullscreen", "{carpeta}"]
 
-[apps.fotos]                         # Fotos con feh: presentación en pantalla completa
+[apps.fotos]                         # Fotos: presentación en pantalla completa (feh; «fotos y videos» y «solo
+                                     #   videos» con mpv: sudo apt install mpv)
 folders = ["/media/*/*", "~/Imágenes", "~/Pictures"]
 delay_s = 8                          # segundos por foto
 shuffle = false
 scroll_step = 150                    # píxeles que se mueve la foto con zoom por cada flecha
 zoom_step = 25                       # % que acerca o aleja cada paso de zoom
 command = []                         # otro visor en vez de feh ({carpeta} = la carpeta elegida)
+
+[apps.juegos]                        # Juegos: las ROMs de MAME (ver README → Juegos)
+rompath = []                         # [] = el rompath de ~/.mame/mame.ini (o ~/mame/roms); p. ej. ["~/mame/roms"]
+binary = "mame"
+extra_args = []                      # más opciones de MAME, p. ej. ["-skip_gameinfo"]
+guide_menu = true                    # el botón del medio del joystick abre nuestro menú, no el de MAME (el de
+                                     # MAME queda en Tab y en «Opciones de MAME» de la lista)
+control = true                       # script Lua (-autoboot_script) para pausar y cerrar MAME bien
+
+[apps.android]                       # Android: la pantalla de un celular o tablet en la TV, con scrcpy (ver README → Android)
+# El celular se conecta por USB (con «Depuración USB» activada en Opciones de desarrollador) o por Wi‑Fi.
+serial = ""                          # "" = el que esté conectado (primero el del cable); "192.168.0.50:5555" = ese
+                                     #   celular por Wi‑Fi (tele-cec hace adb connect al abrirlo)
+max_size = 1920                      # lado más largo de la imagen, en píxeles (menos = más liviano para la Pi; 0 = el del celular)
+max_fps = 30                         # cuadros por segundo (0 = sin límite)
+video_bit_rate = ""                  # "" = 8M (lo de scrcpy); p. ej. "4M" si por Wi‑Fi se corta
+audio = true                         # el sonido del celular sale por la TV (Android 11 o más nuevo)
+audio_dup = false                    # Android 13+: que siga sonando también en el celular
+stay_awake = true                    # que el celular no se apague mientras está enchufado
+turn_screen_off = false              # apagar la pantalla del celular (la imagen sigue en la TV)
+power_off_on_close = false           # al cerrar, apagar la pantalla del celular
+open_wait_s = 15                     # cuánto se espera a que aparezca la imagen
+extra_args = []                      # más opciones de scrcpy, p. ej. ["--video-codec=h265"]
 
 # Otras actividades: cualquier programa. Aparecen al final del menú (o donde las pongas en [menu] items).
 # Al elegir otra actividad se cierra con SIGTERM. Mientras está abierta, las teclas usan [keys.app].
