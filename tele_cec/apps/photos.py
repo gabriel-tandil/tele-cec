@@ -1,10 +1,12 @@
 """Fotos: presentación en pantalla completa, zoom y qué foto se está viendo.
 
+Todo con mpv: la placa de video achica las fotos, hace el zoom y las mueve, y la foto siguiente se lee mientras se
+ve la actual. feh (todo con el procesador) queda para «solo fotos» con [apps.fotos] viewer = "feh" o sin mpv.
 Tres modos (▼ pasa de uno a otro mientras se mira, y se pueden elegir en «Carpetas ▸»):
-- «solo fotos» (el de siempre): feh;
-- «fotos y videos»: mpv, que muestra las fotos el mismo tiempo que feh y reproduce los videos en el medio
-  (ordenados por la fecha del nombre, así cada video cae en su lugar);
-- «solo videos»: mpv con los videos de la carpeta.
+- «solo fotos» (el de siempre);
+- «fotos y videos»: las fotos el tiempo de siempre y los videos en el medio (ordenados por la fecha del nombre, así
+  cada video cae en su lugar);
+- «solo videos»: los videos de la carpeta.
 Mientras suena un video, la música de Tidal de fondo se pausa (on_video, lo pone el controlador).
 """
 
@@ -77,6 +79,7 @@ class PhotosActivity(MediaActivity):
         self._refresh_task: asyncio.Future | None = None
         self.current_folder: Path | None = None
         self.mode = "photos"
+        self.viewer = str(self.cfg.get("viewer") or "mpv").lower()
         self.mpv = Mpv(LOG_DIR / "fotos-mpv.sock")
         self.on_video: Callable[[bool], Awaitable[None]] | None = None  # suena un video / ya no
         self._video_now = False
@@ -85,9 +88,16 @@ class PhotosActivity(MediaActivity):
         self.fail_text = ""
         self.reset_view()
 
+    def use_mpv(self, mode: str) -> bool:
+        """mpv para todo (la placa de video achica, hace zoom y mueve la foto); feh solo para «solo fotos» si se
+        eligió ([apps.fotos] viewer = "feh") o si no está mpv."""
+        if mode != "photos":
+            return True
+        return self.viewer != "feh" and bool(shutil.which("mpv"))
+
     @property
     def backend(self) -> str:
-        return "feh" if self.mode == "photos" else "mpv"
+        return "mpv" if self.use_mpv(self.mode) else "feh"
 
     def reset_view(self) -> None:
         self.paused = False         # la presentación, según lo que le mandamos (feh arranca andando)
@@ -100,7 +110,7 @@ class PhotosActivity(MediaActivity):
         return "fotos_zoom" if self.zoom else "fotos"
 
     def installed(self) -> bool:
-        return self._have("feh")
+        return self._have("feh") or (not self.command and bool(shutil.which("mpv")))
 
     def default_args(self, folder: Path, filelist: Path | None = None) -> list[str]:
         delay = float(self.cfg.get("delay_s", 8))
@@ -201,7 +211,7 @@ class PhotosActivity(MediaActivity):
             self.fail_text = {"photos": "No hay fotos en esta carpeta", "videos": "No hay videos en esta carpeta",
                               "mixed": "No hay fotos ni videos en esta carpeta"}[mode]
             return False
-        ok = await (self._open_feh(folder, files, start) if mode == "photos" else self._open_mpv(files, start))
+        ok = await (self._open_mpv(files, start) if self.use_mpv(mode) else self._open_feh(folder, files, start))
         if ok:
             self.current_folder, self.mode = folder, mode
             log.info("Fotos: %s (%s)", describe_folder(folder), MODE_NAMES[mode])
@@ -260,6 +270,7 @@ class PhotosActivity(MediaActivity):
         delay = float(self.cfg.get("delay_s", 8))
         args = base_args(self.mpv.socket_path, self.TITLE) + [
             f"--image-display-duration={delay:g}", "--loop-playlist=inf", "--background-color=#000000",
+            "--prefetch-playlist=yes",  # la foto siguiente se lee mientras se ve esta: pasa en 0,2 s (12 MP, en red)
             f"--playlist={playlist}"]
         if self.shuffle:
             args.append("--shuffle")  # al azar no hay «desde dónde» (empezaba siempre por el primero de la lista)

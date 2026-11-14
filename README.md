@@ -1,6 +1,6 @@
 # tele-cec
 
-Maneja **Netflix**, **YouTube**, **Tidal**, **videos** y **música** locales (mpv), **fotos** (feh y mpv) y la **pantalla de un celular Android** (scrcpy) con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS (Bookworm o Trixie) conectada a la TV. Netflix y YouTube se ven en **Firefox** (o en Chromium, como alternativa).
+Maneja **Netflix**, **YouTube**, **Tidal**, **videos** y **música** locales (mpv), **fotos** (mpv) y la **pantalla de un celular Android** (scrcpy) con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS (Bookworm o Trixie) conectada a la TV. Netflix y YouTube se ven en **Firefox** (o en Chromium, como alternativa).
 
 > Antes se llamaba **netflix-cec**. `./install.sh` migra solo una instalación anterior: tu configuración, el servicio y la regla de apagado (ver [Instalación](#instalación)).
 
@@ -11,7 +11,7 @@ No convierte el control en un teclado, como hace [cec-mini-kb](https://github.co
 - **YouTube para TV**: la versión de YouTube de los Smart TV, hecha para manejarse con flechas, OK y Atrás (ver [YouTube](#youtube)).
 - **Control desde el celular**: una página en `http://raspberrypi.local:8765/` con el mismo menú de actividades de la TV, buscar en Netflix y YouTube, tu Tidal (biblioteca, búsqueda y cola), lo que está sonando y la salida de sonido (ver [Control desde el celular](#control-desde-el-celular)).
 - **Android**: la pantalla del celular en la TV, por USB o Wi‑Fi, con su sonido, y manejable con el control (ver [Android](#android)).
-- **Videos, música y fotos** de un pendrive o de una carpeta local, en pantalla completa y con el control: mpv para los videos y la música (con una barra para la TV que, al buscar, muestra una miniatura del punto elegido) y una presentación con feh o mpv para las fotos.
+- **Videos, música y fotos** de un pendrive o de una carpeta local, en pantalla completa y con el control: mpv para los videos y la música (con una barra para la TV que, al buscar, muestra una miniatura del punto elegido) y una presentación con mpv para las fotos.
 - **Botón inteligente** (⏭): salta la intro o el resumen, o pasa al siguiente episodio, según lo que muestre Netflix.
 - **Perfiles y "Seguir viendo"**: elegís el perfil con los números y retomás lo último visto con el rojo (en el inicio).
 - **Tidal** con [High Tide](#tidal): play/pausa, temas, volumen, "me gusta" y "Mis canciones" con el control.
@@ -147,11 +147,11 @@ GTK solo mueve el foco con flechas dentro de cada bloque (una fila de portadas, 
 Al salir del zoom (o al pasar a otra foto con ⏮ ⏭) la presentación sigue sola, salvo que la hubieras pausado vos antes.
 
 **Fotos y videos**: la presentación tiene tres modos.
-- **Solo fotos** (el de siempre, con feh).
+- **Solo fotos** (el de siempre).
 - **Fotos y videos**: las fotos el mismo tiempo de siempre y los videos de la carpeta en su lugar, ordenados por la fecha que traen los nombres (`IMG_20201130…`, `VID_20201108…`).
 - **Solo videos**: los videos de esa carpeta y sus subcarpetas.
 
-Los dos últimos usan **mpv** (`sudo apt install mpv`). Al entrar a la presentación se ve unos segundos en qué modo arranca, y **▼** pasa al siguiente sin perder el lugar: sigue desde la foto que se estaba viendo (o el video más cercano por fecha). También se puede elegir en **Carpetas ▸**: dentro de una carpeta, debajo de «Ver las fotos» están «Fotos y videos» y «Solo los videos», y lo mismo en la página del celular. OK sobre Fotos siempre arranca en «solo fotos». Mientras suena un video, la música de Tidal de fondo se pausa y vuelve al terminar el video; ⏯ pausa el video.
+Los tres usan **mpv** (`sudo apt install mpv`). Al entrar a la presentación se ve unos segundos en qué modo arranca, y **▼** pasa al siguiente sin perder el lugar: sigue desde la foto que se estaba viendo (o el video más cercano por fecha). También se puede elegir en **Carpetas ▸**: dentro de una carpeta, debajo de «Ver las fotos» están «Fotos y videos» y «Solo los videos», y lo mismo en la página del celular. OK sobre Fotos siempre arranca en «solo fotos». Mientras suena un video, la música de Tidal de fondo se pausa y vuelve al terminar el video; ⏯ pausa el video.
 
 Al abrirse una ficha, el resaltado pasa solo a su botón **Reproducir/Reanudar** (OK dos veces = abrir y reproducir), y al cerrarla vuelve a la tarjeta.
 
@@ -321,7 +321,7 @@ resume_apps = false           # al volver: el menú (false) o lo que estaba abie
 - **Videos** abre **mpv** en pantalla completa con todos los videos de la carpeta (y subcarpetas) y se cierra solo al terminar la lista. Abajo aparece una **barra para la TV** al pausar, al empezar cada video y al buscar: con ◀ ▶ (o ⏪ ⏩) se mueve un cursor sobre la barra con el tiempo y una **miniatura** de ese punto, y cuando dejás de tocar (o con OK) salta ahí; Atrás deja de buscar. Las miniaturas las hace [thumbfast](https://github.com/po5/thumbfast) (MPL 2.0, viene incluido). Subtítulos que estén al lado del video se cargan solos; se prefiere el audio y los subtítulos en español.
 - **Música** abre **mpv** con los temas de la carpeta (y subcarpetas, en orden natural: «2 - …» antes que «10 - …») y muestra la **tapa del disco**: la que trae el archivo o una imagen al lado (`cover.jpg`, `folder.jpg`…). La barra queda siempre a la vista con el tema, el artista y el tiempo. Puede quedar sonando mientras pasan las fotos.
 - Videos y Música se manejan por el canal de control de mpv; con **mpv-mpris** (lo instala `install.sh`) lo que suena aparece en la página del celular. Cada uno usa su propio mpv, sin la configuración personal de mpv (`~/.config/mpv`).
-- **Fotos** abre una presentación con **feh** en pantalla completa: avanza sola cada 8 s y con ◀ ▶ pasás a mano. OK la pausa. ▲ hace zoom y las flechas recorren la foto (ver [Teclas](#teclas-por-defecto)).
+- **Fotos** abre una presentación con **mpv** en pantalla completa: avanza sola cada 8 s y con ◀ ▶ pasás a mano. La placa de video achica las fotos, hace el zoom y las mueve (antes, con feh, todo lo hacía el procesador), y la foto siguiente se lee mientras se ve la actual: pasar de foto tarda 0,2 s aunque sean de 12 MP y estén en otra máquina. Las fotos sacadas con el celular girado salen derechas. OK la pausa. ▲ hace zoom y las flechas recorren la foto (ver [Teclas](#teclas-por-defecto)).
 - **De dónde**: la primera carpeta de `folders` que tenga videos o fotos. Por defecto, primero los **pendrives** (`/media/<usuario>/<disco>`, donde los monta el escritorio) y después `~/Vídeos` o `~/Imágenes`. El menú muestra cuál va a usar («Pendrive KINGSTON», «~/Vídeos»).
 
 ```toml
@@ -341,10 +341,11 @@ delay_s = 8
 shuffle = false
 scroll_step = 150 # píxeles que se mueve la foto con zoom por cada flecha
 zoom_step = 25    # % de cada paso de zoom
-command = []      # otro visor en vez de feh
+viewer = "mpv"    # "feh" = el visor de antes para «solo fotos» (todo con el procesador)
+command = []      # otro visor
 ```
 
-**Muchas fotos o una carpeta de red.** feh recorre toda la carpeta antes de mostrar la primera foto (con 50 000 fotos en otra máquina, 15-20 s). Por eso tele-cec arma la lista una vez, mientras el menú muestra «Abriendo Fotos…», la guarda en `~/.cache/tele-cec/` y las siguientes veces feh arranca al instante con ella. Después de cada apertura la lista se actualiza en segundo plano, así que las fotos nuevas aparecen la vez siguiente. En el menú, una carpeta de red figura como «En red: …».
+**Muchas fotos o una carpeta de red.** Recorrer toda la carpeta antes de mostrar la primera foto tarda (con 50 000 fotos en otra máquina, 15-30 s). Por eso tele-cec arma la lista una vez, mientras el menú muestra «Abriendo Fotos…», la guarda en `~/.cache/tele-cec/` y las siguientes veces la presentación arranca al instante con ella. Después de abrir, la lista se actualiza en segundo plano (como mucho cada 10 minutos), así que las fotos nuevas aparecen la vez siguiente. En el menú, una carpeta de red figura como «En red: …».
 
 Para una carpeta compartida por Samba (por ejemplo, desde otra Raspberry Pi), lo más cómodo es que se monte sola al usarla. En `/etc/fstab`, con el usuario y la contraseña en un archivo que solo lee root (`chmod 600`):
 
@@ -354,7 +355,7 @@ Para una carpeta compartida por Samba (por ejemplo, desde otra Raspberry Pi), lo
 
 y en tu `config.toml`: `[apps.fotos] folders = ["/mnt/fotosRemotas", "/media/*/*", "~/Imágenes"]`. Con `nofail` y `x-systemd.automount`, la Pi arranca igual aunque la otra máquina esté apagada.
 
-**Teclas a feh**: feh es una app X11 (corre por Xwayland) y sus atajos (pausa, zoom, girar) se le mandan con `xdotool`, que instala `install.sh`. Con `wtype` no sirve: Xwayland no usa su mapa de teclas y a feh le llega otra tecla (Escape, que lo cierra).
+**Con feh** (`viewer = "feh"`): feh es una app X11 (corre por Xwayland) y sus atajos (pausa, zoom, girar) se le mandan con `xdotool`, que instala `install.sh`. Con `wtype` no sirve: Xwayland no usa su mapa de teclas y a feh le llega otra tecla (Escape, que lo cierra).
 
 `tele-cec diagnostico` muestra qué carpeta usa cada actividad y cuántos archivos tiene.
 
@@ -667,7 +668,7 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `video:ok` `video:play_pause` `video:next` `video:previous` `video:seek:+10` `video:volume:+` `video:back` | Videos (mpv): reproducción, buscar (con la barra), volumen, dejar de buscar |
 | `musica:…` (las mismas) · `musica:shuffle` | Música local: lo mismo que Videos, y mezclar / en orden |
 | `video:subtitles` · `video:audio` | Videos: ciclar subtítulos · pista de audio |
-| `fotos:next` · `fotos:previous` · `fotos:pause` | Fotos (feh): siguiente, anterior, pausar o seguir la presentación |
+| `fotos:next` · `fotos:previous` · `fotos:pause` | Fotos: siguiente, anterior, pausar o seguir la presentación |
 | `fotos:rotate` · `fotos:random` · `fotos:info` · `video:aspect` | Fotos: girar, una al azar, mostrar el nombre · Videos: proporción de la imagen |
 | `fotos:zoom_in` · `fotos:zoom_out` · `fotos:fit` · `fotos:scroll:left` (`right`, `up`, `down`) | Fotos: acercar (el primero pausa la presentación) · alejar · foto entera · mover la foto con zoom |
 | `reload` | Recargar la página |
@@ -830,7 +831,7 @@ tele_cec/
 │   ├── youtube/           YouTube para TV (y la extensión H.264 para Chromium)
 │   ├── tidal/             High Tide: control, parche que se le carga y accesibilidad
 │   ├── videos.py, music.py, player.py, mpv.py   Videos y Música con mpv (mpv_scripts/: la barra y thumbfast)
-│   ├── photos.py, media.py, folders.py   Fotos (feh y mpv) y las carpetas de contenido
+│   ├── photos.py, media.py, folders.py   Fotos (mpv, o feh) y las carpetas de contenido
 │   ├── android.py         la pantalla del celular (scrcpy y adb)
 │   └── base.py, webprofile.py                        base de las actividades y perfiles de navegador
 ├── system/                procesos, CEC, sonido (audio.py), reposo (power.py), MPRIS y teclas sintéticas

@@ -379,7 +379,7 @@ class FakeMusicLocal(FakePlayerMixin, FakeProcMixin, activities_mod.MusicActivit
 
 class FakePhotos(FakeProcMixin, activities_mod.PhotosActivity):
     def __init__(self, log: list[str]):
-        activities_mod.PhotosActivity.__init__(self, {})
+        activities_mod.PhotosActivity.__init__(self, {"viewer": "feh"})  # las teclas a feh (mpv se prueba aparte)
         self.setup(log)
 
     async def next(self) -> bool:
@@ -2071,6 +2071,18 @@ echo '</mame>'
     check(margs[0] == "mpv" and "--fs" in margs and "--image-display-duration=6" in margs
           and "--playlist-start=3" in margs and any(a.startswith("--input-ipc-server=") for a in margs),
           f"mpv: pantalla completa, el mismo tiempo por foto, desde ahí y con canal de control: {margs}")
+    check("--prefetch-playlist=yes" in margs, "mpv lee la foto siguiente mientras se ve esta")
+    real_which = photos_mod.shutil.which
+    try:
+        photos_mod.shutil.which = lambda name: "/usr/bin/" + name
+        check(activities_mod.PhotosActivity({}).use_mpv("photos")
+              and not activities_mod.PhotosActivity({"viewer": "feh"}).use_mpv("photos")
+              and activities_mod.PhotosActivity({"viewer": "feh"}).use_mpv("videos"),
+              "«solo fotos» va con mpv (la placa de video); con viewer = \"feh\", el de antes (los videos, siempre mpv)")
+        photos_mod.shutil.which = lambda name: None if name == "mpv" else "/usr/bin/" + name
+        check(not activities_mod.PhotosActivity({}).use_mpv("photos"), "sin mpv instalado, «solo fotos» sigue con feh")
+    finally:
+        photos_mod.shutil.which = real_which
     pm.shuffle = True
     sargs = pm.mpv_args(tmp / "cache" / "p.lst", 3)
     check("--shuffle" in sargs and not any(a.startswith("--playlist-start") for a in sargs),

@@ -378,7 +378,7 @@ F4_YELLOW = "musica:shuffle"  # amarillo = mezclar / volver al orden
 EXIT = "musica:back"
 AN_RETURN = "musica:back"
 
-[keys.fotos]                  # Fotos (feh; con videos, mpv)
+[keys.fotos]                  # Fotos (mpv; o feh con viewer = "feh")
 LEFT = "fotos:previous"
 RIGHT = "fotos:next"
 BACKWARD = "fotos:previous"    # ⏮ ⏭ siempre pasan las fotos (también con zoom, donde las flechas mueven la foto)
@@ -549,8 +549,9 @@ shuffle = false
 volume_step = 0.05
 command = []
 
-[apps.fotos]                         # Fotos: presentación en pantalla completa (feh; «fotos y videos» y «solo
-                                     #   videos» con mpv: sudo apt install mpv)
+[apps.fotos]                         # Fotos: presentación en pantalla completa con mpv (sudo apt install mpv)
+viewer = "mpv"                       # "mpv" = la placa de video achica las fotos, hace el zoom y las mueve;
+                                     #   "feh" = el visor de antes para «solo fotos» (todo con el procesador)
 folders = ["/media/*/*", "~/Imágenes", "~/Pictures"]
 delay_s = 8                          # segundos por foto
 shuffle = false
