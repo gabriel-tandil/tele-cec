@@ -49,12 +49,16 @@ def pi_decoder() -> bool:
 def video_args() -> list[str]:
     """Con qué salida dibuja mpv y si decodifica por hardware.
 
-    En la Pi (con Wayland), Vulkan no sabe leer los cuadros del decodificador por hardware (el video se veía todo
-    azul) y dmabuf-wayland, que sí los muestra (fluido: 1080p a 60 cuadros sin perder), no muestra fotos. Así que
-    arranca en gpu (Vulkan) sin hardware y tele_cec_vo.lua cambia a dmabuf-wayland + hardware para cada video H.264 o
-    HEVC, y vuelve para las fotos. Sin el decodificador de la Pi: la salida y el hardware que elija mpv."""
+    En la Pi (con Wayland) hay dos problemas, y los dos se veían como la pantalla toda azul:
+    - con Vulkan, mpv elige colores de 10 bits (AR30) y labwc manda esa imagen directo a la salida HDMI (sin
+      componer; lo hace con las ventanas a pantalla completa): la tele la ve azul (una captura de pantalla, no);
+    - Vulkan tampoco sabe leer los cuadros del decodificador de video por hardware.
+    Así que las fotos (y tapas, y videos que van por el procesador) se dibujan con OpenGL (8 bits), y los videos
+    H.264 y HEVC por hardware con dmabuf-wayland (el cuadro decodificado va directo a la pantalla: 1080p a 60 cuadros
+    sin trabarse), que no muestra fotos. tele_cec_vo.lua cambia entre las dos para cada archivo.
+    Sin el decodificador de la Pi: la salida y el hardware que elija mpv."""
     if pi_decoder() and os.environ.get("WAYLAND_DISPLAY"):
-        return ["--vo=gpu", "--hwdec=no", f"--script={SCRIPTS / 'tele_cec_vo.lua'}"]
+        return ["--vo=gpu", "--gpu-api=opengl", "--hwdec=no", f"--script={SCRIPTS / 'tele_cec_vo.lua'}"]
     return [f"--hwdec={HWDEC}"]
 
 

@@ -2092,9 +2092,9 @@ echo '</mame>'
             os.environ.pop("WAYLAND_DISPLAY", None)
         else:
             os.environ["WAYLAND_DISPLAY"] = real_env
-    check(pi_args[:2] == ["--vo=gpu", "--hwdec=no"] and pi_args[2].endswith("tele_cec_vo.lua")
-          and Path(pi_args[2].split("=", 1)[1]).is_file(),
-          f"en la Pi: arranca en Vulkan sin hardware y el script elige la salida de cada archivo: {pi_args}")
+    check(pi_args[:3] == ["--vo=gpu", "--gpu-api=opengl", "--hwdec=no"] and pi_args[3].endswith("tele_cec_vo.lua")
+          and Path(pi_args[3].split("=", 1)[1]).is_file(),
+          f"en la Pi: fotos con OpenGL (8 bits), sin hardware, y el script elige la salida de cada archivo: {pi_args}")
     check(other == ["--hwdec=auto-safe"], f"fuera de la Pi: lo que elija mpv: {other}")
     real_which = photos_mod.shutil.which
     try:

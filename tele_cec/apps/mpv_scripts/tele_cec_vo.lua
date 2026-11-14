@@ -1,11 +1,11 @@
 -- tele_cec_vo.lua: elige con qué salida dibuja mpv cada archivo (Raspberry Pi).
 --
--- En la Pi, Vulkan (la salida «gpu» de mpv) no sabe leer las imágenes que entrega el decodificador de video por
--- hardware: el video se veía todo azul (o violeta con gpu-next). Y la salida que sí las muestra bien y fluido
--- (dmabuf-wayland: el cuadro decodificado va directo a la pantalla) no muestra fotos. Entonces, antes de abrir
--- cada archivo:
+-- La salida que muestra bien y fluido los videos decodificados por hardware (dmabuf-wayland: el cuadro decodificado
+-- va directo a la pantalla) no muestra fotos; y la que muestra fotos (gpu, con OpenGL: tele-cec la arranca con
+-- --gpu-api=opengl) no puede con esos cuadros sin trabarse (y con Vulkan, ni los lee: se veía todo azul).
+-- Entonces, antes de abrir cada archivo:
 --   - un video que la Pi decodifica por hardware (H.264, HEVC): dmabuf-wayland, con el decodificador de hardware;
---   - una foto, la tapa de un disco o un video en otro formato: gpu (Vulkan), sin el decodificador de hardware.
+--   - una foto, la tapa de un disco o un video en otro formato: gpu, sin el decodificador de hardware.
 -- Cambiar de salida en el mismo mpv anda (la ventana sigue en pantalla completa); solo se cambia cuando hace falta.
 
 local mp = require "mp"
