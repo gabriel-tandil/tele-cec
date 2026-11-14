@@ -125,9 +125,6 @@ local function render()
         local n = (mp.get_property_number("playlist-pos", 0) or 0) + 1
         out[#out + 1] = text(x2, top + 45, 6, 34, string.format("%d de %d", n, count), "BBBBBB")
     end
-    if paused and not scrub_target then
-        out[#out + 1] = text(W / 2, top + 45, 5, 40, "❚❚ En pausa", "66D1FF", true)
-    end
     -- la barra
     local frac = (dur > 0) and math.min(1, math.max(0, t / dur)) or 0
     local played = (dur > 0) and math.min(1, math.max(0, pos / dur)) or 0
@@ -140,6 +137,9 @@ local function render()
         local sign = delta >= 0 and "+" or "−"
         out[#out + 1] = text(cx, by - 40, 2, 44, string.format("%s  (%s%s)", fmt(scrub_target), sign, fmt(math.abs(delta))),
             "66D1FF", true)
+    end
+    if paused and not scrub_target then  -- debajo de la barra, entre los tiempos (arriba lo pisaba un título largo)
+        out[#out + 1] = text(W / 2, by + 50, 5, 36, "❚❚ En pausa", "66D1FF", true)
     end
     out[#out + 1] = text(x1, by + 50, 4, 36, fmt(t), "FFFFFF")
     if dur > 0 then out[#out + 1] = text(x2, by + 50, 6, 36, fmt(dur), "BBBBBB") end
