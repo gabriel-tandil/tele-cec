@@ -146,7 +146,7 @@ class WebRemote:
                 return None
             self._qr_url = url
         return {"path": str(path), "url": url.removeprefix("http://").rstrip("/"),
-                "title": "Manejá la TV desde el celular", "text": "Apuntá la cámara del celular a este código"}
+                "title": "Desde el celular", "text": "Apuntá la cámara del celular a este código"}
 
     async def close(self) -> None:
         if self.server is None:
