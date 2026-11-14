@@ -168,7 +168,7 @@ class MediaMixin:
             await f.filename()
         elif cmd == "rotate":
             await f.rotate()
-            await f.photo_changed()
+            await f.photo_changed(new_file=False)  # la misma foto, girada: sin zoom
         elif cmd == "random":
             await f.random()
             await f.photo_changed()

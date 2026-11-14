@@ -295,18 +295,21 @@ class PhotosActivity(MediaActivity):
 
     async def _mpv_file(self, path: str) -> None:
         """mpv pasó a otro archivo: sin zoom ni giro, y la música en pausa mientras suena un video."""
-        if self._mpv_dirty:  # mpv conserva zoom, corrimiento y giro entre archivos: el nuevo, entero y derecho
-            self._mpv_dirty = False
-            self.zoom, self.rotation = 0, 0
-            await self.mpv.set("video-zoom", 0)
-            await self.mpv.set("video-pan-x", 0)
-            await self.mpv.set("video-pan-y", 0)
-            await self.mpv.set("video-rotate", 0)
+        await self._mpv_reset()
         if self._zoom_paused and self.paused:
             await self.mpv.set("pause", False)
             self.paused = False
         self._zoom_paused = False
         await self._set_video(is_video(path))
+
+    async def _mpv_reset(self) -> None:
+        """mpv conserva zoom, corrimiento y giro entre archivos: el siguiente, entero y derecho."""
+        if not self._mpv_dirty:
+            return
+        self._mpv_dirty = False
+        self.zoom, self.rotation = 0, 0
+        for prop in ("video-zoom", "video-pan-x", "video-pan-y", "video-rotate"):
+            await self.mpv.set(prop, 0)
 
     async def _set_video(self, now: bool) -> None:
         if now != self._video_now:
@@ -444,7 +447,7 @@ class PhotosActivity(MediaActivity):
                 await self.mpv.set(prop, 0)
         else:
             await self.key("KP_Divide")  # zoom_fit
-        await self.photo_changed()
+        await self.photo_changed(new_file=False)  # la misma foto: sin zoom, pero el giro queda
         return True
 
     async def scroll(self, direction: str) -> bool:
@@ -463,9 +466,14 @@ class PhotosActivity(MediaActivity):
         self._render_task = asyncio.get_running_loop().create_task(self._render_later())
         return ok
 
-    async def photo_changed(self) -> None:
-        """Otra foto (o la misma girada o ajustada): feh la muestra entera, así que se termina el zoom."""
+    async def photo_changed(self, new_file: bool = True) -> None:
+        """Otra foto (new_file) o la misma girada o ajustada: se muestra entera, así que se termina el zoom."""
         self._cancel_render()
+        if self.backend == "mpv" and new_file:
+            await self._mpv_reset()  # ya, sin esperar el aviso de mpv (una foto grande tarda en cargar)
+        elif self.backend == "mpv" and self.zoom:  # la misma foto (girada): entera, con el giro
+            for prop in ("video-zoom", "video-pan-x", "video-pan-y"):
+                await self.mpv.set(prop, 0)
         if not self.zoom and not self._zoom_paused:
             return
         self.zoom = 0

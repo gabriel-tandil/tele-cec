@@ -2120,6 +2120,16 @@ echo '</mame>'
     check(fm.sent == ["playlist-next force", "pause=True", "video-zoom=0.32", "video-rotate=90"] and pm.paused,
           f"con mpv: siguiente, zoom (pausa la presentación) y girar van por su canal: {fm.sent}")
     fm.sent.clear()
+    await pm.photo_changed(new_file=False)
+    check("video-rotate=0" not in fm.sent and "video-zoom=0" in fm.sent and pm.rotation == 90,
+          f"girar con zoom: la misma foto, entera y girada (el giro queda): {fm.sent}")
+    pm._mpv_dirty, pm.zoom = True, 1
+    fm.sent.clear()
+    await pm.photo_changed()
+    check("video-rotate=0" in fm.sent and not pm._mpv_dirty,
+          f"pasar a otra foto: entera y derecha enseguida, sin esperar el aviso de mpv: {fm.sent}")
+    pm._mpv_dirty, pm.zoom, pm.paused, pm._zoom_paused = True, 1, True, True  # con zoom (que pausó la presentación)
+    fm.sent.clear()
     await pm._mpv_file(mixed[1])
     check({"video-zoom=0", "video-rotate=0", "pause=False"} <= set(fm.sent) and events == [True] and not pm.zoom,
           f"pasa a un video: entero, derecho, sigue la presentación y avisa que suena un video: {fm.sent} {events}")
