@@ -401,6 +401,7 @@ function openOption(it) {
   else if (it.option === "games") show(gamesPage(it));
   else if (it.option === "android") show(androidPage(it));
   else if (it.option === "tidal") show(TIDAL);
+  else if (it.option === "music") show(MUSIC);
   else if (it.option === "search") show(searchPage(it));
   else if (it.option === "sound") show(SOUND);
 }
@@ -755,6 +756,197 @@ async function tidalQueue(quiet) {
   lastQueueTitle = r.current ? r.current.title : "";
 }
 
+// ---------------------------------------------------------------- Música (la local)
+let mView = {kind: "artists"};
+const MUSIC_APP = {id: "musica", name: "Música"};
+const MUSIC = {
+  title: "Música",
+  render(body) {
+    const form = el("form", "bar");
+    form.autocomplete = "off";
+    const q = el("input");
+    q.type = "search";
+    q.placeholder = "Buscar en tu música";
+    q.enterKeyHint = "search";
+    const go = el("button", "go", "Buscar");
+    go.type = "submit";
+    form.append(q, go);
+    const seg = el("div", "seg");
+    [["artists", "Artistas"], ["albums", "Discos"], ["songs", "Temas"], ["folders", "Carpetas"], ["queue", "Cola"]].forEach(([k, label]) => {
+      const b = el("button", "", label);
+      b.dataset.lib = k;
+      b.addEventListener("click", () => { buzz(); musicLib(k); });
+      seg.appendChild(b);
+    });
+    const tbody = el("div");
+    tbody.id = "tbody";
+    body.replaceChildren(form, seg, tbody);
+    form.addEventListener("submit", (ev) => { ev.preventDefault(); const t = q.value.trim(); if (t) { q.blur(); musicSearch(t); } });
+    if (mView.kind === "search" && mView.result) { q.value = mView.q; renderMusicSearch(mView.result, mView.q); }
+    else if (mView.kind === "detail") musicDetail(mView.item, mView.prev);
+    else musicLib(mView.kind === "folders" ? "artists" : mView.kind || "artists");
+  },
+};
+function musicPlay(body, label) {
+  toast(`▶ ${label || ""}`.trim(), 3000);
+  return post("/api/music/play", body, true);
+}
+function songMenu(s) {
+  optionsSheet(s.title, s.sub, [
+    ["▶  Reproducir ahora", () => musicPlay({type: "song", id: s.id}, s.title)],
+    ["⤵  Que suene después de este", () => post("/api/music/enqueue", {id: s.id, mode: "next"})],
+    ["＋  Agregar al final de la cola", () => post("/api/music/enqueue", {id: s.id, mode: "end"})],
+  ]);
+}
+function musicRow(it, onTap) {
+  if (it.type === "song") return row(trackItem(it), () => onTap(it), {more: () => songMenu(it), badges: false});
+  return row({name: it.title, sub: it.sub, img: it.img}, () => onTap(it), {round: it.type === "artist", badges: false});
+}
+function playButtons(onPlay, onMix) {
+  const acts = el("div", "acts");
+  const play = el("button", "go", "▶ Reproducir");
+  play.addEventListener("click", () => { buzz(); onPlay(); });
+  const mix = el("button", "ghost", "🔀 Mezclar");
+  mix.addEventListener("click", () => { buzz(); onMix(); });
+  acts.append(play, mix);
+  return acts;
+}
+async function musicLib(kind) {
+  if (kind === "folders") return show(folderPage(MUSIC_APP, ""));
+  mView = {kind};
+  segOn(kind);
+  if (kind === "queue") return musicQueue();
+  tShow(note("Cargando…"));
+  const r = await get(`/api/music/library?what=${kind}`);
+  if (mView.kind !== kind) return;
+  if (r.error) return tShow(note(r.error));
+  if (!r.items.length) return tShow(note("No encontré música. Copiala a la carpeta Música de la Pi o conectá un pendrive."));
+  const rows = el("div", "rows");
+  const head = [];
+  if (kind === "songs") {
+    const acts = playButtons(() => musicPlay({type: "all", index: 0}, "Toda la música"),
+                             () => musicPlay({type: "all", index: Math.floor(Math.random() * r.total), shuffle: true}, "Toda la música, mezclada"));
+    acts.style.margin = "4px 6px 10px";
+    head.push(acts);
+  }
+  tShow(...head, rows);
+  const add = (res) => {
+    const start = res.start || 0;
+    res.items.forEach((it, i) => rows.appendChild(musicRow(it, (x) => kind === "songs"
+      ? musicPlay({type: "all", index: start + i}, x.title)
+      : musicDetail(x, {kind}))));
+    const loaded = start + res.items.length;
+    if (loaded < res.total) tb().appendChild(moreButton(loaded, res.total, async () => {
+      const n = await get(`/api/music/library?what=${kind}&start=${loaded}`);
+      if (!n.error) add(n);
+    }));
+  };
+  add(r);
+}
+async function musicDetail(item, prev) {
+  mView = {kind: "detail", item, prev};
+  segOn("");
+  tShow(note("Cargando…"));
+  const r = await get(`/api/music/list?type=${item.type}&id=${encodeURIComponent(item.id)}`);
+  if (mView.item !== item) return;
+  const backBtn = el("button", "ghost", "‹ Volver");
+  backBtn.style.margin = "4px 6px 8px";
+  backBtn.addEventListener("click", () => {
+    buzz();
+    if (prev.kind === "search") { mView = prev; renderMusicSearch(prev.result, prev.q); }
+    else if (prev.kind === "detail") musicDetail(prev.item, prev.prev);
+    else musicLib(prev.kind);
+  });
+  if (r.error) { tShow(backBtn, note(r.error)); return; }
+  const head = el("div", "detail");
+  head.appendChild(icon({img: r.img || item.img, name: item.title}, item.type === "artist"));
+  const tx = el("div", "tx");
+  const nm = el("div", "name");
+  nm.appendChild(el("span", "", r.title || item.title));
+  tx.appendChild(nm);
+  tx.appendChild(el("div", "sub", [r.sub, `${r.total} tema${r.total === 1 ? "" : "s"}`].filter(Boolean).join(" · ")));
+  tx.appendChild(playButtons(() => musicPlay({type: item.type, id: item.id, index: 0}, r.title),
+                             () => musicPlay({type: item.type, id: item.id, index: Math.floor(Math.random() * Math.max(1, r.total)), shuffle: true}, r.title)));
+  head.appendChild(tx);
+  const out = [backBtn, head];
+  const here = {kind: "detail", item, prev};
+  if (r.albums && r.albums.length > 1) {
+    out.push(el("div", "sect", "Discos"));
+    const al = el("div", "rows");
+    r.albums.forEach((a) => al.appendChild(musicRow(a, (x) => musicDetail(x, here))));
+    out.push(al, el("div", "sect", "Temas"));
+  }
+  const rows = el("div", "rows");
+  out.push(rows);
+  tShow(...out);
+  const add = (res) => {
+    const start = res.start || 0;
+    res.items.forEach((it, i) => rows.appendChild(musicRow(it, (x) => musicPlay({type: item.type, id: item.id, index: start + i}, x.title))));
+    const loaded = start + res.items.length;
+    if (loaded < res.total) tb().appendChild(moreButton(loaded, res.total, async () => {
+      const n = await get(`/api/music/list?type=${item.type}&id=${encodeURIComponent(item.id)}&start=${loaded}`);
+      if (!n.error) add(n);
+    }));
+  };
+  add(r);
+  window.scrollTo(0, 0);
+}
+async function musicSearch(q) {
+  buzz();
+  segOn("");
+  mView = {kind: "search", q};
+  tShow(note("Buscando…"));
+  const r = await get(`/api/music/search?q=${encodeURIComponent(q)}`);
+  if (mView.q !== q) return;
+  if (r.error) return tShow(note(r.error));
+  mView.result = r;
+  renderMusicSearch(r, q);
+}
+function renderMusicSearch(r, q) {
+  segOn("");
+  const out = [];
+  const prev = {kind: "search", q, result: r};
+  const section = (title, items, onTap) => {
+    if (!items || !items.length) return;
+    out.push(el("div", "sect", title));
+    const rows = el("div", "rows");
+    items.forEach((it) => rows.appendChild(musicRow(it, onTap)));
+    out.push(rows);
+  };
+  section("Temas", r.songs, (it) => musicPlay({type: "song", id: it.id}, it.title));
+  section("Artistas", r.artists, (it) => musicDetail(it, prev));
+  section("Discos", r.albums, (it) => musicDetail(it, prev));
+  if (!out.length) out.push(note(`Nada para «${q}».`));
+  tShow(...out);
+}
+let lastMusicQueue = "";
+async function musicQueue(quiet) {
+  if (!quiet) tShow(note("Cargando…"));
+  const r = await get("/api/music/queue");
+  if (mView.kind !== "queue") return;
+  if (r.error) return tShow(note(r.error));
+  const key = (r.current ? r.current.id : "") + ":" + r.pos + ":" + (r.total_next || 0);
+  if (quiet && key === lastMusicQueue) return;  // sin cambios: no la redibuja (no salta el scroll)
+  lastMusicQueue = key;
+  const out = [];
+  if (r.current) {
+    out.push(el("div", "sect", "Sonando"));
+    const l = el("div", "rows");
+    l.appendChild(row(Object.assign(trackItem(r.current), {current: true}), null, {badges: false}));
+    out.push(l);
+  }
+  if (r.next && r.next.length) {
+    out.push(el("div", "sect", r.total_next > r.next.length ? `Sigue (${r.total_next} temas)` : "Sigue"));
+    const l = el("div", "rows");
+    r.next.forEach((it) => l.appendChild(row(trackItem(it), () => post("/api/music/jump", {n: it.n}, true),
+                                             {more: it.id ? () => songMenu(it) : null, badges: false})));
+    out.push(l);
+  }
+  if (!out.length) out.push(note(r.closed ? "Música está cerrada. Elegí un artista, un disco o un tema para que suene."
+                                          : "La cola está vacía."));
+  tShow(...out);
+}
+
 // ---------------------------------------------------------------- lo que suena
 function curPos() {
   const n = state && state.now;
@@ -891,6 +1083,7 @@ async function poll() {
   const top = stack[stack.length - 1];
   if (top === ACTIVITIES && Date.now() - (poll.menuAt || 0) > 4000) { poll.menuAt = Date.now(); refreshMenu(); }
   if (top === TIDAL && tView.kind === "queue" && state && state.now && state.now.title !== lastQueueTitle) tidalQueue(true);
+  if (top === MUSIC && mView.kind === "queue" && Date.now() - (poll.queueAt || 0) > 3000) { poll.queueAt = Date.now(); musicQueue(true); }
   schedule(state ? 1500 : 4000);
 }
 function renderStatus() {
@@ -903,9 +1096,9 @@ function renderStatus() {
 function schedule(ms) { clearTimeout(pollTimer); pollTimer = setTimeout(poll, ms); }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") schedule(0); });
 
-// Arranque: #tidal o #sonido abren directo esa página.
+// Arranque: #tidal, #musica o #sonido abren directo esa página.
 stack.push(ACTIVITIES);
-const start = {tidal: TIDAL, musica: TIDAL, sonido: SOUND, sound: SOUND}[location.hash.slice(1)];
+const start = {tidal: TIDAL, musica: MUSIC, sonido: SOUND, sound: SOUND}[location.hash.slice(1)];
 if (start) stack.push(start);
 render();
 poll();

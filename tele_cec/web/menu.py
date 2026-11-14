@@ -48,6 +48,8 @@ class MenuWeb:
     # ---------------------------------------------------------------- filas
     def _option(self, ident: str, act: Any) -> tuple[str, str]:
         """El botoncito de la fila: (qué abre, cómo se llama)."""
+        if isinstance(act, activities_mod.MusicActivity) and not act.command:
+            return "music", "Explorar"   # artistas, discos, temas (y las carpetas)
         if isinstance(act, activities_mod.MediaActivity):
             return "folders", "Carpetas"
         if isinstance(act, activities_mod.MameActivity):

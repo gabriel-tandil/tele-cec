@@ -9,7 +9,7 @@ No convierte el control en un teclado, como hace [cec-mini-kb](https://github.co
 - **Navegación espacial** con las flechas por perfiles, filas de títulos, fichas y menús, con un **resaltado bien visible** del elemento enfocado. OK = clic, Atrás = volver.
 - **Menú de actividades**: el botón **Menú** abre un menú en el centro de la pantalla, encima de lo que esté abierto, para elegir **Netflix, YouTube, Tidal, Videos y música, Fotos, Juegos (MAME), Android** u otros programas. Elegir una cierra la que estaba abierta. Ver [Menú de actividades](#menú-de-actividades).
 - **YouTube para TV**: la versión de YouTube de los Smart TV, hecha para manejarse con flechas, OK y Atrás (ver [YouTube](#youtube)).
-- **Control desde el celular**: una página en `http://raspberrypi.local:8765/` con el mismo menú de actividades de la TV, buscar en Netflix y YouTube, tu Tidal (biblioteca, búsqueda y cola), lo que está sonando y la salida de sonido (ver [Control desde el celular](#control-desde-el-celular)).
+- **Control desde el celular**: una página en `http://raspberrypi.local:8765/` con el mismo menú de actividades de la TV, buscar en Netflix y YouTube, tu Tidal y tu música local (biblioteca, búsqueda y cola), lo que está sonando y la salida de sonido (ver [Control desde el celular](#control-desde-el-celular)).
 - **Android**: la pantalla del celular en la TV, por USB o Wi‑Fi, con su sonido, y manejable con el control (ver [Android](#android)).
 - **Videos, música y fotos** de un pendrive o de una carpeta local, en pantalla completa y con el control: mpv para los videos y la música (con una barra para la TV que, al buscar, muestra una miniatura del punto elegido) y una presentación con mpv para las fotos.
 - **Botón inteligente** (⏭): salta la intro o el resumen, o pasa al siguiente episodio, según lo que muestre Netflix.
@@ -471,13 +471,14 @@ extra_args = []               # más opciones de scrcpy
 
 ## Control desde el celular
 
-Lo más fácil: abajo del menú de actividades de la TV hay un **código QR**; apuntale con la cámara del celular y abre la página (lleva la IP de la Pi, así anda aunque el celular no resuelva nombres `.local`; necesita `qrencode`, y `[web] menu_qr = false` lo oculta). O, con el celular en la misma red que la Pi, abrí **`http://raspberrypi.local:8765/`** en el navegador. Si el celular no resuelve nombres `.local`, usá la IP de la Pi, por ejemplo `http://192.168.0.111:8765/`. En el menú del navegador, **Agregar a la pantalla de inicio** la deja como una app más. `#tidal` o `#sonido` al final de la dirección abren directo esa parte.
+Lo más fácil: abajo del menú de actividades de la TV hay un **código QR**; apuntale con la cámara del celular y abre la página (lleva la IP de la Pi, así anda aunque el celular no resuelva nombres `.local`; necesita `qrencode`, y `[web] menu_qr = false` lo oculta). O, con el celular en la misma red que la Pi, abrí **`http://raspberrypi.local:8765/`** en el navegador. Si el celular no resuelve nombres `.local`, usá la IP de la Pi, por ejemplo `http://192.168.0.111:8765/`. En el menú del navegador, **Agregar a la pantalla de inicio** la deja como una app más. `#tidal`, `#musica` o `#sonido` al final de la dirección abren directo esa parte.
 
 La página es el mismo **menú de actividades** de la TV, con sus mismos colores: las mismas apps, con su ícono, el texto de abajo y la etiqueta «en uso» en la que está abierta.
 
 - **Tocar una app** hace lo mismo que elegirla con OK en la TV: la abre y, si la Pi está en reposo, la despierta. Tocar la que está **en uso** ofrece cerrarla (vuelve el menú en la TV) o sus opciones.
 - **El botoncito de la derecha**, como «Carpetas ▸» / «Conectar ▸» en la TV:
-  - **Videos y música**: abre una página con Videos y Música. **Videos, Música, Fotos** · *Carpetas*: elegir carpeta, entrando en las subcarpetas. Solo las configuradas: no se puede abrir cualquier carpeta de la Pi.
+  - **Videos y música**: abre una página con Videos y Música. **Videos, Fotos** · *Carpetas*: elegir carpeta, entrando en las subcarpetas. Solo las configuradas: no se puede abrir cualquier carpeta de la Pi.
+  - **Música** · *Explorar*: tu música local, como Tidal (ver abajo).
   - **Juegos** · *Juegos*: elegir el juego, o «Salir del juego».
   - **Android** · *Conectar*: tocar un celular para verlo en la TV, o «Dejar de compartir la pantalla». Vincular uno nuevo por Wi‑Fi sigue siendo desde el menú de la TV (el QR).
   - **Netflix, YouTube** · *Buscar*: escribís en el celular y los resultados aparecen en la TV. Si la app estaba cerrada, se abre. En Netflix va directo a la búsqueda; en «¿Quién está viendo?» primero hay que elegir el perfil. En YouTube abre su búsqueda con el texto puesto (tarda unos segundos porque reabre YouTube: escribir con el teclado no sirve ahí).
@@ -491,6 +492,15 @@ La página es el mismo **menú de actividades** de la TV, con sus mismos colores
 - **⋯** en un tema: reproducirlo ahora, que suene después del actual o agregarlo al final de la cola.
 - **Cola**: lo que suena, lo agregado a mano y lo que sigue. Tocar un tema salta a él.
 - Si Tidal está cerrado, poner algo lo abre (unos 10 s). Con el sonido en un parlante Bluetooth no prende la TV ni le cambia la entrada: es solo música.
+
+**Música · Explorar**: la música de las carpetas de Música (`~/Música` o un pendrive), igual que Tidal.
+- **Artistas**, **Discos** y **Temas**, ordenados por las etiquetas de los archivos (título, artista, disco, número; con `python3-mutagen`) o, si no las tienen, por las carpetas: `Artista/Disco/01 Tema.mp3`. Las tapas salen del archivo o de `cover.jpg` / `folder.jpg`. Tocar un artista o un disco muestra sus temas, con **▶ Reproducir** y **🔀 Mezclar**; en Temas, también toda la música.
+- **Carpetas**: elegir una carpeta, como en la TV.
+- **Buscar** (sin importar tildes ni mayúsculas): temas, artistas y discos. Tocar un tema pone su disco desde ese tema.
+- **⋯** en un tema: reproducirlo ahora, que suene después del actual o agregarlo al final de la cola.
+- **Cola**: lo que suena y lo que sigue. Tocar un tema salta a él.
+- Si Música está cerrada, poner algo la abre con esos temas; si ya está sonando (también de fondo, detrás de las fotos), le cambia la lista sin cerrarla. Con el sonido en un parlante Bluetooth no prende la TV.
+- La primera vez lee las etiquetas de todos los temas (unos segundos cada mil temas) y las guarda en `~/.cache/tele-cec/musica-indice.json`; después solo lee los nuevos.
 
 **Parlante Bluetooth y Wi‑Fi**: en la Pi 400 el Wi‑Fi y el Bluetooth comparten el chip. Si la Pi usa Wi‑Fi de 2,4 GHz, el sonido por Bluetooth se entrecorta mientras el celular usa la página. Con la Pi por cable conviene apagar su Wi‑Fi (`sudo nmcli radio wifi off`) o usar 5 GHz.
 
@@ -832,6 +842,7 @@ tele_cec/
 │   ├── youtube/           YouTube para TV (y la extensión H.264 para Chromium)
 │   ├── tidal/             High Tide: control, parche que se le carga y accesibilidad
 │   ├── videos.py, music.py, player.py, mpv.py   Videos y Música con mpv (mpv_scripts/: la barra y thumbfast)
+│   ├── library.py         la música local por artista, disco y tema (para el celular)
 │   ├── photos.py, media.py, folders.py   Fotos (mpv, o feh) y las carpetas de contenido
 │   ├── android.py         la pantalla del celular (scrcpy y adb)
 │   └── base.py, webprofile.py                        base de las actividades y perfiles de navegador

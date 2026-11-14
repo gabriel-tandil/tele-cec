@@ -2178,6 +2178,95 @@ echo '</mame>'
     check([Path(f).name for f in activities_mod.MusicActivity({}).files(tmp / "musica")]
           == ["1 - Uno.ogg", "2 - Dos.flac", "10 - Diez.mp3"], "Música: solo los temas, en orden natural (2 antes que 10)")
 
+    print("Música: temas elegidos desde el celular")
+    sargs2 = activities_mod.MusicActivity({"shuffle": True}).default_args(usb, tmp / "m.lst", 2)
+    check("--playlist-start=2" in sargs2 and "--shuffle" not in sargs2,
+          f"temas elegidos: en ese orden (aunque Música mezcle), desde el elegido: {sargs2}")
+    from tele_cec.apps import player as player_mod
+    mu = activities_mod.MusicActivity({"folders": [str(tmp / "musica")]})
+    mu.mpv.socket_path = tmp / "cache" / "musica-mpv.sock"   # no tocar el de verdad
+    spawned: list = []
+
+    async def fake_spawn(argv):
+        spawned.append(argv)
+        return True
+
+    async def fake_ready(timeout=10.0):
+        return True
+    mu.spawn, mu.mpv.ready = fake_spawn, fake_ready
+    orig_log_dir = player_mod.LOG_DIR
+    player_mod.LOG_DIR = tmp / "cache"
+    try:
+        chosen = [str(mdir / "2 - Dos.flac"), str(mdir / "1 - Uno.ogg")]
+        mu.want_files = (chosen, 1)
+        ok = await mu.open()
+        lst = Path(next(a for a in spawned[-1] if a.startswith("--playlist=")).split("=", 1)[1])
+        check(ok and lst.read_text().splitlines() == chosen and "--playlist-start=1" in spawned[-1]
+              and mu.want_files is None and mu.current_folder == mdir,
+              f"abre Música con esos temas (no la carpeta entera), desde el segundo: {spawned[-1]}")
+        sent: list = []
+
+        async def fake_cmd(*args, timeout=3.0):
+            sent.append(args)
+            return True, None
+        mu.mpv.command = fake_cmd
+        ok = await mu.play_files([str(mdir / "10 - Diez.mp3"), str(mdir / "1 - Uno.ogg")], 5)
+        check(ok and ("set_property", "options/playlist-start", 1) in sent
+              and sent.index(("set_property", "options/playlist-start", 1)) < next(
+                  i for i, c in enumerate(sent) if c[0] == "loadlist")
+              and ("set_property", "options/playlist-start", "auto") in sent
+              and ("set_property", "pause", False) in sent and ("set_property", "options/shuffle", False) in sent,
+              f"ya abierta: cambia la lista y arranca en el elegido (sin pasarse del último), sin pausa: {sent}")
+        sent.clear()
+        await mu.enqueue("/x/tema.mp3", True)
+        await mu.enqueue("/x/otro.mp3", False)
+        check(sent == [("loadfile", "/x/tema.mp3", "insert-next"), ("loadfile", "/x/otro.mp3", "append")],
+              f"a la cola: después del actual o al final: {sent}")
+    finally:
+        player_mod.LOG_DIR = orig_log_dir
+
+    print("Música: la biblioteca (artistas, discos, temas)")
+    from tele_cec.apps import library as library_mod
+    check(library_mod.from_path("/m/Charly García/Clics Modernos/1-02 Nos Siguen Pegando Abajo.m4a", "/m")
+          == {"title": "Nos Siguen Pegando Abajo", "artist": "Charly García", "album": "Clics Modernos",
+              "album_artist": "Charly García", "track": 2, "disc": 1}, "sin etiquetas: de las carpetas (disco-número)")
+    check(library_mod.from_path("/m/suelto.mp3", "/m")["title"] == "suelto", "un tema suelto: el nombre del archivo")
+    check(library_mod.fold("Andrés CALAMARO") == "andres calamaro", "buscar sin tildes ni mayúsculas")
+    lroot = tmp / "biblio"
+    tags = {"Comp/Rock 90/01 Uno.mp3": {"title": "Uno", "artist": "Banda A", "album": "Rock 90", "track": 1},
+            "Comp/Rock 90/02 Dos.mp3": {"title": "Dos", "artist": "Banda B", "album": "Rock 90", "track": 2},
+            "The Beatles/Help/03 Help.mp3": {"title": "Help!", "artist": "The Beatles", "album": "Help!",
+                                             "album_artist": "The Beatles", "track": 3, "dur": 140.2},
+            "Abel Pintos/Sueño Dorado/01 Aquí te espero.mp3": {}}
+    for rel in tags:
+        (lroot / rel).parent.mkdir(parents=True, exist_ok=True)
+        (lroot / rel).write_bytes(b"")
+    reads: list = []
+    orig_read = library_mod.read_tags
+
+    def fake_read(path):
+        reads.append(path)
+        return dict(tags[os.path.relpath(path, lroot)])
+    library_mod.read_tags = fake_read
+    try:
+        lib = library_mod.MusicLibrary(lambda: [lroot], tmp / "cache" / "indice.json")
+        lib.refresh()
+        check([a.name for a in lib.artists.values()] == ["Abel Pintos", "The Beatles", "Varios"],
+              f"artistas en orden («The Beatles» con la B), un disco de varios al final: {list(lib.artists.values())}")
+        beatles = next(a for a in lib.artists.values() if a.name == "The Beatles")
+        check(beatles.albums[0].title == "Help!" and beatles.songs[0].dur == 140.2, "las etiquetas mandan")
+        n = len(reads)
+        lib.refresh()
+        check(len(reads) == n, "otra vez enseguida: no vuelve a recorrer la carpeta")
+        lib2 = library_mod.MusicLibrary(lambda: [lroot], tmp / "cache" / "indice.json")
+        lib2.refresh()
+        check(len(reads) == n and len(lib2.songs) == 4, "con el índice guardado: no vuelve a leer las etiquetas")
+        (lroot / "Abel Pintos/Sueño Dorado/01 Aquí te espero.mp3").write_bytes(b"x")
+        lib2.refresh(force=True)
+        check(len(reads) == n + 1, "un archivo que cambió: solo ese se lee de nuevo")
+    finally:
+        library_mod.read_tags = orig_read
+
     print("Aviso de emparejamiento del panel del escritorio")
     from tele_cec.system import audio as audio_mod2
     from tele_cec.system import desktop as desktop_mod

@@ -6,6 +6,7 @@
   y, en Tidal, «Me gusta»;
 - abrir una app (Netflix, YouTube, Tidal…) y escribir texto en la TV (buscar en Netflix o YouTube);
 - Tidal: la biblioteca, la búsqueda y la cola, a través de High Tide (web/tidal.py);
+- la música local, igual: artistas, discos, temas, búsqueda y la cola de mpv (web/music.py);
 - el volumen de la salida actual y la salida de sonido (TV por HDMI, parlante Bluetooth…).
 
 Es un servidor HTTP mínimo con asyncio (sin dependencias). El celular pregunta el estado cada un par de segundos.
@@ -37,6 +38,7 @@ from ..system import audio, keyboard
 from ..system.procs import LOG_DIR
 from . import nowplaying
 from .menu import MenuWeb
+from .music import LocalMusicWeb
 from .tidal import TidalWeb
 
 if TYPE_CHECKING:
@@ -109,6 +111,7 @@ class WebRemote:
         self._apps: list[dict[str, Any]] = []
         self._apps_at = 0.0
         self.tidal = TidalWeb(ctl, self.launch)
+        self.music = LocalMusicWeb(ctl, self.launch)
         self.menu = MenuWeb(ctl, self.launch)
 
     # ---------------------------------------------------------------- servidor
@@ -214,6 +217,19 @@ class WebRemote:
                 return _json(await self.tidal.search(query))
             if path == "/api/tidal/queue":
                 return _json(await self.tidal.queue())
+            if path == "/api/music/library":
+                return _json(await self.music.library(query))
+            if path == "/api/music/list":
+                return _json(await self.music.items(query))
+            if path == "/api/music/search":
+                return _json(await self.music.search(query))
+            if path == "/api/music/queue":
+                return _json(await self.music.queue())
+            if path == "/api/music/art":
+                art = await self.music.art(query)
+                if art is None:
+                    return 404, b"", "text/plain", {}
+                return 200, art[0], art[1], {"Cache-Control": "max-age=86400"}
             if path in ("/", "/index.html"):
                 return _static("index.html", no_cache=True)
             if path.startswith("/icons/"):
@@ -251,6 +267,12 @@ class WebRemote:
             return _json(await self.tidal.enqueue(data))
         if path == "/api/tidal/jump":
             return _json(await self.tidal.jump(data))
+        if path == "/api/music/play":
+            return _json(await self.music.play(data))
+        if path == "/api/music/enqueue":
+            return _json(await self.music.enqueue(data))
+        if path == "/api/music/jump":
+            return _json(await self.music.jump(data))
         if path == "/api/volume":
             ok = await nowplaying.change_volume(str(data.get("change") or ""), self.volume_step)
             self._state = None

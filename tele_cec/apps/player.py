@@ -45,6 +45,8 @@ class MpvMediaActivity(MediaActivity):
         self.mpv = Mpv(LOG_DIR / f"{self.id}-mpv.sock")
         # MPRIS (mpv-mpris): para la página del celular (qué suena) y para preferir este reproductor.
         self.mpris = Mpris(str(self.cfg.get("mpris_player") or "mpv"), float(self.cfg.get("volume_step", 0.05)))
+        # Temas elegidos desde el celular para el próximo open (en vez de la carpeta): (archivos, desde cuál).
+        self.want_files: tuple[list[str], int] | None = None
 
     # ------------------------------------------------------------ proceso
     def installed(self) -> bool:
@@ -77,9 +79,11 @@ class MpvMediaActivity(MediaActivity):
         out.append("--script-opts=" + ",".join(opts))
         return out
 
-    def default_args(self, folder: Path, playlist: Path | None = None) -> list[str]:
+    def default_args(self, folder: Path, playlist: Path | None = None, start: int | None = None) -> list[str]:
         args = base_args(self.mpv.socket_path, self.TITLE) + self.scripts() + self.extra_args()
-        if self.shuffle:
+        if start is not None:
+            args.append(f"--playlist-start={start}")  # temas elegidos: en ese orden, desde ese
+        elif self.shuffle:
             args.append("--shuffle")
         return args + [f"--playlist={playlist}" if playlist else str(folder)]
 
@@ -90,30 +94,76 @@ class MpvMediaActivity(MediaActivity):
         self.fail_text = ""
         if self.command:
             return await super().open(folder)
-        if folder is None:
-            folder = await asyncio.to_thread(self.folder)
-        if folder is None:
-            log.warning("%s: no hay contenido en %s", self.name, ", ".join(map(str, self.folders)) or "(sin carpetas)")
-            return False
-        files = await asyncio.to_thread(self.files, folder)
+        start = None
+        if self.want_files:
+            (files, start), self.want_files = self.want_files, None
+            folder = folder or Path(os.path.commonpath(files) if len(files) > 1 else os.path.dirname(files[0]))
+        else:
+            if folder is None:
+                folder = await asyncio.to_thread(self.folder)
+            if folder is None:
+                log.warning("%s: no hay contenido en %s", self.name,
+                            ", ".join(map(str, self.folders)) or "(sin carpetas)")
+                return False
+            files = await asyncio.to_thread(self.files, folder)
         if not files:
             self.fail_text = self.empty_in_folder
             return False
-        playlist = self.playlist_file()
-        try:
-            playlist.parent.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(playlist.write_text, "\n".join(files) + "\n", "utf-8")
-        except OSError as exc:
-            log.warning("%s: no pude armar la lista (%s)", self.name, exc)
+        playlist = await self._write_playlist(files)
+        if playlist is None:
             return False
         self.mpv.socket_path.unlink(missing_ok=True)
-        if not await self.spawn(self.default_args(folder, playlist)):
+        if not await self.spawn(self.default_args(folder, playlist, start)):
             return False
         self.current_folder = folder
         log.info("%s: %s (%d archivos)", self.name, folder, len(files))
         if not await self.mpv.ready():
             log.warning("%s: mpv no abrió su canal de control", self.name)
         return True
+
+    async def _write_playlist(self, files: list[str]) -> Path | None:
+        playlist = self.playlist_file()
+        try:
+            playlist.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(playlist.write_text, "\n".join(files) + "\n", "utf-8")
+        except OSError as exc:
+            log.warning("%s: no pude armar la lista (%s)", self.name, exc)
+            return None
+        return playlist
+
+    # ------------------------------------------------------------ la lista (desde el celular)
+    async def play_files(self, files: list[str], start: int = 0) -> bool:
+        """Con mpv abierto: cambia la lista por estos temas y arranca en el número `start` (sin que suene antes el
+        primero: playlist-start vale para el loadlist que sigue)."""
+        playlist = await self._write_playlist(files)
+        if playlist is None:
+            return False
+        await self.mpv.set("options/shuffle", False)
+        await self.mpv.set("options/playlist-start", max(0, min(start, len(files) - 1)))
+        ok = (await self.mpv.command("loadlist", str(playlist), "replace"))[0]
+        await self.mpv.set("options/playlist-start", "auto")
+        self.shuffled = False
+        if ok:
+            await self.mpv.set("pause", False)
+            await self.osd("show")
+        return ok
+
+    async def enqueue(self, path: str, next_: bool) -> bool:
+        """Un tema más: que suene después del actual o al final de la lista."""
+        return (await self.mpv.command("loadfile", path, "insert-next" if next_ else "append"))[0]
+
+    async def jump(self, index: int) -> bool:
+        ok = (await self.mpv.command("playlist-play-index", index))[0]
+        if ok:
+            await self.mpv.set("pause", False)
+        return ok
+
+    async def playlist(self) -> tuple[list[str], int]:
+        """Los archivos de la lista y cuál suena (-1 = ninguno)."""
+        entries = await self.mpv.get("playlist") or []
+        files = [str(e.get("filename") or "") for e in entries if isinstance(e, dict)]
+        pos = await self.mpv.get("playlist-pos")
+        return files, pos if isinstance(pos, int) else -1
 
     async def close(self) -> None:
         if self.pids(fresh=True) and not self.command:

@@ -204,6 +204,139 @@ def phone_qr_test() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+async def local_music_test(ctl, port) -> None:
+    """La música local desde el celular: biblioteca, búsqueda, tapas, poner a sonar, cola."""
+    import tempfile
+    from tele_cec import apps as activities_mod
+    from tele_cec.apps import library as library_mod
+    print("Música local: biblioteca, búsqueda, poner a sonar y la cola")
+    H = {"X-Tele-CEC": "1"}
+    tmp = Path(tempfile.mkdtemp(prefix="nfx-musica-"))
+    root = tmp / "Música"
+    files = ["Soda Stereo/Canción Animal/01 Un Millón de Años Luz.mp3", "Soda Stereo/Canción Animal/02 De Música Ligera.mp3",
+             "Soda Stereo/Canción Animal/10 Cae el Sol.mp3", "Soda Stereo/Signos/01 Signos.mp3",
+             "Los Pericos/Desde Cero/05 Casi Nunca Lo Ves.mp3", "suelto.mp3", "Soda Stereo/Signos/notas.txt"]
+    for f in files:
+        (root / f).parent.mkdir(parents=True, exist_ok=True)
+        (root / f).write_bytes(b"")   # sin etiquetas: salen de las carpetas
+    (root / "Los Pericos/Desde Cero/cover.jpg").write_bytes(b"\xff\xd8\xff\xe0tapa")
+    old_log_dir = library_mod.LOG_DIR
+    library_mod.LOG_DIR = tmp
+
+    class FakeMusicAct(activities_mod.MusicActivity):
+        def __init__(self):
+            super().__init__({"folders": [str(root)]})
+            self.on = False
+            self.list: list[str] = []
+            self.pos = -1
+            self.calls: list = []
+
+        def installed(self):
+            return True
+
+        def running(self):
+            return self.on
+
+        async def play_files(self, files, start=0):
+            self.calls.append(("play_files", [Path(f).name for f in files], start))
+            self.list, self.pos = list(files), start
+            return True
+
+        async def enqueue(self, path, next_):
+            self.calls.append(("enqueue", Path(path).name, next_))
+            self.list.insert(self.pos + 1, path) if next_ else self.list.append(path)
+            return True
+
+        async def jump(self, index):
+            self.calls.append(("jump", index))
+            if not 0 <= index < len(self.list):
+                return False
+            self.pos = index
+            return True
+
+        async def playlist(self):
+            return list(self.list), self.pos
+
+    act = FakeMusicAct()
+    ctl.activities["musica"] = act
+    real_switch = ctl.switch_to
+
+    async def switch_to(ident, folder=None):
+        if ident == "musica":
+            ctl.log.append(("abre musica", [Path(f).name for f in act.want_files[0]], act.want_files[1]))
+            act.list, act.pos = act.want_files
+            act.want_files = None
+            act.on = True
+        return await real_switch(ident, folder)
+    ctl.switch_to = switch_to
+    try:
+        _, _, body = await http(port, "GET", "/api/music/library?what=artists")
+        r = json.loads(body)
+        names = [a["title"] for a in r["items"]]
+        check(names == ["Los Pericos", "Soda Stereo", "Sin artista"] and r["total"] == 3,
+              f"artistas en orden («Los Pericos» con la P) y lo suelto aparte: {names}")
+        soda = r["items"][1]
+        check("2 discos · 4 temas" in soda["sub"] and soda["img"].startswith("/api/music/art?id="), f"{soda}")
+        _, _, body = await http(port, "GET", "/api/music/library?what=songs&start=1&count=2")
+        r = json.loads(body)
+        check([s["title"] for s in r["items"]] == ["Un Millón de Años Luz", "De Música Ligera"] and r["total"] == 6,
+              f"temas en el orden de la biblioteca (artista, disco, número), de a páginas: {r['items']}")
+        _, _, body = await http(port, "GET", "/api/music/library?what=albums")
+        albums = {a["title"]: a for a in json.loads(body)["items"]}
+        check(set(albums) == {"Desde Cero", "Canción Animal", "Signos", "Música"}, f"discos: {list(albums)}")
+        _, _, body = await http(port, "GET", f"/api/music/list?type=artist&id={soda['id']}")
+        r = json.loads(body)
+        check(r["title"] == "Soda Stereo" and [a["title"] for a in r["albums"]] == ["Canción Animal", "Signos"]
+              and [s["title"] for s in r["items"]][2:] == ["Cae el Sol", "Signos"],
+              f"un artista: sus discos y sus temas (el 10 después del 2): {r['items']}")
+        _, _, body = await http(port, "GET", "/api/music/list?type=album&id=../../etc")
+        check("error" in json.loads(body), "un id que no es un id: no")
+        _, _, body = await http(port, "GET", "/api/music/search?q=MUSICA%20ligera")
+        r = json.loads(body)
+        check([s["title"] for s in r["songs"]] == ["De Música Ligera"], f"buscar sin tildes ni mayúsculas: {r}")
+        st, hdrs, body = await http(port, "GET", f"/api/music/art?id={albums['Desde Cero']['id']}&s=240")
+        check(st == 200 and hdrs.get("Content-Type") == "image/jpeg" and body.startswith(b"\xff\xd8"),
+              f"la tapa del disco (cover.jpg): {st} {hdrs.get('Content-Type')}")
+        st, _, _ = await http(port, "GET", f"/api/music/art?id={albums['Signos']['id']}")
+        check(st == 404, "un disco sin tapa: 404 (la página pone la nota)")
+
+        ctl.cur, ctl.log[:] = None, []
+        _, _, body = await http(port, "POST", "/api/music/play", {"type": "album", "id": albums["Canción Animal"]["id"],
+                                                                  "index": 1}, H)
+        check(json.loads(body)["ok"] and ("abre musica", ["01 Un Millón de Años Luz.mp3", "02 De Música Ligera.mp3",
+                                                          "10 Cae el Sol.mp3"], 1) in ctl.log
+              and act.want_files is None, f"con Música cerrada: la abre con el disco, desde el tema 2: {ctl.log}")
+        song = next(s for s in json.loads((await http(port, "GET", "/api/music/search?q=signos"))[2])["songs"])
+        _, _, body = await http(port, "POST", "/api/music/play", {"type": "song", "id": song["id"]}, H)
+        check(json.loads(body)["ok"] and act.calls[-1] == ("play_files", ["01 Signos.mp3"], 0),
+              f"abierta: le cambia la lista sin cerrarla (un tema: su disco desde ese): {act.calls}")
+        _, _, body = await http(port, "POST", "/api/music/play", {"type": "all", "index": 3, "shuffle": True}, H)
+        check(json.loads(body)["ok"] and act.calls[-1][2] == 0 and act.calls[-1][1][0] == "10 Cae el Sol.mp3"
+              and len(act.calls[-1][1]) == 6, f"todo mezclado: arranca por el elegido: {act.calls[-1]}")
+        lst = json.loads((await http(port, "GET", "/api/music/library?what=songs"))[2])["items"]
+        _, _, body = await http(port, "POST", "/api/music/enqueue", {"id": lst[0]["id"], "mode": "next"}, H)
+        r = json.loads(body)
+        check(r["ok"] and r["message"].startswith("Suena después de este") and act.list[1].endswith("Ves.mp3"),
+              f"que suene después de este: {r}")
+        _, _, body = await http(port, "GET", "/api/music/queue")
+        q = json.loads(body)
+        check(q["current"]["title"] == "Cae el Sol" and q["next"][0]["title"] == "Casi Nunca Lo Ves"
+              and q["next"][0]["n"] == 1 and q["total_next"] == 6, f"la cola: lo que suena y lo que sigue: {q}")
+        _, _, body = await http(port, "POST", "/api/music/jump", {"n": 2}, H)
+        check(json.loads(body)["ok"] and act.pos == 2, "saltar a un tema de la cola")
+        _, _, body = await http(port, "POST", "/api/music/jump", {"n": 99}, H)
+        check(not json.loads(body)["ok"], "saltar a uno que no está: lo dice")
+        st, _, _ = await http(port, "POST", "/api/music/play", {"type": "all"}, {})
+        check(st == 403, "poner a sonar sin el encabezado: no")
+        act.on = False
+        _, _, body = await http(port, "GET", "/api/music/queue")
+        check(json.loads(body).get("closed"), "la cola con Música cerrada")
+    finally:
+        library_mod.LOG_DIR = old_log_dir
+        ctl.switch_to = real_switch
+        del ctl.activities["musica"]
+
+
 def collection_playlists_test() -> None:
     import types
     """Parche de High Tide: «Mis playlists» y «Favoritas», también las guardadas en carpetas (y sin repetir)."""
@@ -797,6 +930,8 @@ async def main() -> int:
               f"YouTube cerrado: se abre directo en la búsqueda: {ctl.log} {r}")
         _, _, body = await http(port, "POST", "/api/search", {"app": "tidal", "text": "x"}, H)
         check(not json.loads(body)["ok"], "buscar solo en Netflix y YouTube")
+
+        await local_music_test(ctl, port)
     finally:
         await web.close()
 
