@@ -77,7 +77,8 @@ class MenuWeb:
             out.append({"id": ident, "name": e["name"], "icon": icon_url(e.get("icon", "")),
                         "sub": e.get("sub", ""), "enabled": bool(e.get("enabled", True)),
                         "current": bool(e.get("current")), "badge": e.get("badge") or "",
-                        "option": option, "chip": chip, "running": bool(act is not None and act.running())})
+                        "option": option, "chip": chip, "running": bool(act is not None and act.running()),
+                        "background": bool(e.get("background"))})
         return out
 
     async def items(self) -> dict[str, Any]:
@@ -93,6 +94,8 @@ class MenuWeb:
                 if it["id"] in self.ctl.activities:
                     it["current"] = it["id"] == cur
                     it["running"] = self.ctl.activities[it["id"]].running()
+            if any(it.get("background") for it in self._items):
+                await self.ctl._menu_playback(self._items)  # «sonando» / «en pausa»: cambia seguido
             return {"title": "Actividades", "items": self._items}
 
     # ---------------------------------------------------------------- carpetas (Videos, Fotos)

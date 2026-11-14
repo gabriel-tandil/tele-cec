@@ -536,6 +536,35 @@ async def main() -> int:
               f"las filas del menú de la TV (sin la Ayuda), con su botoncito y la actual marcada: "
               f"{[(i['id'], i['chip'], i['current']) for i in r['items']]}")
 
+        # Tidal de fondo (detrás de Fotos): «sonando» solo si suena de verdad.
+        ctl.cur = "videos"
+        bg_state = ["Paused"]
+
+        async def playback():
+            return bg_state[0]
+        ctl.activities["tidal"].playback = playback
+        ctl._menu_playback = types.MethodType(MenuMixin._menu_playback, ctl)
+        plain = menu_entries
+
+        def menu_entries_bg():
+            out = plain()
+            for it in out:
+                if it["id"] == "tidal":
+                    it.update(badge="sonando", background=True)
+            return out
+        ctl._menu_entries = menu_entries_bg
+        web.menu.invalidate()
+        _, _, body = await http(port, "GET", "/api/menu")
+        tid = next(it for it in json.loads(body)["items"] if it["id"] == "tidal")
+        check(tid["badge"] == "en pausa", f"Tidal de fondo en pausa: el celular dice «en pausa»: {tid['badge']}")
+        bg_state[0] = "Playing"
+        _, _, body = await http(port, "GET", "/api/menu")
+        tid = next(it for it in json.loads(body)["items"] if it["id"] == "tidal")
+        check(tid["badge"] == "sonando", f"y «sonando» en cuanto vuelve a sonar (sin esperar): {tid['badge']}")
+        ctl._menu_entries = plain
+        ctl.cur = "tidal"
+        web.menu.invalidate()
+
         _, _, body = await http(port, "GET", "/api/folders?app=videos")
         r = json.loads(body)
         check(r["items"] and r["items"][0]["kind"] == "dir" and r["items"][0]["path"] == str(tmp),
