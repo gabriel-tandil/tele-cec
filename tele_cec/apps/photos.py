@@ -260,9 +260,11 @@ class PhotosActivity(MediaActivity):
         delay = float(self.cfg.get("delay_s", 8))
         args = base_args(self.mpv.socket_path, self.TITLE) + [
             f"--image-display-duration={delay:g}", "--loop-playlist=inf", "--background-color=#000000",
-            f"--playlist={playlist}", f"--playlist-start={start}"]
+            f"--playlist={playlist}"]
         if self.shuffle:
-            args.append("--shuffle")
+            args.append("--shuffle")  # al azar no hay «desde dónde» (empezaba siempre por el primero de la lista)
+        else:
+            args.append(f"--playlist-start={start}")
         return args
 
     async def _open_mpv(self, files: list[str], start: str | None) -> bool:

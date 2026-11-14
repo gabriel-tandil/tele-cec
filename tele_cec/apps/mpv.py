@@ -33,6 +33,9 @@ MPRIS_PLUGIN = ("/usr/lib/mpv-mpris/mpris.so", "/etc/mpv/scripts/mpris.so", "/us
                 "/usr/lib/x86_64-linux-gnu/mpv-mpris/mpris.so", "/usr/lib/aarch64-linux-gnu/mpv-mpris/mpris.so")
 
 
+HWDEC = "v4l2m2m,drm,auto-safe"
+
+
 def mpv_pids(socket_path: Path, fresh: bool = False) -> list[int]:
     """El mpv que se abrió con ese canal de control (no otro mpv, ni el de las miniaturas)."""
     flag = f"--input-ipc-server={socket_path}"
@@ -47,8 +50,10 @@ def mpris_plugin() -> str:
 def base_args(socket_path: Path, title: str) -> list[str]:
     """Lo que comparten todos los mpv de tele-cec: pantalla completa, sin la configuración personal ni la barra
     propia de mpv, sin puntero y con canal de control."""
+    # Decodificar con el hardware de la Pi: v4l2m2m (H.264) y drm (HEVC); si no hay, el automático. Con
+    # «auto-safe» la Pi 400 decodificaba todo con el procesador: en 1080p perdía 130 cuadros cada 12 s (trabado).
     return ["mpv", "--fs", "--no-terminal", "--load-scripts=no", "--osc=no", "--osd-level=0", "--title=" + title,
-            "--force-window=yes", "--cursor-autohide=always", "--hwdec=auto-safe", "--keep-open=no",
+            "--force-window=yes", "--cursor-autohide=always", f"--hwdec={HWDEC}", "--keep-open=no",
             f"--input-ipc-server={socket_path}"]
 
 

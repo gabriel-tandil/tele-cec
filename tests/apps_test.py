@@ -2071,6 +2071,11 @@ echo '</mame>'
     check(margs[0] == "mpv" and "--fs" in margs and "--image-display-duration=6" in margs
           and "--playlist-start=3" in margs and any(a.startswith("--input-ipc-server=") for a in margs),
           f"mpv: pantalla completa, el mismo tiempo por foto, desde ahí y con canal de control: {margs}")
+    pm.shuffle = True
+    sargs = pm.mpv_args(tmp / "cache" / "p.lst", 3)
+    check("--shuffle" in sargs and not any(a.startswith("--playlist-start") for a in sargs),
+          f"al azar: sin «desde dónde» (si no, empieza siempre por el mismo): {sargs[-3:]}")
+    pm.shuffle = False
 
     class FakeMpv:
         def __init__(self):
