@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -818,6 +819,21 @@ async def main() -> int:
         videos.browse_on_ok = videos.pick_files = False
         ctl._foreground = None
         await ctl.menu_close()
+
+    print("Fotos: los modos del selector según lo que haya en la carpeta")
+    if shutil.which("mpv"):
+        fdirs = {k: tmp / "fmodos" / k for k in ("vacia", "solo-video", "fotos")}
+        for d in fdirs.values():
+            d.mkdir(parents=True)
+        (fdirs["solo-video"] / "v.mp4").write_bytes(b"")
+        (fdirs["fotos"] / "a.jpg").write_bytes(b"")
+        for k, want in (("vacia", [False, False, False]), ("solo-video", [False, True, True]),
+                        ("fotos", [True, True, False])):
+            _, its = ctl._picker_entries("fotos", fdirs[k])
+            got = [it["enabled"] for it in its if it["kind"] == "play"]
+            check(got == want, f"{k}: Ver las fotos / Fotos y videos / Solo los videos habilitadas = {got}")
+        _, its = ctl._picker_entries("fotos", fdirs["vacia"])
+        check(its[1]["sub"] == "No hay fotos ni videos en esta carpeta", f"y dice por qué: {its[1]['sub']}")
 
     print("app:<actividad> (para ponerla en un color)")
     await ctl.run_action("app:tidal")

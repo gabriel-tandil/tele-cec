@@ -579,10 +579,14 @@ class MenuMixin:
             # Los otros modos (▼ también los cambia mientras se mira). Cuántos hay se sabe si ya se recorrió.
             counts = act.counts(path)
             videos = counts[1] if counts else None
+            if videos is None and activities_mod.count_media(path, activities_mod.VIDEO_EXT) == 0:
+                videos = 0  # sin la lista guardada: alcanza con saber si hay alguno (corta en el primero)
             no_videos = videos == 0
+            nothing = no_videos and not has
             items.append({"kind": "play", "mode": "mixed", "path": str(path), "name": "▶ Fotos y videos",
-                          "icon": "media-playback-start", "enabled": True, "current": False,
-                          "sub": "las fotos y, en su lugar, los videos" + (f" ({videos})" if videos else "")})
+                          "icon": "media-playback-start", "enabled": not nothing, "current": False,
+                          "sub": "No hay fotos ni videos en esta carpeta" if nothing
+                          else "las fotos y, en su lugar, los videos" + (f" ({videos})" if videos else "")})
             items.append({"kind": "play", "mode": "videos", "path": str(path), "name": "▶ Solo los videos",
                           "icon": "media-playback-start", "enabled": not no_videos, "current": False,
                           "sub": "No hay videos en esta carpeta" if no_videos
