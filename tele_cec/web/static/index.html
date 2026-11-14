@@ -406,7 +406,7 @@ function folderPage(app, path) {
         rows.appendChild(row(it, () => {
           if (f.kind === "dir") show(folderPage(app, f.path));
           else if (!f.enabled) toast(f.sub || "No hay nada para mostrar");
-          else openApp(app, {folder: f.path});
+          else openApp(app, f.mode ? {folder: f.path, mode: f.mode} : {folder: f.path});
         }, {badges: false}));
       });
       body.replaceChildren(rows);

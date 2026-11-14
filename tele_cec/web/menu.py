@@ -135,7 +135,7 @@ class MenuWeb:
             return {"error": "No hay carpetas configuradas"}
         return {"title": title, "app": ident, "path": str(path) if path else "",
                 "items": [{"kind": it["kind"], "path": it["path"], "name": it["name"], "sub": it.get("sub", ""),
-                           "enabled": bool(it.get("enabled", True))} for it in items]}
+                           "enabled": bool(it.get("enabled", True)), "mode": it.get("mode") or ""} for it in items]}
 
     # ---------------------------------------------------------------- juegos
     async def games(self) -> dict[str, Any]:

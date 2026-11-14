@@ -729,6 +729,11 @@ async def main() -> int:
               f"elegir una carpeta la abre: {ctl.log}")
         _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": str(outside)}, H)
         check(not json.loads(body)["ok"], "abrir una carpeta de afuera: no")
+        _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": str(tmp / "Vacaciones"),
+                                                           "mode": "mixed"}, H)
+        check(not json.loads(body)["ok"], "el modo (fotos y videos…) es solo de Fotos")
+        _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "mode": "cualquiera"}, H)
+        check(not json.loads(body)["ok"], "un modo desconocido: no")
 
         _, _, body = await http(port, "GET", "/api/android")
         r = json.loads(body)

@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .. import apps as activities_mod
+from ..apps.photos import MODES
 from ..keys import parse_key
 from ..system import audio, keyboard
 from ..system.procs import LOG_DIR
@@ -301,6 +302,10 @@ class WebRemote:
         """/api/app: {id} y, según la app, {folder} (Videos, Fotos), {rom} (Juegos) o {serial} (Android)."""
         ident = str(data.get("id") or "")
         folder: str | None = None
+        mode = str(data.get("mode") or "") or None
+        if mode is not None and (mode not in MODES or not isinstance(self.ctl.activities.get(ident),
+                                                                       activities_mod.PhotosActivity)):
+            return {"ok": False, "error": "pedido inválido"}
         if data.get("folder"):
             path = self.menu.allowed_folder(ident, str(data["folder"]))
             if path is None:
@@ -322,9 +327,9 @@ class WebRemote:
             act.want_serial = serial
         elif ident == "juegos" and isinstance(self.ctl.activities.get(ident), activities_mod.MameActivity):
             return {"ok": False, "error": "Elegí un juego"}  # sin uno por defecto (no el último que se jugó)
-        return await self.launch(ident, folder)
+        return await self.launch(ident, folder, mode)
 
-    async def launch(self, ident: str, folder: str | None = None) -> dict[str, Any]:
+    async def launch(self, ident: str, folder: str | None = None, mode: str | None = None) -> dict[str, Any]:
         """Abrir una app desde el celular, como elegirla en el menú. Despierta a la Pi si está en reposo. Tidal con
         el sonido en un parlante Bluetooth no prende la TV ni le cambia la entrada (es solo música). Con folder:
         esa carpeta (Videos, Fotos), ese juego (Juegos) o esa dirección (YouTube)."""
@@ -359,7 +364,7 @@ class WebRemote:
         ok = False
         try:
             await ctl.overlay.busy(f"Abriendo {act.name}…")
-            ok = await ctl.switch_to(ident, folder)
+            ok = await ctl.switch_to(ident, folder, mode) if mode else await ctl.switch_to(ident, folder)
         finally:
             ctl._no_activate = before
             await ctl.overlay.hide()
