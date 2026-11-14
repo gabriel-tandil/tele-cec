@@ -78,6 +78,12 @@ class Overlay(HelperProcess):
         """chip: el foco en el botoncito de la fila («Carpetas», «Conectar»)."""
         return await self.send({"op": "select", "index": index, "chip": chip})
 
+    async def level(self, index: int, item: dict) -> bool:
+        """Cambia la barra (y el «en silencio») de una fila con nivel, sin volver a armar la lista."""
+        return await self.send({"op": "level", "index": index, "level": item.get("level", -1),
+                                "muted": bool(item.get("muted")), "badge": item.get("badge") or "",
+                                "icon": item.get("icon") or ""})
+
     async def busy(self, text: str) -> bool:
         return await self.send({"op": "busy", "text": text})
 

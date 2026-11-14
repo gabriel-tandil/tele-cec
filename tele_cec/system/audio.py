@@ -28,6 +28,8 @@ from .procs import graphical_env, run_cmd
 
 log = logging.getLogger("sonido")
 
+SINK = "@DEFAULT_AUDIO_SINK@"  # el volumen y el silencio son los de la salida actual
+
 BT_AUDIO_UUID = "0000110b"  # «Audio Sink»: el dispositivo reproduce audio (parlante, auriculares)
 # Íconos que BlueZ deduce de la clase del dispositivo: parlante o equipo de audio, auriculares con y sin micrófono.
 BT_AUDIO_ICONS = {"audio-card", "audio-headset", "audio-headphones"}
@@ -237,6 +239,44 @@ def list_outputs() -> list[Output]:
 def current_name() -> str:
     cur = next((o for o in list_outputs() if o.default), None)
     return cur.name if cur else ""
+
+
+# ---------------------------------------------------------------- volumen (el menú de la TV y el celular)
+def parse_volume(text: str) -> tuple[int | None, bool]:
+    """`wpctl get-volume` → (porcentaje, silenciado). «Volume: 0.40 [MUTED]» → (40, True)."""
+    m = re.search(r"Volume:\s*([\d.]+)", text)
+    if not m:
+        return None, False
+    return round(float(m.group(1)) * 100), "MUTED" in text
+
+
+def volume_now() -> tuple[int | None, bool]:
+    """Lo mismo que get_volume, sin async (para el menú, que se arma en un hilo aparte)."""
+    return parse_volume(_run(["wpctl", "get-volume", SINK], 3))
+
+
+async def get_volume() -> tuple[int | None, bool]:
+    """(porcentaje, silenciado) de la salida actual; (None, False) si no se sabe."""
+    rc, out = await run_cmd(["wpctl", "get-volume", SINK], 3)
+    return parse_volume(out) if rc == 0 else (None, False)
+
+
+async def change_volume(what: str, step: int = 5) -> bool:
+    """«+» / «-» (de a step %), «=40» (fijarlo en 40 %) o «mute» (silencio sí/no). Subir, bajar o fijar el
+    volumen también saca el silencio (como en una tele)."""
+    if what == "mute":
+        rc, _ = await run_cmd(["wpctl", "set-mute", SINK, "toggle"], 3)
+        return rc == 0
+    if what in ("+", "-"):
+        amount = f"{step}%{what}"
+    elif re.fullmatch(r"=\d{1,3}", what):
+        amount = f"{min(100, int(what[1:]))}%"
+    else:
+        return False
+    rc, _ = await run_cmd(["wpctl", "set-volume", "-l", "1.0", SINK, amount], 3)
+    if rc == 0:
+        await run_cmd(["wpctl", "set-mute", SINK, "0"], 3)
+    return rc == 0
 
 
 def default_kind() -> str:

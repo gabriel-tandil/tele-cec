@@ -131,6 +131,18 @@ def _css(font: int) -> bytes:
     .row.near .chip {{ background-color: #f2f2f2; color: #111111; border-color: #f2f2f2; }}
     .row.near.off {{ opacity: 0.95; }}   /* sin contenido: el botoncito («Carpetas») justo sirve para elegir otra */
     .row.near.off .name, .row.near.off .sub {{ opacity: 0.5; }}
+    .pct {{ font-size: {px(0.8)}; font-weight: bold; font-feature-settings: "tnum"; }}
+    .row levelbar trough {{ min-height: {px(0.28)}; border: none; padding: 0; border-radius: {px(0.2)};
+        background-image: none; background-color: rgba(255, 255, 255, 0.16); box-shadow: none; }}
+    .row levelbar trough block {{ min-height: {px(0.28)}; border: none; border-radius: {px(0.2)};
+        background-image: none; box-shadow: none; }}
+    .row levelbar trough block.filled {{ background-color: #f2f2f2; }}
+    .row levelbar trough block.empty {{ background-color: transparent; }}
+    .row.sel levelbar trough {{ background-color: rgba(0, 0, 0, 0.14); }}
+    .row.sel levelbar trough block.filled {{ background-color: #111111; }}
+    .row.muted levelbar trough block.filled {{ background-color: rgba(255, 255, 255, 0.4); }}
+    .row.sel.muted levelbar trough block.filled {{ background-color: rgba(0, 0, 0, 0.35); }}
+    .row.muted .pct {{ opacity: 0.5; }}
     .hint {{ font-size: {px(0.6)}; opacity: 0.62; }}
     .more {{ font-size: {px(0.55)}; opacity: 0.55; }}
     .help-keys {{ font-size: {px(0.88)}; font-weight: bold; }}
@@ -357,10 +369,26 @@ class Panel:
         lbl.set_size_request(self.icon_px, self.icon_px)
         return lbl
 
+    def _set_level(self, i: int, it: dict) -> None:
+        bar, pct, badge, row = self.levels[i]
+        level = int(it.get("level", -1))
+        bar.set_value(max(0, min(100, level)))
+        pct.set_text(f"{level} %" if level >= 0 else "")
+        (row.get_style_context().add_class if it.get("muted") else row.get_style_context().remove_class)("muted")
+        if badge is not None:
+            badge.set_text(str(it.get("badge") or ""))
+            badge.set_visible(bool(it.get("badge")))
+        icon = str(it.get("icon") or "")
+        img = next((c for c in row.get_children() if isinstance(c, Gtk.Image)), None)
+        if img is not None and icon and Gtk.IconTheme.get_default().has_icon(icon):
+            img.set_from_icon_name(icon, Gtk.IconSize.DIALOG)
+            img.set_pixel_size(self.icon_px)
+
     def _build_rows(self) -> None:
         for child in self.list_box.get_children():
             self.list_box.remove(child)
         self.rows = []
+        self.levels: dict[int, tuple] = {}
         cols = self.columns if len(self.items) > 1 else 1
         per_col = -(-len(self.items) // cols)  # filas por columna (la primera se llena primero)
         grid = None
@@ -389,11 +417,14 @@ class Panel:
             # «en uso» / «sonando» al lado del nombre (ahí sobra lugar): la derecha queda para el botoncito.
             name_line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=round(self.font * 0.4))
             name_line.pack_start(name, False, True, 0)
-            if it.get("current") or it.get("badge"):
-                badge = Gtk.Label(label=str(it.get("badge") or "en uso"))
+            has_level = "level" in it  # la fila «Volumen»: porcentaje y barra
+            badge = None
+            if it.get("current") or it.get("badge") or has_level:
+                badge = Gtk.Label(label=str(it.get("badge") or ("" if has_level else "en uso")))
                 badge.get_style_context().add_class("badge")
                 badge.set_valign(Gtk.Align.CENTER)
                 name_line.pack_start(badge, False, False, 0)
+                badge.set_no_show_all(not badge.get_label())
             texts.pack_start(name_line, False, False, 0)
             sub = Gtk.Label(label=str(it.get("sub") or ""), xalign=0)
             sub.get_style_context().add_class("sub")
@@ -401,6 +432,19 @@ class Panel:
             texts.pack_start(sub, False, False, 0)
             sub.set_no_show_all(not it.get("sub"))
             row.pack_start(texts, True, True, 0)
+            if has_level:
+                pct = Gtk.Label(label="", xalign=1)
+                pct.get_style_context().add_class("pct")
+                pct.set_width_chars(5)
+                bar = Gtk.LevelBar(min_value=0, max_value=100, mode=Gtk.LevelBarMode.CONTINUOUS)
+                for offset in (Gtk.LEVEL_BAR_OFFSET_LOW, Gtk.LEVEL_BAR_OFFSET_HIGH, Gtk.LEVEL_BAR_OFFSET_FULL):
+                    bar.remove_offset_value(offset)  # sin los colores de «bajo / alto»: una sola barra
+                bar.set_valign(Gtk.Align.CENTER)
+                bar.set_margin_top(round(self.font * 0.2))
+                texts.pack_start(bar, False, False, 0)
+                row.pack_end(pct, False, False, 0)
+                self.levels[i] = (bar, pct, badge, row)
+                self._set_level(i, it)
             if it.get("action"):
                 chip = Gtk.Label(label=str(it["action"]) + " ▸")
                 chip.get_style_context().add_class("chip")
@@ -623,6 +667,11 @@ class Panel:
             self.selected = max(0, min(int(msg.get("index") or 0), len(self.items) - 1))
             self.chip = bool(msg.get("chip"))
             self._paint_selection()
+        elif op == "level":  # la barra de una fila («Volumen»), sin volver a armar la lista
+            i = int(msg.get("index") or 0)
+            if i in getattr(self, "levels", {}):
+                self.items[i].update({k: msg.get(k) for k in ("level", "muted", "badge", "icon")})
+                self._set_level(i, self.items[i])
         elif op == "help":
             self._show_help(msg)
         elif op == "image":
@@ -718,6 +767,16 @@ def _capture(path: str, page: str) -> int:
         panel.handle({"op": "busy", "text": "Abriendo Videos…"})
     elif page == "toast":
         panel.handle({"op": "toast", "text": "Tidal no está instalado", "ms": 5000})
+    elif page in ("sonido", "silencio"):
+        mute = page == "silencio"
+        panel.handle({"op": "show", "title": "Sonido", "numbers": False, "selected": 0,
+                      "hint": "▲ ▼ elegir · Volumen: ◀ ▶ bajar o subir, OK silencio · OK usar esa salida",
+                      "items": [{"name": "Volumen", "icon": "audio-volume-muted" if mute else "audio-volume-high",
+                                 "level": 40, "muted": mute, "badge": "en silencio" if mute else ""},
+                                {"name": "TV (HDMI)", "icon": "video-display", "sub": "HDMI"},
+                                {"name": "KN320", "icon": "bluetooth", "sub": "Bluetooth", "current": True}]})
+        if mute:
+            panel.handle({"op": "select", "index": 2})
     else:
         panel.handle({"op": "show", "items": DEMO_ITEMS, "selected": 2})
     panel.win.show_all()
@@ -740,7 +799,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="tele_cec.ui.menu_ui", description=__doc__.splitlines()[0])
     ap.add_argument("--demo", action="store_true", help="mostrar el panel con opciones de ejemplo y salir")
     ap.add_argument("--captura", metavar="PNG", help="guardar una imagen del panel y salir")
-    ap.add_argument("--pagina", choices=("menu", "busy", "toast"), default="menu", help="qué capturar")
+    ap.add_argument("--pagina", choices=("menu", "busy", "toast", "sonido", "silencio"), default="menu", help="qué capturar")
     args = ap.parse_args(argv)
     if not Gtk.init_check(sys.argv)[0]:
         print("menu_ui: no hay sesión gráfica (WAYLAND_DISPLAY/DISPLAY)", file=sys.stderr, flush=True)

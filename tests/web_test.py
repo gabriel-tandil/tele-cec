@@ -574,6 +574,10 @@ async def main() -> int:
 
         _, _, body = await http(port, "POST", "/api/volume", {"change": "+"}, {"X-Tele-CEC": "1"})
         check(json.loads(body)["ok"] and calls[-1] == ("vol", "+", 5), "volumen +")
+        _, _, body = await http(port, "POST", "/api/volume", {"level": 73}, {"X-Tele-CEC": "1"})
+        check(json.loads(body)["ok"] and calls[-1] == ("vol", "=73", 5), f"la barra: fijar el volumen en 73 %: {calls[-1]}")
+        await http(port, "POST", "/api/volume", {"level": 250}, {"X-Tele-CEC": "1"})
+        check(calls[-1] == ("vol", "=100", 5), f"como mucho 100 %: {calls[-1]}")
 
         _, _, body = await http(port, "POST", "/api/sound", {"id": "AA:BB:CC:DD:EE:FF"}, {"X-Tele-CEC": "1"})
         r = json.loads(body)
@@ -807,8 +811,8 @@ async def main() -> int:
                 act = ctl.activities[ident]
                 out.append({"id": ident, "name": act.name, "icon": getattr(act, "icon", ""), "sub": "algo",
                             "enabled": True, "current": ident == ctl.cur})
-            out.append({"id": "_sound", "name": "Sonido", "icon": "sonido.svg", "sub": "TV (HDMI)", "enabled": True,
-                        "current": False})
+            out.append({"id": "_sound", "name": "Sonido", "icon": "sonido.svg", "sub": "TV (HDMI) · volumen 40 %",
+                        "output": "TV (HDMI)", "enabled": True, "current": False})
             out.append({"id": "_help", "name": "Ayuda", "icon": "ayuda.svg", "sub": "", "enabled": True,
                         "current": False})
             return out
@@ -822,7 +826,7 @@ async def main() -> int:
               and rows["videos"]["option"] == "folders" and rows["videos"]["chip"] == "Carpetas"
               and rows["android"]["chip"] == "Conectar" and rows["tidal"]["chip"] == "Explorar"
               and rows["netflix"]["option"] == "search" and rows["tidal"]["current"]
-              and rows["netflix"]["icon"] == "/icons/netflix.svg",
+              and rows["netflix"]["icon"] == "/icons/netflix.svg" and rows["_sound"]["sub"] == "TV (HDMI)",
               f"las filas del menú de la TV (sin la Ayuda), con su botoncito y la actual marcada: "
               f"{[(i['id'], i['chip'], i['current']) for i in r['items']]}")
 

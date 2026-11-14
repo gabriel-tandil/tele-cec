@@ -22,7 +22,9 @@ log = logging.getLogger("tele")
 MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Juegos, Android) · Atrás cerrar"
 GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar"
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
-SOUND_HINT = "▲ ▼ elegir · OK usar esta salida · ◀ volver"
+SOUND_HINT = "▲ ▼ elegir · Volumen: ◀ ▶ bajar o subir, OK silencio · OK usar esa salida · Atrás volver"
+VOLUME_STEP = 5        # % por cada ◀ ▶ en la fila «Volumen»
+SOUND_FIRST = 1        # en Sonido, las salidas empiezan después de la fila «Volumen»
 BT_SCAN_SECONDS = 25   # cuánto se buscan parlantes y auriculares Bluetooth al abrir «Sonido»
 BT_POLL_SECONDS = 2.0  # cada cuánto se mira qué encontró la búsqueda
 HELP_HINT = "◀ ▶ otra app · ▲ ▼ más filas · Atrás volver"
@@ -133,6 +135,7 @@ class MenuMixin:
         self._help_from_menu = False
         # Salida de sonido (entrada «Sonido» del menú): las salidas que se mostraron.
         self._sound_outputs: list[audio.Output] = []
+        self._sound_volume: tuple[int | None, bool] = (None, False)  # (porcentaje, silencio) de la fila «Volumen»
         self._sound_on = bool(self.cfg.menu.get("sound", True))
         self.phone_qr = None  # la página del celular lo pone (WebRemote.phone_qr): el QR abajo del menú
         self._bt_scan = audio.BluetoothScan()
@@ -235,8 +238,14 @@ class MenuMixin:
             except Exception:  # noqa: BLE001  (sin la salida actual, el menú igual se abre)
                 log.exception("Menú: no pude leer la salida de sonido")
                 current = ""
+            try:
+                level, muted = audio.volume_now()
+            except Exception:  # noqa: BLE001
+                level, muted = None, False
+            vol = "en silencio" if muted else f"volumen {level} %" if level is not None else ""
             out.append({"id": "_sound", "name": "Sonido", "icon": "sonido.svg",
-                        "sub": current or "Elegir por dónde sale el sonido", "enabled": True, "current": False})
+                        "sub": " · ".join(x for x in (current, vol) if x) or "Elegir por dónde sale el sonido",
+                        "output": current, "enabled": True, "current": False})
         out.append({"id": "_help", "name": "Ayuda", "icon": "ayuda.svg", "sub": "Qué hace cada tecla del control",
                     "enabled": True, "current": False})
         return out
@@ -527,6 +536,8 @@ class MenuMixin:
             # Amarillo: las opciones de la fila resaltada (carpetas, conectar el celular, juegos, salidas).
             if not (self._menu_mode == "activities" and await self._menu_options(self._menu_sel)):
                 self._menu_restart_timer()
+        elif sub in ("left", "right") and self._menu_mode == "sound" and self._menu_sel < SOUND_FIRST:
+            await self._volume_change("+" if sub == "right" else "-")
         elif sub == "right":
             if self._menu_mode == "folders":
                 await self._picker_enter(self._menu_sel)
@@ -738,14 +749,35 @@ class MenuMixin:
             self._menu_restart_timer()
             return
         self._sound_outputs = outs
+        self._sound_volume = await audio.get_volume()
         self._sound_scanning = self._bt_scan.available()  # la fila dice «Buscando…» desde el primer momento
-        await self._sound_render(next((i for i, o in enumerate(outs) if o.default), 0))
+        await self._sound_render(SOUND_FIRST + next((i for i, o in enumerate(outs) if o.default), 0))
         log.info("Menú: salidas de sonido: %s", " · ".join(("[" + o.name + "]") if o.default else o.name for o in outs))
         self._sound_scan_start()
 
+    def _volume_item(self) -> dict:
+        """La fila «Volumen» (la primera de Sonido): con barra; ◀ ▶ lo cambian y OK pone o saca el silencio."""
+        level, muted = self._sound_volume
+        return {"id": "_vol", "name": "Volumen", "icon": "audio-volume-muted" if muted else "audio-volume-high",
+                "sub": "" if level is not None else "No sé cuánto está", "level": level if level is not None else -1,
+                "muted": muted, "badge": "en silencio" if muted else "", "enabled": level is not None,
+                "current": False}
+
+    async def _volume_change(self, what: str) -> None:
+        """◀ ▶ (bajar, subir) u OK (silencio) sobre la fila «Volumen»."""
+        await audio.change_volume(what, VOLUME_STEP)
+        self._sound_volume = await audio.get_volume()
+        level, muted = self._sound_volume
+        log.info("Menú: volumen %s", "en silencio" if muted else f"{level} %")
+        if self._in_sound():
+            self._menu_items[0] = self._volume_item()
+            await self.overlay.level(0, self._menu_items[0])
+        self._menu_restart_timer()
+
     def _sound_items(self) -> list[dict]:
         icons = {"bluetooth": "bluetooth", "hdmi": "video-display"}
-        items = [{"id": f"_out{i}", "name": o.name, "icon": icons.get(o.kind, "audio-speakers"), "sub": o.detail,
+        items = [self._volume_item()]
+        items += [{"id": f"_out{i}", "name": o.name, "icon": icons.get(o.kind, "audio-speakers"), "sub": o.detail,
                   "enabled": True, "current": o.default} for i, o in enumerate(self._sound_outputs)]
         if self._bt_scan.available():
             if self._sound_scanning:
@@ -760,7 +792,7 @@ class MenuMixin:
         items = self._sound_items()
         sel = max(0, min(sel, len(items) - 1))
         self._menu_mode, self._menu_items, self._menu_sel = "sound", items, sel
-        await self.overlay.show(items, sel, title="Sonido · por dónde sale", hint=SOUND_HINT, numbers=False)
+        await self.overlay.show(items, sel, title="Sonido", hint=SOUND_HINT, numbers=False)
         self._menu_restart_timer()
 
     def _sound_scan_start(self) -> None:
@@ -792,7 +824,7 @@ class MenuMixin:
                     continue
                 log.info("Bluetooth: encontré %s", ", ".join(o.name for o in new))
                 sel = self._menu_sel
-                if sel >= len(self._sound_outputs):  # estaba sobre la fila de búsqueda: que siga ahí
+                if sel >= SOUND_FIRST + len(self._sound_outputs):  # estaba sobre la fila de búsqueda: que siga ahí
                     sel += len(new)
                 self._sound_outputs += new
                 await self._sound_render(sel)
@@ -808,10 +840,14 @@ class MenuMixin:
         if index != self._menu_sel:
             self._menu_sel = index
             await self.overlay.select(index)
+        if index < SOUND_FIRST:  # la fila «Volumen»: OK = silencio
+            await self._volume_change("mute")
+            return
+        index -= SOUND_FIRST
         if index >= len(self._sound_outputs):  # la fila de búsqueda
             if not self._sound_scanning:
                 self._sound_scanning = True
-                await self._sound_render(index)
+                await self._sound_render(SOUND_FIRST + index)
                 self._sound_scan_start()
             else:
                 self._menu_restart_timer()

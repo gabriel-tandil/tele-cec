@@ -251,6 +251,11 @@ class FakeOverlay:
         self.log.append(f"ov:status:{text}")
         return True
 
+    async def level(self, index: int, item: dict) -> bool:
+        self.items[index] = item
+        self.log.append(f"ov:level:{index}:{item.get('level')}" + (":mute" if item.get("muted") else ""))
+        return True
+
     async def busy(self, text: str) -> bool:
         self.busy_on = True
         self.log.append(f"ov:busy:{text}")
@@ -2131,8 +2136,26 @@ echo '</mame>'
     def fake_nearby(skip):
         found = nearby.pop(0) if nearby else []
         return [o for o in found if o.mac not in skip]
+    vol = {"level": 40, "muted": False}
+    vol_calls: list[str] = []
+
+    async def fake_change_volume(what, step=5):
+        vol_calls.append(what)
+        if what == "mute":
+            vol["muted"] = not vol["muted"]
+        else:
+            vol["level"] = max(0, min(100, vol["level"] + (step if what == "+" else -step))) if what in "+-" else int(what[1:])
+            vol["muted"] = False
+        return True
+
+    async def fake_get_volume():
+        return vol["level"], vol["muted"]
     saved_audio = (audio_mod.available, audio_mod.list_outputs, audio_mod.current_name, audio_mod.select,
-                   audio_mod.bt_nearby_audio, menu_mod.BT_SCAN_SECONDS, menu_mod.BT_POLL_SECONDS, ctl._bt_scan)
+                   audio_mod.bt_nearby_audio, menu_mod.BT_SCAN_SECONDS, menu_mod.BT_POLL_SECONDS, ctl._bt_scan,
+                   audio_mod.change_volume, audio_mod.get_volume, audio_mod.volume_now)
+    audio_mod.change_volume = fake_change_volume  # type: ignore[assignment]
+    audio_mod.get_volume = fake_get_volume  # type: ignore[assignment]
+    audio_mod.volume_now = lambda: (vol["level"], vol["muted"])  # type: ignore[assignment]
     audio_mod.available = lambda: True  # type: ignore[assignment]
     audio_mod.list_outputs = lambda: [audio_mod.Output(**vars(o)) for o in outs]  # type: ignore[assignment]
     audio_mod.current_name = lambda: next(o.name for o in outs if o.default)  # type: ignore[assignment]
@@ -2144,32 +2167,48 @@ echo '</mame>'
     ctl._sound_on = True
     try:
         await press("ROOT_MENU")
-        check(menu_names()[-2:] == ["Sonido", "Ayuda"] and ctl.overlay.items[-2]["sub"] == "TV (HDMI)",
+        check(menu_names()[-2:] == ["Sonido", "Ayuda"] and ctl.overlay.items[-2]["sub"] == "TV (HDMI) · volumen 40 %",
               f"«Sonido» antes de la ayuda, con la salida actual: {menu_names()} {ctl.overlay.items[-2]['sub']}")
         snd = menu_names().index("Sonido") + 1
         nearby_backup = list(nearby)
         nearby.clear()  # primero, sin nada nuevo cerca
         await press(f"NUMBER{snd}")
         await asyncio.sleep(0.01)  # que arranque la búsqueda (va en segundo plano)
-        check(ctl._menu_mode == "sound" and menu_names() == ["TV (HDMI)", "Parlante JBL", "Buscando parlantes y auriculares…"]
-              and ctl.overlay.sel == 0 and scan.starts == 1,
-              f"OK abre las salidas al instante, con la actual elegida, y busca Bluetooth: {menu_names()}")
-        check("desconectado" in ctl.overlay.items[1]["sub"], f"el Bluetooth desconectado lo dice: {ctl.overlay.items[1]['sub']}")
+        check(ctl._menu_mode == "sound"
+              and menu_names() == ["Volumen", "TV (HDMI)", "Parlante JBL", "Buscando parlantes y auriculares…"]
+              and ctl.overlay.sel == 1 and scan.starts == 1,
+              f"OK abre el volumen y las salidas al instante, con la actual elegida, y busca Bluetooth: {menu_names()}")
+        check(ctl.overlay.items[0]["level"] == 40 and not ctl.overlay.items[0]["muted"],
+              f"la fila «Volumen» con su barra: {ctl.overlay.items[0]}")
+        check("desconectado" in ctl.overlay.items[2]["sub"], f"el Bluetooth desconectado lo dice: {ctl.overlay.items[2]['sub']}")
+        start = len(log)
+        await press("UP", "LEFT", "LEFT", "RIGHT")
+        check(vol_calls == ["-", "-", "+"] and vol["level"] == 35 and ctl.overlay.items[0]["level"] == 35
+              and ctl._menu_mode == "sound" and "ov:level:0:35" in log[start:],
+              f"en «Volumen», ◀ ▶ bajan y suben (la barra se actualiza sin rearmar la lista): {vol_calls} {log[start:]}")
+        await press("SELECT")
+        check(vol["muted"] and ctl.overlay.items[0]["badge"] == "en silencio" and ctl._menu_mode == "sound",
+              f"OK pone el silencio: {ctl.overlay.items[0]}")
+        await press("RIGHT")
+        check(not vol["muted"] and vol["level"] == 40, f"subir el volumen saca el silencio: {vol}")
+        await press("DOWN")
+        vol_calls.clear()
         start = len(log)
         await press("DOWN", "SELECT")
         out = log[start:]
         check(chosen == ["Parlante JBL"] and "ov:busy:Conectando Parlante JBL…" in out and not scan.on,
               f"elegir el Bluetooth corta la búsqueda y lo conecta: {chosen} {out}")
         check(ctl._menu_mode == "activities" and "ov:toast:Sonido por Parlante JBL" in out
-              and ctl.overlay.items[snd - 1]["sub"] == "Parlante JBL", f"vuelve al menú con la salida nueva: {out}")
+              and ctl.overlay.items[snd - 1]["sub"] == "Parlante JBL · volumen 40 %",
+              f"vuelve al menú con la salida nueva: {out} {ctl.overlay.items[snd - 1]['sub']}")
 
         nearby[:] = nearby_backup
         await press("RIGHT")
         check(ctl._menu_mode == "sound", "▶ sobre Sonido también abre las salidas")
         await press("DOWN")  # de JBL (la actual) a la fila de búsqueda
         await ctl._sound_scan_task
-        check(menu_names() == ["TV (HDMI)", "Parlante JBL", "Auriculares Sony", "Buscar Bluetooth otra vez"]
-              and "nuevo" in ctl.overlay.items[2]["sub"] and ctl.overlay.sel == 3,
+        check(menu_names() == ["Volumen", "TV (HDMI)", "Parlante JBL", "Auriculares Sony", "Buscar Bluetooth otra vez"]
+              and "nuevo" in ctl.overlay.items[3]["sub"] and ctl.overlay.sel == 4,
               f"los auriculares que aparecen cerca se agregan al final (la selección no salta): {menu_names()} sel={ctl.overlay.sel}")
         await press("SELECT")
         await asyncio.sleep(0.01)
@@ -2179,8 +2218,12 @@ echo '</mame>'
         await press("UP", "SELECT")
         out = log[start:]
         check(chosen[-1] == "Auriculares Sony" and "ov:busy:Emparejando Auriculares Sony…" in out
-              and ctl.overlay.items[snd - 1]["sub"] == "Auriculares Sony",
+              and ctl.overlay.items[snd - 1]["sub"].startswith("Auriculares Sony"),
               f"elegir uno nuevo lo empareja y pasa el sonido ahí: {out}")
+        await press("RIGHT")
+        out = await press("LEFT")
+        check(ctl._menu_mode == "activities" and ctl._menu_open and not scan.on and not vol_calls,
+              f"sobre una salida, ◀ vuelve al menú (no toca el volumen) y corta la búsqueda: {out} {vol_calls}")
         await press("RIGHT")
         out = await press("EXIT")
         check(ctl._menu_mode == "activities" and ctl._menu_open and not scan.on,
@@ -2188,7 +2231,8 @@ echo '</mame>'
         await press("EXIT")
     finally:
         (audio_mod.available, audio_mod.list_outputs, audio_mod.current_name, audio_mod.select,
-         audio_mod.bt_nearby_audio, menu_mod.BT_SCAN_SECONDS, menu_mod.BT_POLL_SECONDS, ctl._bt_scan) = saved_audio
+         audio_mod.bt_nearby_audio, menu_mod.BT_SCAN_SECONDS, menu_mod.BT_POLL_SECONDS, ctl._bt_scan,
+         audio_mod.change_volume, audio_mod.get_volume, audio_mod.volume_now) = saved_audio
         ctl._sound_on = False
 
     def dump(default: str) -> list[dict]:
@@ -2213,6 +2257,26 @@ echo '</mame>'
     finally:
         audio_mod._pw_dump, audio_mod.available = saved_dump, saved_avail
         ctl._sound_off_tv = by_tv
+
+    cmds: list[str] = []
+
+    async def fake_run(cmd, timeout=None):
+        cmds.append(" ".join(cmd[1:]))
+        return 0, "Volume: 0.35 [MUTED]\n"
+    saved_run = audio_mod.run_cmd
+    audio_mod.run_cmd = fake_run  # type: ignore[assignment]
+    try:
+        S = audio_mod.SINK
+        await audio_mod.change_volume("+", 5)
+        await audio_mod.change_volume("=70")
+        await audio_mod.change_volume("mute")
+        bad = await audio_mod.change_volume("=1000;rm")
+        check(cmds == [f"set-volume -l 1.0 {S} 5%+", f"set-mute {S} 0", f"set-volume -l 1.0 {S} 70%",
+                       f"set-mute {S} 0", f"set-mute {S} toggle"] and not bad,
+              f"volumen: subir y fijar sacan el silencio; OK cambia el silencio; lo raro no se manda: {cmds}")
+        check(await audio_mod.get_volume() == (35, True), "leer el volumen y el silencio")
+    finally:
+        audio_mod.run_cmd = saved_run  # type: ignore[assignment]
 
     print("Carpetas de contenido")
     usb = tmp / "media" / "gaby" / "KINGSTON"

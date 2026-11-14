@@ -83,8 +83,9 @@ class MenuWeb:
                 continue  # la ayuda es de las teclas del control
             if ident == "_sound":
                 out.append({"id": "_sound", "name": e["name"], "icon": icon_url(e.get("icon", "")),
-                            "sub": e.get("sub", ""), "enabled": True, "current": False, "badge": "",
-                            "option": "sound", "chip": ""})
+                            # la salida sola: el volumen lo muestra (y lo cambia) la barra de al lado
+                            "sub": e.get("output") or e.get("sub", ""), "enabled": True, "current": False,
+                            "badge": "", "option": "sound", "chip": ""})
                 continue
             if e.get("group"):  # «Videos y música»: una página con las de adentro
                 children = [self._row(c) for c in ctl._menu_entries(e["group"])]

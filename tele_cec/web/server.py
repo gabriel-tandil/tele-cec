@@ -286,7 +286,11 @@ class WebRemote:
         if path == "/api/music/jump":
             return _json(await self.music.jump(data))
         if path == "/api/volume":
-            ok = await nowplaying.change_volume(str(data.get("change") or ""), self.volume_step)
+            level = data.get("level")  # la barra del celular: fijarlo en ese porcentaje
+            change = str(data.get("change") or "")
+            if isinstance(level, (int, float)) and not isinstance(level, bool):
+                change = f"={max(0, min(100, int(level)))}"
+            ok = await nowplaying.change_volume(change, self.volume_step)
             self._state = None
             return _json({"ok": ok})
         if path == "/api/sound":

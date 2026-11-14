@@ -86,12 +86,18 @@
   .loadmore { width: 100%; padding: 12px; color: var(--muted); }
 
   /* volumen */
-  .vol { display: grid; grid-template-columns: 48px minmax(0, 1fr) 48px 48px; gap: 10px; align-items: center; padding: 4px 6px 10px; }
-  .vol button { height: 46px; border-radius: 12px; background: rgba(255,255,255,0.08); font-size: 22px; }
-  .vol .lv { height: 8px; border-radius: 8px; background: rgba(255,255,255,0.12); overflow: hidden; }
-  .vol .lv > i { display: block; height: 100%; width: 0; background: var(--text); transition: width .2s; }
-  .vol .num { text-align: center; font-size: 12px; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
-  .vol.muted .lv > i { background: var(--faint); }
+  .vs { display: grid; grid-template-columns: minmax(0, 1fr) 40px 44px; gap: 6px; align-items: center; }
+  .vbar { position: relative; height: 36px; margin: 0 9px; touch-action: none; cursor: pointer; }
+  .vbar .tr { position: absolute; left: 0; right: 0; top: 16px; height: 4px; border-radius: 4px; background: rgba(255,255,255,0.14); overflow: hidden; }
+  .vbar .tr > i { display: block; height: 100%; width: 0; background: var(--text); }
+  .vbar .knob { position: absolute; top: 9px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: var(--text); left: 0; }
+  .vs .num { font-size: 13px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .vs .mute { width: 44px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: var(--muted); }
+  .vs .mute:active { background: var(--row-hover); }
+  .vs.muted .tr > i, .vs.muted .knob { background: var(--faint); }
+  .vs.muted .mute { color: var(--msg); background: var(--badge); }
+  .vs.big { padding: 2px 0 10px; }
+  .sndrow .vs { margin: -8px 4px 4px 64px; }
 
   /* reproductor chico (abajo) y grande (hoja) */
   .mini { position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); height: var(--mini-h);
@@ -155,6 +161,7 @@
   <symbol id="i-phone" viewBox="0 0 24 24"><path d="M8 2h8a2 2 0 012 2v16a2 2 0 01-2 2H8a2 2 0 01-2-2V4a2 2 0 012-2zm0 3v13h8V5H8zm4 14.2a1 1 0 100 2 1 1 0 000-2z"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></symbol>
   <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M3 9h4l5-5v16l-5-5H3V9zm13.5 3a4.5 4.5 0 00-2.5-4v8a4.5 4.5 0 002.5-4z"/></symbol>
+  <symbol id="i-mute" viewBox="0 0 24 24"><path d="M3 9h4l5-5v16l-5-5H3V9z"/><path d="M15 9l6 6M21 9l-6 6" stroke="currentColor" stroke-width="2" fill="none"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.4-1.4z"/></symbol>
 </svg>
 
@@ -356,7 +363,8 @@ function activityRows(items) {
   const rows = el("div", "rows");
   items.forEach((it) => {
     const opts = {};
-    if (it.option && it.option !== "sound" && it.option !== "group") { opts.chip = it.chip; opts.onChip = () => openOption(it); }
+    if (it.option === "sound") { rows.appendChild(soundRow(it)); return; }
+    if (it.option && it.option !== "group") { opts.chip = it.chip; opts.onChip = () => openOption(it); }
     rows.appendChild(row(it, () => tapActivity(it), opts));
   });
   return rows;
@@ -512,24 +520,84 @@ function searchPage(app) {
   };
 }
 
-// Sonido
-function volumeBox() {
-  const vol = el("div", "vol");
-  vol.dataset.vol = "1";
-  const mid = el("div");
-  const lv = el("div", "lv");
-  lv.appendChild(el("i"));
-  mid.append(lv, el("div", "num", "–"));
-  const vb = (label, change, aria) => { const b = el("button", "", label); b.dataset.change = change; b.setAttribute("aria-label", aria); holdable(b); return b; };
-  vol.append(vb("−", "-", "Bajar volumen"), mid, vb("+", "+", "Subir volumen"), vb("🔇", "mute", "Silencio"));
-  return vol;
+// Sonido: la barra de volumen (tocar o arrastrar) con el silencio al lado.
+let volHold = 0;  // mientras se arrastra (y un ratito después) la barra no salta con lo que dice la Pi
+function volumeBox(cls) {
+  const box = el("div", "vs" + (cls ? " " + cls : ""));
+  box.dataset.vol = "1";
+  const bar = el("div", "vbar");
+  const trk = el("div", "tr");
+  trk.appendChild(el("i"));
+  bar.append(trk, el("div", "knob"));
+  bar.setAttribute("role", "slider");
+  bar.setAttribute("aria-label", "Volumen");
+  const mute = el("button", "mute");
+  mute.appendChild(svg("speaker"));
+  mute.setAttribute("aria-label", "Silencio");
+  mute.addEventListener("click", () => {
+    buzz();
+    const muted = !box.classList.contains("muted");
+    document.querySelectorAll('[data-vol="1"]').forEach((b) => paintVol(b, null, muted));
+    volHold = Date.now() + 1500;
+    post("/api/volume", {change: "mute"}, true);
+  });
+  box.append(bar, el("span", "num", "–"), mute);
+  let sent = -1, want = -1, timer = null;
+  const send = () => {
+    clearTimeout(timer);
+    timer = null;
+    if (want < 0 || want === sent) return;
+    sent = want;
+    post("/api/volume", {level: want}, true);
+  };
+  const at = (ev) => {
+    const r = bar.getBoundingClientRect();
+    return Math.round(100 * Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)));
+  };
+  const move = (ev) => {
+    want = at(ev);
+    volHold = Date.now() + 1500;
+    document.querySelectorAll('[data-vol="1"]').forEach((b) => paintVol(b, want, false));
+    if (!timer) timer = setTimeout(send, 150);  // mientras se arrastra, como mucho unas 7 veces por segundo
+  };
+  bar.addEventListener("pointerdown", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    bar.setPointerCapture(ev.pointerId);
+    sent = -1;
+    move(ev);
+  });
+  bar.addEventListener("pointermove", (ev) => { if (bar.hasPointerCapture(ev.pointerId)) move(ev); });
+  ["pointerup", "pointercancel"].forEach((e) => bar.addEventListener(e, () => { send(); volHold = Date.now() + 1500; }));
+  bar.addEventListener("click", (ev) => ev.stopPropagation());
+  return box;
+}
+// level null: solo el silencio
+function paintVol(box, level, muted) {
+  box.classList.toggle("muted", !!muted);
+  setIcon(box.querySelector(".mute"), muted ? "mute" : "speaker");
+  if (level === null) return;
+  const p = level == null ? 0 : Math.max(0, Math.min(100, level));
+  box.querySelector(".tr > i").style.width = p + "%";
+  box.querySelector(".knob").style.left = p + "%";
+  box.querySelector(".num").textContent = level == null ? "–" : level + "%";
+  box.querySelector(".vbar").setAttribute("aria-valuenow", String(p));
+}
+// La fila «Sonido» de Actividades: tocarla elige por dónde sale; abajo, el volumen y el silencio.
+function soundRow(it) {
+  const box = el("div", "sndrow");
+  const vol = volumeBox();
+  box.append(row(it, () => tapActivity(it), {}), vol);
+  const v = (state && state.volume) || {};
+  paintVol(vol, v.level, v.muted);
+  return box;
 }
 const SOUND = {
   title: "Sonido",
   render(body) {
     const outs = el("div", "rows");
     outs.id = "outs";
-    body.replaceChildren(volumeBox(), el("div", "sect", "Sale por"), outs);
+    body.replaceChildren(volumeBox("big"), el("div", "sect", "Sale por"), outs);
     SOUND.key = null;
     renderSound();
   },
@@ -537,11 +605,7 @@ const SOUND = {
 function renderSound() {
   if (!state) return;
   const v = state.volume || {};
-  document.querySelectorAll('[data-vol="1"]').forEach((vol) => {
-    vol.classList.toggle("muted", !!v.muted);
-    vol.querySelector(".lv > i").style.width = (v.level == null ? 0 : Math.min(100, v.level)) + "%";
-    vol.querySelector(".num").textContent = v.level == null ? "–" : (v.muted ? "silencio" : v.level + "%");
-  });
+  if (Date.now() > volHold) document.querySelectorAll('[data-vol="1"]').forEach((b) => paintVol(b, v.level, v.muted));
   const outs = $("outs");
   if (!outs) return;
   const key = JSON.stringify(state.outputs);
@@ -555,19 +619,6 @@ function renderSound() {
       await post("/api/sound", {id: o.id});
     }, {badges: false})));
 }
-function holdable(btn) {
-  let hold = null, rep = null;
-  const fire = () => post("/api/volume", {change: btn.dataset.change}, true);
-  const stop = () => { clearTimeout(hold); clearInterval(rep); hold = rep = null; };
-  btn.addEventListener("pointerdown", (ev) => {
-    ev.preventDefault();
-    buzz();
-    fire();
-    if (btn.dataset.change !== "mute") hold = setTimeout(() => { rep = setInterval(fire, 180); }, 450);
-  });
-  ["pointerup", "pointerleave", "pointercancel"].forEach((e) => btn.addEventListener(e, stop));
-}
-
 // ---------------------------------------------------------------- Tidal
 let tView = {kind: "tracks"};
 const TIDAL = {
@@ -1018,7 +1069,7 @@ function openPlayer() {
     loop.appendChild(one);
     const pp = btn("play", "main", () => media("play-pause"), "Play o pausa");
     tr.append(shuf, btn("prev", "", () => media("previous"), "Anterior"), pp, btn("next", "", () => media("next"), "Siguiente"), loop);
-    sh.append(art, head, seek, times, tr, volumeBox());
+    sh.append(art, head, seek, times, tr, volumeBox("big"));
 
     let dragging = false, frac = 0;
     const showPos = (p, l) => {

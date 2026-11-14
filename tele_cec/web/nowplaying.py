@@ -6,16 +6,16 @@ Todos los reproductores que usa tele-cec publican MPRIS: High Tide (Tidal), mpv 
 
 from __future__ import annotations
 
-import re
 from dataclasses import asdict, dataclass
 
+from ..system import audio
+from ..system.audio import parse_volume  # noqa: F401  (las pruebas la usan desde acá)
 from ..system.procs import run_cmd
 
 SEP = "\x1f"  # separador que no aparece en un título
 FIELDS = ("playerInstance", "status", "title", "artist", "album", "mpris:artUrl", "position", "mpris:length",
           "shuffle", "loop", "xesam:url")
 FORMAT = SEP.join("{{" + f + "}}" for f in FIELDS)
-SINK = "@DEFAULT_AUDIO_SINK@"
 
 
 @dataclass
@@ -101,25 +101,10 @@ async def control(player: str, command: str, value: float | str | None = None) -
     return rc == 0
 
 
-def parse_volume(text: str) -> tuple[int | None, bool]:
-    """`wpctl get-volume` → (porcentaje, silenciado). «Volume: 0.40 [MUTED]» → (40, True)."""
-    m = re.search(r"Volume:\s*([\d.]+)", text)
-    if not m:
-        return None, False
-    return round(float(m.group(1)) * 100), "MUTED" in text
-
-
 async def volume() -> tuple[int | None, bool]:
-    rc, out = await run_cmd(["wpctl", "get-volume", SINK], 3)
-    return parse_volume(out) if rc == 0 else (None, False)
+    return await audio.get_volume()
 
 
 async def change_volume(what: str, step: int = 5) -> bool:
-    if what == "mute":
-        cmd = ["wpctl", "set-mute", SINK, "toggle"]
-    elif what in ("+", "-"):
-        cmd = ["wpctl", "set-volume", "-l", "1.0", SINK, f"{step}%{what}"]
-    else:
-        return False
-    rc, _ = await run_cmd(cmd, 3)
-    return rc == 0
+    """«+», «-», «=40» o «mute» (ver audio.change_volume)."""
+    return await audio.change_volume(what, step)
