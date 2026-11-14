@@ -170,6 +170,70 @@ async def http(port: int, method: str, path: str, body: dict | None = None, head
     return status, hdrs, payload
 
 
+def collection_playlists_test() -> None:
+    import types
+    """Parche de High Tide: «Mis playlists» y «Favoritas», también las guardadas en carpetas (y sin repetir)."""
+    import importlib
+    print("Tidal: playlists de la colección (con carpetas)")
+    fake_pl = types.ModuleType("tidalapi.playlist")
+
+    class Playlist:
+        def __init__(self, ident, name, creator="tidal", n=10):
+            self.id, self.name, self.num_tracks = ident, name, n
+            self.creator = SimpleNamespace(id=creator, name="TIDAL" if creator == "tidal" else "me")
+
+    class UserPlaylist(Playlist):
+        pass
+
+    class Folder:
+        def __init__(self, ident, name, items):
+            self.id, self.name, self._items = ident, name, items
+
+        def items(self, offset=0, limit=50):
+            return self._items[offset:offset + limit]
+    fake_pl.UserPlaylist, fake_pl.Playlist = UserPlaylist, Playlist
+    mine = [UserPlaylist(f"m{i}", f"Mía {i}", "u1") for i in range(3)]
+    root_favs = [Playlist(f"f{i}", f"Favorita {i}") for i in range(60)]  # más de una página de 50
+    sub = Folder("c2", "Sub", [Playlist("s1", "En subcarpeta")])
+    folders = {"root": [Folder("c1", "Para correr", [Playlist("c1a", "En carpeta"), root_favs[0]])], "c1": [sub]}
+    calls = []
+
+    def page(items, offset, limit):
+        calls.append(offset)
+        return items[offset:offset + limit]
+    user = SimpleNamespace(
+        id="u1", playlists=lambda: list(mine),
+        playlist_and_favorite_playlists=lambda offset=0, limit=50: page(mine[:1] + root_favs[:5], offset, limit),
+        favorites=SimpleNamespace(
+            playlists=lambda limit=50, offset=0: page(mine[:2] + root_favs, offset, limit),
+            playlist_folders=lambda limit=50, offset=0, parent_folder_id="root":
+                folders.get(parent_folder_id, [])[offset:offset + limit]))
+    fake_utils = types.ModuleType("high_tide.lib.utils")
+    fake_utils.session = SimpleNamespace(user=user)
+    saved = {k: sys.modules.get(k) for k in ("tidalapi", "tidalapi.playlist", "high_tide", "high_tide.lib",
+                                             "high_tide.lib.utils")}
+    sys.modules.update({"tidalapi": types.ModuleType("tidalapi"), "tidalapi.playlist": fake_pl,
+                        "high_tide": types.ModuleType("high_tide"), "high_tide.lib": types.ModuleType("high_tide.lib"),
+                        "high_tide.lib.utils": fake_utils})
+    try:
+        patch = importlib.import_module("tele_cec.apps.tidal.hightide_patch")
+        patch._my_playlists[:] = [0.0, [], []]
+        m, f = patch._collection_playlists()
+        names = {pl.name for pl in f}
+        check([pl.id for pl in m] == ["m0", "m1", "m2"], f"Mis playlists: las tres mías, sin repetir: {[p.id for p in m]}")
+        check(len(f) == 62 and {"En carpeta", "En subcarpeta", "Favorita 59"} <= names,
+              f"Favoritas: las 60 de la raíz (dos páginas) y las de carpetas y subcarpetas, sin repetir: {len(f)}")
+        n = len(calls)
+        patch._collection_playlists()
+        check(len(calls) == n, "la segunda vez sale de lo guardado (no recorre todo de nuevo)")
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+
 async def main() -> int:
     print("Lo que suena (playerctl) y el volumen (wpctl)")
     S = nowplaying.SEP
@@ -635,6 +699,7 @@ async def main() -> int:
     finally:
         await web.close()
 
+    collection_playlists_test()
     print(f"\n{OK}/{OK + FAIL} verificaciones OK")
     return 1 if FAIL else 0
 

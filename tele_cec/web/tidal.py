@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("web")
 
-LIBRARIES = {"tracks", "playlists", "mixes", "albums", "artists"}
+LIBRARIES = {"tracks", "playlists", "favplaylists", "mixes", "albums", "artists"}
 LIST_KINDS = {"fav", "album", "playlist", "mix", "artist", "track"}
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")   # ids de Tidal: números o uuid
 OPEN_WAIT_S = 45.0                             # abrir High Tide y entrar a la cuenta
@@ -80,7 +80,9 @@ class TidalWeb:
         what = query.get("what", "tracks")
         if what not in LIBRARIES:
             return {"error": "biblioteca desconocida"}
-        return await self._data(f"lib {what} {_int(query.get('start'))} {_int(query.get('count'), 100, 1, 200)}")
+        # Las playlists recorren las carpetas de la colección (la primera vez tarda más).
+        return await self._data(f"lib {what} {_int(query.get('start'))} {_int(query.get('count'), 100, 1, 200)}",
+                                45 if "playlists" in what else 25)
 
     async def items(self, query: dict[str, str]) -> dict[str, Any]:
         kind, ident = query.get("type", ""), query.get("id", "-") or "-"

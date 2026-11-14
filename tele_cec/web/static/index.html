@@ -565,7 +565,7 @@ const TIDAL = {
     go.type = "submit";
     form.append(q, go);
     const seg = el("div", "seg");
-    [["tracks", "Mis canciones"], ["playlists", "Playlists"], ["mixes", "Mixes"], ["albums", "Discos"],
+    [["tracks", "Mis canciones"], ["playlists", "Mis playlists"], ["favplaylists", "Favoritas"], ["mixes", "Mixes"], ["albums", "Discos"],
      ["artists", "Artistas"], ["queue", "Cola"]].forEach(([k, label]) => {
       const b = el("button", "", label);
       b.dataset.lib = k;
