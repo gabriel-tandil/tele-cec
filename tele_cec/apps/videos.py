@@ -1,4 +1,4 @@
-"""Videos locales con mpv: la carpeta entera en pantalla completa (ver player.py: controles y barra para la TV)."""
+"""Videos locales con mpv: el elegido en el menú, en pantalla completa (ver player.py: controles y barra para la TV)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ class VideosActivity(MpvMediaActivity):
     empty_text = "Sin videos: conectá un pendrive"
     play_label = "▶ Reproducir esta carpeta"
     empty_in_folder = "No hay videos en esta carpeta"
+    browse_on_ok = True   # OK en el menú: la carpeta predeterminada, para elegir qué ver
+    pick_files = True
     TITLE = "tele-cec videos"
 
     def extra_args(self) -> list[str]:

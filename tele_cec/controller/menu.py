@@ -29,6 +29,38 @@ KEEP = "\0mismo"   # menu_open(group=KEEP): quedarse en la lista en que estaba
 BACKGROUND_BADGE = {"Playing": "sonando", "Paused": "en pausa"}  # si no, «abierto» (sin nada cargado)
 
 
+SUB_EXT = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
+
+
+def _size_text(n: int) -> str:
+    if n >= 1 << 30:
+        return f"{n / (1 << 30):.1f} GB".replace(".", ",")
+    return f"{max(1, round(n / (1 << 20)))} MB"
+
+
+def _file_items(folder: Path, exts: set[str]) -> list[dict]:
+    """Los videos de la carpeta para elegir uno (tamaño y si tiene subtítulos al lado)."""
+    files = activities_mod.list_media(folder, exts)
+    if not files:
+        return []
+    try:
+        subs = [p.stem.lower() for p in folder.iterdir() if p.suffix.lower() in SUB_EXT]
+    except OSError:
+        subs = []
+    out = []
+    for f in files:
+        try:
+            info = [_size_text(f.stat().st_size)]
+        except OSError:
+            info = []
+        stem = f.stem.lower()
+        if any(s.startswith(stem) for s in subs):  # «peli.srt», «peli.es.srt»…
+            info.append("con subtítulos")
+        out.append({"kind": "file", "path": str(f), "name": f.stem, "icon": "video-x-generic", "sub": " · ".join(info),
+                    "enabled": True, "current": False})
+    return out
+
+
 class MenuMixin:
     def _init_menu(self) -> None:
         self._menu_open = False
@@ -380,6 +412,9 @@ class MenuMixin:
             log.info("Menú: sigo en %s", item["name"])
             await self.menu_close()
             return
+        if isinstance(act, activities_mod.MediaActivity) and act.browse_on_ok and not act.running():
+            await self._picker_open(item["id"], at_default=True)  # Videos, Música: elegir qué, desde la carpeta
+            return
         log.info("Menú: elijo %s", item["name"])
         if self._menu_timer:
             self._menu_timer.cancel()
@@ -530,9 +565,12 @@ class MenuMixin:
                               "icon": "folder", "sub": "predeterminada" if root == default else "",
                               "enabled": True, "current": False})
             return f"{act.name} · elegir carpeta", items
-        has = activities_mod.count_media(path, act.exts) > 0  # corta en el primero (y tiene tope de tiempo)
-        items.append({"kind": "play", "path": str(path), "name": act.play_label, "icon": "media-playback-start",
-                      "sub": "con sus subcarpetas" if has else act.empty_in_folder, "enabled": has, "current": False})
+        pick = act.pick_files and not act.command  # Videos: se elige el archivo, no la carpeta entera
+        if not pick:
+            has = activities_mod.count_media(path, act.exts) > 0  # corta en el primero (y tiene tope de tiempo)
+            items.append({"kind": "play", "path": str(path), "name": act.play_label, "icon": "media-playback-start",
+                          "sub": "con sus subcarpetas" if has else act.empty_in_folder, "enabled": has,
+                          "current": False})
         if isinstance(act, activities_mod.PhotosActivity) and not act.command and shutil.which("mpv"):
             # Los otros modos (▼ también los cambia mientras se mira). Cuántos hay se sabe si ya se recorrió.
             counts = act.counts(path)
@@ -548,6 +586,11 @@ class MenuMixin:
         for d in activities_mod.list_subfolders(path):
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})
+        if pick:
+            items += _file_items(path, act.exts)
+            if not items:
+                items.append({"kind": "empty", "path": str(path), "name": act.empty_in_folder, "icon": "folder",
+                              "sub": "Conectá un pendrive o elegí otra carpeta", "enabled": False, "current": False})
         return f"{act.name} · {self._picker_title(act, path)}", items
 
     async def _picker_show(self, ident: str, path: Path | None, sel: int = 0) -> bool:
@@ -563,9 +606,20 @@ class MenuMixin:
         self._menu_restart_timer()
         return True
 
-    async def _picker_open(self, ident: str) -> None:
+    async def _picker_open(self, ident: str, at_default: bool = False) -> None:
+        """El selector: la lista de carpetas configuradas o, con at_default, directo en la predeterminada (◀ vuelve a
+        la lista si hay más de una, o al menú)."""
         self._menu_act_sel = self._menu_sel
         self._picker_stack = []
+        if at_default:
+            act = self.activities[ident]
+            roots, default = await asyncio.to_thread(lambda: (act.roots(), act.folder()))
+            if default is not None:
+                if len(roots) > 1:
+                    self._picker_stack = [(None, roots.index(default) if default in roots else 0)]
+                if await self._picker_show(ident, default):
+                    return
+                self._picker_stack = []
         await self._picker_show(ident, None)
 
     async def _picker_enter(self, index: int) -> None:
@@ -594,10 +648,11 @@ class MenuMixin:
             return
         act = self.activities[self._picker_act]
         if not item.get("enabled", True):
-            await self.overlay.toast(item.get("sub") or act.unavailable_text(), 2500)
+            why = item["name"] if item.get("kind") == "empty" else item.get("sub")
+            await self.overlay.toast(why or act.unavailable_text(), 2500)
             self._menu_restart_timer()
             return
-        log.info("Menú: %s en %s", act.name, item["path"])
+        log.info("Menú: %s %s", act.name, ("con " if item.get("kind") == "file" else "en ") + item["path"])
         if self._menu_timer:
             self._menu_timer.cancel()
             self._menu_timer = None

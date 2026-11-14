@@ -70,7 +70,9 @@ class MenuWeb:
                 "sub": e.get("sub", ""), "enabled": bool(e.get("enabled", True)),
                 "current": bool(e.get("current")), "badge": e.get("badge") or "",
                 "option": option, "chip": chip, "running": bool(act is not None and act.running()),
-                "background": bool(e.get("background"))}
+                "background": bool(e.get("background")),
+                # Videos, Música: tocar la fila (cerrada) abre su carpeta o Explorar, no arranca con todo
+                "browse": bool(isinstance(act, activities_mod.MediaActivity) and act.browse_on_ok)}
 
     def _build(self) -> list[dict[str, Any]]:
         ctl = self.ctl
@@ -135,7 +137,11 @@ class MenuWeb:
                 path.relative_to(Path(root).resolve())
             except (ValueError, OSError):
                 continue
-            return path if path.is_dir() else None
+            if path.is_dir():
+                return path
+            # Videos: un archivo elegido en la carpeta
+            ok = act.pick_files and not act.command and path.suffix.lower() in act.exts and path.is_file()
+            return path if ok else None
         return None
 
     async def folders(self, query: dict[str, str]) -> dict[str, Any]:
@@ -146,8 +152,10 @@ class MenuWeb:
         path = None
         if query.get("path"):
             path = self.allowed_folder(ident, query["path"])
-            if path is None:
+            if path is None or not path.is_dir():
                 return {"error": "esa carpeta no está entre las configuradas"}
+        elif query.get("default"):  # directo en la carpeta predeterminada (la que se abriría)
+            path = await asyncio.to_thread(act.folder)
         title, items = await asyncio.to_thread(self.ctl._picker_entries, ident, path)
         if not items:
             return {"error": "No hay carpetas configuradas"}

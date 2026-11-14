@@ -16,7 +16,7 @@ log = logging.getLogger("tele")
 KEEP_PLAYING = {"fotos": {"tidal", "musica"}}
 WATCH_EVERY_S = 1.5    # cada cuánto se mira si la app en pantalla se cerró sola
 FOTOS_REMINDER_S = 3.0  # cuánto se ve el aviso del modo de Fotos antes de que arranque la presentación
-CLOSED_TEXT = {"android": "Se desconectó el celular", "videos": "Terminaron los videos", "juegos": "Terminó el juego"}
+CLOSED_TEXT = {"android": "Se desconectó el celular", "videos": "Terminó el video", "juegos": "Terminó el juego"}
 
 
 class ActivitiesMixin:

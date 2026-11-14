@@ -874,8 +874,27 @@ async def main() -> int:
         _, _, body = await http(port, "GET", f"/api/folders?app=videos&path={tmp / 'Vacaciones'}")
         r = json.loads(body)
         kinds = [(i["kind"], i["name"]) for i in r["items"]]
-        check(kinds[0][0] == "play" and r["items"][0]["enabled"] and ("dir", "2024") in kinds,
-              f"adentro: «Reproducir esta carpeta» y sus subcarpetas: {kinds}")
+        check(kinds == [("dir", "2024"), ("file", "peli")],
+              f"adentro: sus subcarpetas y los videos para elegir uno (no «Reproducir esta carpeta»): {kinds}")
+        _, _, body = await http(port, "GET", "/api/folders?app=videos&default=1")
+        r = json.loads(body)
+        check(r["path"] == str(tmp) and ("dir", "Vacaciones") in [(i["kind"], i["name"]) for i in r["items"]],
+              f"default=1: directo en la carpeta predeterminada (tocar Videos en el celular): {r['path']}")
+        _, _, body = await http(port, "GET", "/api/menu")
+        vrow = next(it for it in json.loads(body)["items"] if it["id"] == "videos")
+        check(vrow["browse"] is True, f"la fila de Videos avisa que se elige qué ver: {vrow}")
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": str(tmp / "Vacaciones" / "peli.mp4")}, H)
+        check(json.loads(body)["ok"]
+              and ("switch", "videos", False, str((tmp / "Vacaciones" / "peli.mp4").resolve())) in ctl.log,
+              f"elegir un video lo abre: {ctl.log}")
+        (tmp / "Vacaciones" / "nota.txt").write_text("")
+        (outside / "otra.mp4").write_bytes(b"x")
+        for bad in (tmp / "Vacaciones" / "nota.txt", outside / "otra.mp4"):
+            _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": str(bad)}, H)
+            check(not json.loads(body)["ok"], f"un archivo que no es video o está afuera: no ({bad.name})")
+        _, _, body = await http(port, "GET", f"/api/folders?app=videos&path={tmp / 'Vacaciones' / 'peli.mp4'}")
+        check("error" in json.loads(body), "un archivo no se lista como carpeta")
         _, _, body = await http(port, "GET", f"/api/folders?app=videos&path={outside}")
         check("error" in json.loads(body), "una carpeta fuera de las configuradas: no se lista")
         _, _, body = await http(port, "GET", "/api/folders?app=videos&path=/etc")

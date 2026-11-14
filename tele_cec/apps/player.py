@@ -105,7 +105,10 @@ class MpvMediaActivity(MediaActivity):
                 log.warning("%s: no hay contenido en %s", self.name,
                             ", ".join(map(str, self.folders)) or "(sin carpetas)")
                 return False
-            files = await asyncio.to_thread(self.files, folder)
+            if await asyncio.to_thread(folder.is_file):  # un archivo elegido en el menú (Videos): solo ese
+                files, folder = [str(folder)], folder.parent
+            else:
+                files = await asyncio.to_thread(self.files, folder)
         if not files:
             self.fail_text = self.empty_in_folder
             return False

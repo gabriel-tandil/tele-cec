@@ -394,6 +394,8 @@ function tapActivity(it) {
     return;
   }
   if (it.option === "games") return openOption(it);  // Juegos: siempre elegir cuál (no hay uno por defecto)
+  if (it.browse && !it.running && it.option === "folders") return show(folderPage(it, "", true));  // Videos: qué ver
+  if (it.browse && !it.running && it.option) return openOption(it);  // Música: Explorar
   openApp(it);
 }
 function openOption(it) {
@@ -407,21 +409,21 @@ function openOption(it) {
 }
 
 // Carpetas (Videos, Fotos)
-function folderPage(app, path) {
+function folderPage(app, path, atDefault) {
   return {
     title: app.name,
     async render(body, page) {
       body.replaceChildren(note("Cargando…"));
-      const r = await get(`/api/folders?app=${app.id}&path=${encodeURIComponent(path)}`);
+      const r = await get(`/api/folders?app=${app.id}&path=${encodeURIComponent(path)}${atDefault ? "&default=1" : ""}`);
       if (stack[stack.length - 1] !== page) return;
       if (r.error) { body.replaceChildren(note(r.error)); return; }
       retitle(page, r.title);
       const rows = el("div", "rows");
       r.items.forEach((f) => {
-        const it = {name: f.name, sub: f.sub, enabled: f.enabled, glyph: f.kind === "play" ? "play" : "folder"};
+        const it = {name: f.name, sub: f.sub, enabled: f.enabled, glyph: f.kind === "dir" || f.kind === "empty" ? "folder" : "play"};
         rows.appendChild(row(it, () => {
           if (f.kind === "dir") show(folderPage(app, f.path));
-          else if (!f.enabled) toast(f.sub || "No hay nada para mostrar");
+          else if (!f.enabled) toast((f.kind === "empty" ? f.name : f.sub) || "No hay nada para mostrar");
           else openApp(app, f.mode ? {folder: f.path, mode: f.mode} : {folder: f.path});
         }, {badges: false}));
       });

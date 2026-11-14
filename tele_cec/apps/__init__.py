@@ -24,7 +24,7 @@ from .android import AndroidActivity
 from .mame import MameActivity
 from .base import Activity, CommandActivity, ProcActivity, _custom_command
 from .folders import (AUDIO_EXT, IMAGE_EXT, VIDEO_EXT, count_media, describe_folder, expand_folders,  # noqa: F401
-                      find_media_folder, list_subfolders, scan_media)
+                      find_media_folder, list_media, list_subfolders, scan_media)
 from .media import MediaActivity
 from .music import MusicActivity
 from .player import MpvMediaActivity
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 __all__ = ["AndroidActivity", "MameActivity", "BUILTIN", "Activity", "CommandActivity", "ProcActivity", "MediaActivity",
            "MpvMediaActivity", "MusicActivity", "NetflixActivity", "PhotosActivity", "AUDIO_EXT",
            "TidalActivity", "VideosActivity", "YouTubeActivity", "IMAGE_EXT", "VIDEO_EXT", "build", "count_media",
-           "describe_folder", "expand_folders", "find_media_folder", "list_subfolders", "scan_media",
+           "describe_folder", "expand_folders", "find_media_folder", "list_media", "list_subfolders", "scan_media",
            "_custom_command"]
 
 log = logging.getLogger("actividades")

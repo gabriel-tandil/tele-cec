@@ -52,6 +52,10 @@ class MediaActivity(ProcActivity):
     # Texto de la opción que abre la carpeta elegida en el selector de carpetas del menú (y si está vacía).
     play_label = "▶ Abrir esta carpeta"
     empty_in_folder = "No hay nada para mostrar acá"
+    # OK sobre la fila del menú: abre el selector en la carpeta predeterminada (en vez de arrancar con todo).
+    browse_on_ok = False
+    # En el selector se elige un archivo (Videos: una película), no se reproduce la carpeta entera.
+    pick_files = False
 
     def roots(self) -> list[Path]:
         """Las carpetas configuradas que existen (punto de partida para elegir otra desde el menú)."""

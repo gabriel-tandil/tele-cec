@@ -369,6 +369,11 @@ class FakePlayerMixin:
 
 
 class FakeVideos(FakePlayerMixin, FakeProcMixin, activities_mod.VideosActivity):
+    # Como un `command` propio: OK abre de una y en las carpetas se reproduce la carpeta (el de verdad se prueba en
+    # «OK sobre Videos y Música: la carpeta predeterminada»).
+    browse_on_ok = False
+    pick_files = False
+
     def __init__(self, log: list[str]):
         activities_mod.VideosActivity.__init__(self, {})
         self.setup(log)
@@ -376,6 +381,8 @@ class FakeVideos(FakePlayerMixin, FakeProcMixin, activities_mod.VideosActivity):
 
 
 class FakeMusicLocal(FakePlayerMixin, FakeProcMixin, activities_mod.MusicActivity):
+    browse_on_ok = False
+
     def __init__(self, log: list[str]):
         activities_mod.MusicActivity.__init__(self, {})
         self.setup(log)
@@ -723,6 +730,79 @@ async def main() -> int:
           f"Atrás en las carpetas configuradas vuelve al menú, en Videos: {out}")
     out = await press("EXIT")
     check(out == ["ov:hide"] and not ctl._menu_open, "Atrás otra vez cierra el menú")
+
+    print("OK sobre Videos y Música: la carpeta predeterminada (Videos: se elige el archivo)")
+    (usb / "peli.mkv").write_bytes(b"x" * 3 * (1 << 20))
+    (usb / "peli.es.srt").write_text("1\n")
+    (usb / "notas.txt").write_text("")
+    videos.browse_on_ok = videos.pick_files = True
+    await videos.close()
+    ctl._foreground = None
+    try:
+        await press("ROOT_MENU")
+        for _ in range(6):
+            if ctl._menu_mode == "activities" and ctl._menu_sel == vid:
+                break
+            await press("DOWN")
+        out = await press("SELECT")
+        kinds = [(it.get("kind"), it["name"]) for it in ctl.overlay.items]
+        check(not opened(out) and ctl._menu_mode == "folders" and kinds == [("dir", "Pelis"), ("dir", "Series"),
+                                                                           ("file", "peli")],
+              f"OK no arranca nada: abre la predeterminada, con subcarpetas y videos (sin «Reproducir»): {kinds}")
+        check(ctl.overlay.items[2]["sub"] == "3 MB · con subtítulos", f"el video dice tamaño y subtítulos: {ctl.overlay.items[2]}")
+        out = await press("LEFT")
+        check(ctl._menu_mode == "folders" and ctl.overlay.items[0]["sub"] == "predeterminada" and ctl._menu_sel == 0,
+              f"◀ sube a las carpetas configuradas (hay dos): {[it['name'] for it in ctl.overlay.items]}")
+        out = await press("DOWN", "SELECT")
+        check([(it["kind"], it["enabled"]) for it in ctl.overlay.items] == [("empty", False)],
+              f"una carpeta sin videos lo dice: {ctl.overlay.items}")
+        out = await press("SELECT")
+        check(not opened(out) and any(x.startswith("ov:toast:No hay videos") for x in out), f"y no abre nada: {out}")
+        await press("LEFT", "LEFT")
+        check(ctl._menu_mode == "activities" and ctl._menu_sel == vid, "◀ otra vez: al menú, en Videos")
+        await press("SELECT", "UP")
+        out = await press("SELECT")
+        check(opened(out)[-1:] == ["videos:open:peli.mkv"] and not ctl._menu_open,
+              f"OK sobre un video: solo ese: {opened(out)}")
+        await press("ROOT_MENU")
+        for _ in range(6):
+            if ctl._menu_mode == "activities" and ctl._menu_sel == vid:
+                break
+            await press("DOWN")
+        out = await press("SELECT")
+        check(not ctl._menu_open and not opened(out), f"con Videos abierto, OK sigue viendo: {out}")
+        await ctl.activities["videos"].close()
+        ctl._foreground = None
+
+        mus_root = tmp / "pick" / "Música"
+        (mus_root / "Disco").mkdir(parents=True)
+        (mus_root / "Disco" / "1.mp3").write_bytes(b"")
+        mlocal = FakeMusicLocal(log)
+        mlocal.folders, mlocal.browse_on_ok = [str(mus_root)], True
+        ctl.activities["musica"] = mlocal
+        items_before = ctl.cfg.menu.get("items")
+        ctl.cfg.menu["items"] = ["netflix", "tidal", "videos", "musica", "fotos"]
+        await press("ROOT_MENU")
+        mi = next(i for i, it in enumerate(ctl.overlay.items) if it["id"] == "musica")
+        for _ in range(8):
+            if ctl._menu_mode == "activities" and ctl._menu_sel == mi:
+                break
+            await press("DOWN")
+        out = await press("SELECT")
+        check(not mlocal.on and ctl._menu_mode == "folders" and [it['name'] for it in ctl.overlay.items] == ["▶ Escuchar esta carpeta", "Disco"],
+              f"Música: OK abre la carpeta, con «Escuchar esta carpeta» y los discos: {[it['name'] for it in ctl.overlay.items]}")
+        out = await press("SELECT")
+        check("musica:open:Música" in out and mlocal.on, f"y escuchar la carpeta entera sigue igual: {out}")
+        await mlocal.close()
+        del ctl.activities["musica"]
+        if items_before is None:
+            ctl.cfg.menu.pop("items", None)
+        else:
+            ctl.cfg.menu["items"] = items_before
+    finally:
+        videos.browse_on_ok = videos.pick_files = False
+        ctl._foreground = None
+        await ctl.menu_close()
 
     print("app:<actividad> (para ponerla en un color)")
     await ctl.run_action("app:tidal")
@@ -2204,6 +2284,15 @@ echo '</mame>'
         check(ok and lst.read_text().splitlines() == chosen and "--playlist-start=1" in spawned[-1]
               and mu.want_files is None and mu.current_folder == mdir,
               f"abre Música con esos temas (no la carpeta entera), desde el segundo: {spawned[-1]}")
+        vi = activities_mod.VideosActivity({"folders": [str(mdir)]})
+        vi.mpv.socket_path = tmp / "cache" / "videos-mpv.sock"
+        vi.spawn, vi.mpv.ready = fake_spawn, fake_ready
+        (mdir / "peli.mkv").write_bytes(b"")
+        ok = await vi.open(mdir / "peli.mkv")
+        lst = Path(next(a for a in spawned[-1] if a.startswith("--playlist=")).split("=", 1)[1])
+        check(ok and lst.read_text().splitlines() == [str(mdir / "peli.mkv")] and vi.current_folder == mdir,
+              f"Videos con un archivo elegido: solo ese (no la carpeta): {lst.read_text().splitlines()}")
+        (mdir / "peli.mkv").unlink()
         sent: list = []
 
         async def fake_cmd(*args, timeout=3.0):
