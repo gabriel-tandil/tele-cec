@@ -565,7 +565,7 @@ const TIDAL = {
     go.type = "submit";
     form.append(q, go);
     const seg = el("div", "seg");
-    [["tracks", "Mis canciones"], ["playlists", "Mis playlists"], ["favplaylists", "Favoritas"], ["mixes", "Mixes"], ["albums", "Discos"],
+    [["tracks", "Mis canciones"], ["recent", "Recientes"], ["playlists", "Mis playlists"], ["favplaylists", "Favoritas"], ["mixes", "Mixes"], ["albums", "Discos"],
      ["artists", "Artistas"], ["queue", "Cola"]].forEach(([k, label]) => {
       const b = el("button", "", label);
       b.dataset.lib = k;
@@ -630,7 +630,9 @@ async function tidalLib(kind) {
   const add = (res) => {
     const start = res.start || 0;
     res.items.forEach((it, i) => rows.appendChild(itemRow(it, (x) => kind === "tracks"
-      ? playThis({type: "fav", index: start + i}, x.title) : openDetail(x, {kind}))));
+      ? playThis({type: "fav", index: start + i}, x.title)
+      : x.type === "track" ? playThis({type: "track", id: x.id}, x.title)  // un tema suelto (Recientes): a sonar
+      : openDetail(x, {kind}))));
     const loaded = start + res.items.length;
     if (loaded < res.total) tb().appendChild(moreButton(loaded, res.total, async () => {
       const n = await get(`/api/tidal/library?what=${kind}&start=${loaded}`);

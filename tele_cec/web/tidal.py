@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("web")
 
-LIBRARIES = {"tracks", "playlists", "favplaylists", "mixes", "albums", "artists"}
+LIBRARIES = {"tracks", "recent", "playlists", "favplaylists", "mixes", "albums", "artists"}
 LIST_KINDS = {"fav", "album", "playlist", "mix", "artist", "track"}
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")   # ids de Tidal: números o uuid
 OPEN_WAIT_S = 45.0                             # abrir High Tide y entrar a la cuenta

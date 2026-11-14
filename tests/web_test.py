@@ -226,6 +226,44 @@ def collection_playlists_test() -> None:
         n = len(calls)
         patch._collection_playlists()
         check(len(calls) == n, "la segunda vez sale de lo guardado (no recorre todo de nuevo)")
+
+        print("Tidal: Recientes (del Inicio de Tidal)")
+        home = {"items": [
+            {"moduleId": "SHORTCUT_LIST", "type": "SHORTCUT_LIST", "title": "Shortcuts", "items": ["x"]},
+            {"moduleId": "HISTORY_MIXES", "type": "HORIZONTAL_LIST", "title": "Your listening history", "items": ["h"]},
+            {"moduleId": "CONTINUE_LISTEN_TO", "type": "HORIZONTAL_LIST", "title": "Recently played",
+             "items": ["a", "b"], "viewAll": "home/pages/CONTINUE_LISTEN_TO/view-all"}]}
+        asked = []
+
+        class Resp:
+            def __init__(self, j):
+                self._j = j
+
+            def json(self):
+                return self._j
+
+        def request(method, path, base_url=None, params=None):
+            asked.append(path)
+            return Resp(home if path == "home/feed/static" else {"items": [{"n": "a"}, {"n": "b"}, {"n": "c"}]})
+
+        class Cat:
+            def __init__(self, module):
+                self.items = [SimpleNamespace(name=x) for x in module["items"]]
+
+            def get_item(self, it):
+                return SimpleNamespace(name=it["n"])
+        fake_utils.session = SimpleNamespace(
+            user=user, locale="es_AR", config=SimpleNamespace(api_v2_location="https://api.tidal.com/v2/"),
+            request=SimpleNamespace(request=request), page=SimpleNamespace(page_category_v2=SimpleNamespace(
+                parse_item=Cat)))
+        patch._recent_cache[:] = [0.0, "", [], []]
+        title, items, mods = patch._recent()
+        check(title == "Recently played" and [x.name for x in items] == ["a", "b", "c"] and len(mods) == 3,
+              f"«Recently played» (no el historial de mixes), con «Ver todo» completo: {title} {[x.name for x in items]}")
+        home["items"][2]["moduleId"] = "OTRO_ID"
+        patch._recent_cache[:] = [0.0, "", [], []]
+        title, _items, _ = patch._recent()
+        check(title == "Recently played", f"si Tidal le cambia el id, lo encuentra por el título: {title}")
     finally:
         for k, v in saved.items():
             if v is None:
