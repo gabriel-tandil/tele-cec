@@ -27,7 +27,8 @@ class MediaMixin:
         await self._player_action(self.activities.get("videos"), "video", arg)
 
     async def a_musica(self, arg: str) -> None:
-        """Música local (mpv): las mismas que video: (play_pause, next, previous, seek:+10, volume:+, audio…)."""
+        """Música local (mpv): las mismas que video: (play_pause, next, previous, seek:+10, volume:+, audio…), y
+        shuffle (mezclar / en orden) y loop (repetir: la lista, el tema, nada)."""
         await self._player_action(self.activities.get("musica"), "musica", arg)
 
     async def _player_action(self, v, prefix: str, arg: str) -> None:
@@ -47,6 +48,10 @@ class MediaMixin:
             await v.osd("cancel")
         elif cmd == "shuffle":
             await self.toast("Mezclado" if await v.toggle_shuffle() else "En orden", 1500)
+        elif cmd == "loop":
+            loop = await v.cycle_loop()
+            await self.toast({"playlist": "Repetir toda la lista", "track": "Repetir este tema"}.get(loop, "Sin repetir"),
+                             1500)
         elif cmd == "volume":
             vol = await v.volume(rest or "+")
             if vol is not None:

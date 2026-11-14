@@ -237,8 +237,8 @@ async def local_music_test(ctl, port) -> None:
         def running(self):
             return self.on
 
-        async def play_files(self, files, start=0):
-            self.calls.append(("play_files", [Path(f).name for f in files], start))
+        async def play_files(self, files, start=0, shuffle=False):
+            self.calls.append(("play_files", [Path(f).name for f in files], start) + (("mezclados",) if shuffle else ()))
             self.list, self.pos = list(files), start
             return True
 
@@ -256,6 +256,10 @@ async def local_music_test(ctl, port) -> None:
 
         async def playlist(self):
             return list(self.list), self.pos
+
+        async def toggle_shuffle(self):
+            self.calls.append(("toggle_shuffle",))
+            return True
 
     act = FakeMusicAct()
     ctl.activities["musica"] = act
@@ -316,23 +320,38 @@ async def local_music_test(ctl, port) -> None:
         check(json.loads(body)["ok"] and act.calls[-1] == ("play_files", ["01 Signos.mp3"], 0),
               f"abierta: le cambia la lista sin cerrarla (un tema: su disco desde ese): {act.calls}")
         _, _, body = await http(port, "POST", "/api/music/play", {"type": "all", "index": 3, "shuffle": True}, H)
-        check(json.loads(body)["ok"] and act.calls[-1][2] == 0 and act.calls[-1][1][0] == "10 Cae el Sol.mp3"
-              and len(act.calls[-1][1]) == 6, f"todo mezclado: arranca por el elegido: {act.calls[-1]}")
+        check(json.loads(body)["ok"] and act.calls[-1][2] == 3 and act.calls[-1][1][3] == "10 Cae el Sol.mp3"
+              and len(act.calls[-1][1]) == 6 and act.calls[-1][3] == "mezclados",
+              f"todo mezclado: en orden, desde el elegido, y que mpv mezcle los demás (así se puede volver al orden): "
+              f"{act.calls[-1]}")
         lst = json.loads((await http(port, "GET", "/api/music/library?what=songs"))[2])["items"]
         _, _, body = await http(port, "POST", "/api/music/enqueue", {"id": lst[0]["id"], "mode": "next"}, H)
         r = json.loads(body)
-        check(r["ok"] and r["message"].startswith("Suena después de este") and act.list[1].endswith("Ves.mp3"),
+        check(r["ok"] and r["message"].startswith("Suena después de este") and act.list[act.pos + 1].endswith("Ves.mp3"),
               f"que suene después de este: {r}")
         _, _, body = await http(port, "GET", "/api/music/queue")
         q = json.loads(body)
         check(q["current"]["title"] == "Cae el Sol" and q["next"][0]["title"] == "Casi Nunca Lo Ves"
-              and q["next"][0]["n"] == 1 and q["total_next"] == 6, f"la cola: lo que suena y lo que sigue: {q}")
+              and q["next"][0]["n"] == act.pos + 1 and q["total_next"] == len(act.list) - act.pos - 1,
+              f"la cola: lo que suena y lo que sigue: {q}")
         _, _, body = await http(port, "POST", "/api/music/jump", {"n": 2}, H)
         check(json.loads(body)["ok"] and act.pos == 2, "saltar a un tema de la cola")
         _, _, body = await http(port, "POST", "/api/music/jump", {"n": 99}, H)
         check(not json.loads(body)["ok"], "saltar a uno que no está: lo dice")
         st, _, _ = await http(port, "POST", "/api/music/play", {"type": "all"}, {})
         check(st == 403, "poner a sonar sin el encabezado: no")
+        saved_players = nowplaying.players
+
+        async def mpv_playing():
+            return [nowplaying.Track("mpv", "Playing", "Cae el Sol", shuffle=False, loop="None")]
+        nowplaying.players = mpv_playing  # type: ignore[assignment]
+        try:
+            _, _, body = await http(port, "POST", "/api/media", {"command": "shuffle", "player": "mpv"}, H)
+            check(json.loads(body)["ok"] and act.calls[-1] == ("toggle_shuffle",),
+                  f"aleatorio desde el celular en Música: como el amarillo de la TV (para poder volver al orden): "
+                  f"{act.calls[-1]}")
+        finally:
+            nowplaying.players = saved_players  # type: ignore[assignment]
         act.on = False
         _, _, body = await http(port, "GET", "/api/music/queue")
         check(json.loads(body).get("closed"), "la cola con Música cerrada")

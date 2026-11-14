@@ -133,7 +133,10 @@ GTK solo mueve el foco con flechas dentro de cada bloque (una fila de portadas, 
 | ⏮ ⏭ · Canal −/+ | Video o tema anterior / siguiente | Foto anterior / siguiente (⏮ ⏭ también con zoom o con música) |
 | Atrás | Deja de buscar (sin saltar) | — |
 | 🔵 Azul · 🔴 Rojo | Videos: subtítulos · idioma de audio | Qué foto es (carpeta, archivo y número, en letra grande) · girar la foto |
-| 🟡 Amarillo | Videos: proporción (16:9, 4:3…) · Música: mezclar / en orden | Una foto al azar |
+| 🟡 Amarillo | Videos: proporción (16:9, 4:3…) · Música: aleatorio (mezclar / volver al orden) | Una foto al azar |
+| 🟢 Verde | Música: repetir (toda la lista → este tema → no repetir) | — |
+
+En Música, la barra dice abajo a la derecha si está en **aleatorio** y si **repite la lista** o **el tema**. Es lo mismo que muestran los botones del reproductor del celular: se puede cambiar desde cualquiera de los dos.
 
 **Zoom en las fotos** (`fotos_zoom`): ▲ acerca la foto y pausa la presentación. Mientras hay zoom:
 
@@ -489,7 +492,7 @@ La página es el mismo **menú de actividades** de la TV, con sus mismos colores
   - **Netflix, YouTube** · *Buscar*: escribís en el celular y los resultados aparecen en la TV. Si la app estaba cerrada, se abre. En Netflix va directo a la búsqueda; en «¿Quién está viendo?» primero hay que elegir el perfil. En YouTube abre su búsqueda con el texto puesto (tarda unos segundos porque reabre YouTube: escribir con el teclado no sirve ahí).
   - **Tidal** · *Explorar*: tu cuenta (ver abajo).
 - **Sonido**: en la lista de actividades, abajo de «Sonido», la **barra de volumen** (tocar o arrastrar) con el **silencio** al lado; tocar la fila abre por dónde sale (la TV por HDMI o un parlante Bluetooth ya emparejado; tocarlo lo conecta), con la misma barra arriba. Emparejar uno nuevo sigue siendo desde «Sonido» en el menú de la TV. Con la TV por HDMI, este volumen es el de la Pi: la TV tiene el suyo aparte.
-- **Abajo, lo que suena** (Tidal, Videos, Música, Netflix o YouTube) con ⏯ y ⏭. Tocarlo abre el reproductor grande: la tapa, la barra (tocar o arrastrar para ir a otra parte del tema), ⏮ ⏯ ⏭, aleatorio, repetir (lista o un tema), ♥ «Me gusta» en Tidal y el volumen. Maneja ese reproductor aunque en la TV haya otra cosa, por ejemplo la música de Tidal mientras pasan las fotos.
+- **Abajo, lo que suena** (Tidal, Videos, Música, Netflix o YouTube) con ⏯ y ⏭. Tocarlo abre el reproductor grande: la tapa, la barra (tocar o arrastrar para ir a otra parte del tema), ⏮ ⏯ ⏭, **aleatorio** y **repetir** (la lista o un tema; prendidos se ven resaltados, con Tidal y con Música), ♥ «Me gusta» en Tidal y el volumen. Maneja ese reproductor aunque en la TV haya otra cosa, por ejemplo la música de Tidal mientras pasan las fotos.
 
 **Tidal · Explorar**: tu cuenta, a través de High Tide (una sola sesión y una sola cola: lo que elegís en el celular se ve en la TV, y al revés).
 - **Mis canciones, Playlists, Mixes** (los guardados y los que arma Tidal para vos), **Discos** y **Artistas**. Tocar un tema lo pone a sonar desde ahí. Tocar una playlist, mix, disco o artista muestra sus temas, con **▶ Reproducir** y **🔀 Mezclar**.
@@ -499,7 +502,7 @@ La página es el mismo **menú de actividades** de la TV, con sus mismos colores
 - Si Tidal está cerrado, poner algo lo abre (unos 10 s). Con el sonido en un parlante Bluetooth no prende la TV ni le cambia la entrada: es solo música.
 
 **Música · Explorar**: la música de las carpetas de Música (`~/Música` o un pendrive), igual que Tidal.
-- **Artistas**, **Discos** y **Temas**, ordenados por las etiquetas de los archivos (título, artista, disco, número; con `python3-mutagen`) o, si no las tienen, por las carpetas: `Artista/Disco/01 Tema.mp3`. Las tapas salen del archivo o de `cover.jpg` / `folder.jpg`. Tocar un artista o un disco muestra sus temas, con **▶ Reproducir** y **🔀 Mezclar**; en Temas, también toda la música.
+- **Artistas**, **Discos** y **Temas**, ordenados por las etiquetas de los archivos (título, artista, disco, número; con `python3-mutagen`) o, si no las tienen, por las carpetas: `Artista/Disco/01 Tema.mp3`. Las tapas salen del archivo o de `cover.jpg` / `folder.jpg`. Tocar un artista o un disco muestra sus temas, con **▶ Reproducir** y **🔀 Mezclar** (prende el aleatorio sin cortar el tema elegido: apagarlo vuelve al orden del disco); en Temas, también toda la música.
 - **Carpetas**: elegir una carpeta, como en la TV.
 - **Buscar** (sin importar tildes ni mayúsculas): temas, artistas y discos. Tocar un tema pone su disco desde ese tema.
 - **⋯** en un tema: reproducirlo ahora, que suene después del actual o agregarlo al final de la cola.
@@ -682,7 +685,7 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `music:lyrics` · `music:page:inicio` (`explorar`, `coleccion`) | Tidal: mostrar u ocultar las letras · ir a esa página |
 | `my_list` | Netflix: abrir Mi lista |
 | `video:ok` `video:play_pause` `video:next` `video:previous` `video:seek:+10` `video:volume:+` `video:back` | Videos (mpv): reproducción, buscar (con la barra), volumen, dejar de buscar |
-| `musica:…` (las mismas) · `musica:shuffle` | Música local: lo mismo que Videos, y mezclar / en orden |
+| `musica:…` (las mismas) · `musica:shuffle` · `musica:loop` | Música local: lo mismo que Videos, y aleatorio (mezclar / en orden) y repetir (la lista, el tema, nada) |
 | `video:subtitles` · `video:audio` | Videos: ciclar subtítulos · pista de audio |
 | `fotos:next` · `fotos:previous` · `fotos:pause` | Fotos: siguiente, anterior, pausar o seguir la presentación |
 | `fotos:rotate` · `fotos:random` · `fotos:info` · `video:aspect` | Fotos: girar, una al azar, mostrar el nombre · Videos: proporción de la imagen |

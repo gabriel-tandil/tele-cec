@@ -367,6 +367,11 @@ class FakePlayerMixin:
         self.shuffled = not getattr(self, "shuffled", False)
         return self.shuffled
 
+    async def cycle_loop(self) -> str:
+        self.log.append("mpv:loop")
+        self.looping = {"none": "playlist", "playlist": "track", "track": "none"}[getattr(self, "looping", "none")]
+        return self.looping
+
     async def cycle(self, kind: str) -> str:
         self.log.append(f"mpv:{kind}")
         return {"sub": "Español", "audio": "Inglés", "aspect": "4:3"}[kind]
@@ -2026,6 +2031,9 @@ echo '</mame>'
         out = await press("SELECT", "RIGHT", "FORWARD", "F4_YELLOW")
         check(out == ["mpv:ok", "mpv:seek+10", "mpv:next", "mpv:shuffle", "ov:toast:Mezclado"],
               f"en Música: OK, ▶ (buscar), ⏭ (tema siguiente), amarillo (mezclar): {out}")
+        out = await press("F3_GREEN", "F3_GREEN", "F3_GREEN")
+        check(out == ["mpv:loop", "ov:toast:Repetir toda la lista", "mpv:loop", "ov:toast:Repetir este tema",
+                      "mpv:loop", "ov:toast:Sin repetir"], f"verde: repetir la lista, el tema, nada: {out}")
         await press("ROOT_MENU")
         grp = next(it for it in ctl.overlay.items if it.get("group") == "local")
         check(grp["current"] and ctl.overlay.items[ctl.overlay.sel] is grp,
@@ -2523,6 +2531,36 @@ echo '</mame>'
               and ("set_property", "options/playlist-start", "auto") in sent
               and ("set_property", "pause", False) in sent and ("set_property", "options/shuffle", False) in sent,
               f"ya abierta: cambia la lista y arranca en el elegido (sin pasarse del último), sin pausa: {sent}")
+        props: dict = {"shuffle": False, "loop-file": False, "loop-playlist": False, "playlist-count": 2}
+
+        async def fake_cmd2(*args, timeout=3.0):
+            sent.append(args)
+            if args[0] == "get_property":
+                return True, props.get(args[1])
+            if args[0] == "set_property":
+                props[args[1]] = args[2]
+            return True, None
+        mu.mpv.command = fake_cmd2
+        mu.osd = lambda *a: asyncio.sleep(0)  # type: ignore[method-assign]
+        sent.clear()
+        ok = await mu.play_files([str(mdir / "10 - Diez.mp3"), str(mdir / "1 - Uno.ogg")], 1, shuffle=True)
+        loads = [i for i, c in enumerate(sent) if c[0] == "loadlist"]
+        mixes = [i for i, c in enumerate(sent) if c == ("playlist-shuffle",)]
+        check(ok and loads and mixes and loads[0] < mixes[0] and props["shuffle"] is True,
+              f"«Mezclar» desde el celular: la lista en orden y después mpv mezcla los demás (aleatorio prendido): {sent}")
+        sent.clear()
+        on = await mu.toggle_shuffle()
+        check(on is False and ("playlist-unshuffle",) in sent and props["shuffle"] is False,
+              f"aleatorio otra vez: vuelve al orden (y lo anota para la barra y el celular): {sent}")
+        on = await mu.toggle_shuffle()
+        check(on and ("playlist-shuffle",) in sent and props["shuffle"] is True, "y de nuevo mezcla")
+        got = [await mu.cycle_loop() for _ in range(3)]
+        check(got == ["playlist", "track", "none"] and props["loop-file"] == "no" and props["loop-playlist"] == "no",
+              f"repetir: la lista → el tema → nada: {got} {props}")
+        props["loop-playlist"] = "inf"
+        check(await mu.cycle_loop() == "track" and props["loop-file"] == "inf" and props["loop-playlist"] == "no",
+              "si el celular puso «repetir la lista», el verde sigue desde ahí: el tema")
+        mu.mpv.command = fake_cmd
         sent.clear()
         await mu.enqueue("/x/tema.mp3", True)
         await mu.enqueue("/x/otro.mp3", False)

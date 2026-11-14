@@ -135,7 +135,7 @@
   .transport svg.i { width: 30px; height: 30px; }
   .transport .small { width: 44px; height: 44px; color: var(--faint); position: relative; }
   .transport .small svg.i { width: 22px; height: 22px; }
-  .transport .small.on { color: var(--text); }
+  .transport .small.on { color: var(--sel-text); background: var(--sel-bg); }  /* prendido: bien a la vista */
   .transport .small .one { position: absolute; right: 4px; top: 4px; font-size: 10px; font-weight: 800; }
   .opts { display: grid; gap: 6px; margin-top: 12px; }
   .opts button { padding: 14px; text-align: left; border-radius: 12px; background: rgba(255,255,255,0.06); font-weight: 600; }
@@ -1064,7 +1064,7 @@ function openPlayer() {
     const tr = el("div", "transport");
     const btn = (name, cls, fn, aria) => { const b = el("button", cls || ""); b.appendChild(svg(name)); b.setAttribute("aria-label", aria); b.addEventListener("click", () => { buzz(); fn(); }); return b; };
     const shuf = btn("shuffle", "small", () => media("shuffle"), "Aleatorio");
-    const loop = btn("repeat", "small", () => media("loop"), "Repetir");
+    const loop = btn("repeat", "small", () => media("loop"), "Repetir: la lista, el tema o nada");
     const one = el("span", "one", "1");
     loop.appendChild(one);
     const pp = btn("play", "main", () => media("play-pause"), "Play o pausa");

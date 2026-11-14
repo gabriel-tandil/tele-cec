@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 import re
 import time
 from typing import TYPE_CHECKING, Any
@@ -217,18 +216,16 @@ class LocalMusicWeb:
         if not songs:
             return {"ok": False, "error": "No hay temas"}
         files = [s.path for s in songs]
-        if data.get("shuffle"):
-            first = files.pop(index)
-            random.shuffle(files)
-            files, index = [first, *files], 0
-        log.info("Celular: pongo en Música «%s» desde el tema %d (%d temas)", title, index + 1, len(files))
+        shuffle = bool(data.get("shuffle"))  # en orden y mezclados por mpv: apagar «aleatorio» vuelve al orden
+        log.info("Celular: pongo en Música «%s» desde el tema %d (%d temas%s)", title, index + 1, len(files),
+                 ", mezclados" if shuffle else "")
         self.ctl.power.last_activity = time.monotonic()
         if act.running():
-            ok = await act.play_files(files, index)
+            ok = await act.play_files(files, index, shuffle=shuffle)
             return {"ok": ok} if ok else {"ok": False, "error": "No pude cambiar lo que suena"}
-        act.want_files = (files, index)
+        act.want_files, act.want_shuffle = (files, index), shuffle
         r = await self.launch("musica")
-        act.want_files = None
+        act.want_files, act.want_shuffle = None, False
         return r
 
     async def enqueue(self, data: dict[str, Any]) -> dict[str, Any]:

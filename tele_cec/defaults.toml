@@ -375,6 +375,7 @@ BACKWARD = "musica:previous"
 CHANNEL_UP = "musica:next"
 CHANNEL_DOWN = "musica:previous"
 F4_YELLOW = "musica:shuffle"  # amarillo = mezclar / volver al orden
+F3_GREEN = "musica:loop"      # verde = repetir: toda la lista → este tema → no repetir
 EXIT = "musica:back"
 AN_RETURN = "musica:back"
 

@@ -47,6 +47,7 @@ class MpvMediaActivity(MediaActivity):
         self.mpris = Mpris(str(self.cfg.get("mpris_player") or "mpv"), float(self.cfg.get("volume_step", 0.05)))
         # Temas elegidos desde el celular para el próximo open (en vez de la carpeta): (archivos, desde cuál).
         self.want_files: tuple[list[str], int] | None = None
+        self.want_shuffle = False  # y mezclarlos (sin cortar el primero): «Mezclar» en el celular
 
     # ------------------------------------------------------------ proceso
     def installed(self) -> bool:
@@ -95,6 +96,7 @@ class MpvMediaActivity(MediaActivity):
         if self.command:
             return await super().open(folder)
         start = None
+        shuffle_after, self.want_shuffle = self.want_shuffle, False
         if self.want_files:
             (files, start), self.want_files = self.want_files, None
             folder = folder or Path(os.path.commonpath(files) if len(files) > 1 else os.path.dirname(files[0]))
@@ -128,6 +130,8 @@ class MpvMediaActivity(MediaActivity):
         log.info("%s: %s (%d archivos)", self.name, folder, len(files))
         if not await self.mpv.ready():
             log.warning("%s: mpv no abrió su canal de control", self.name)
+        elif shuffle_after:
+            await self._shuffle_now(len(files))
         return True
 
     async def _write_playlist(self, files: list[str]) -> Path | None:
@@ -141,9 +145,9 @@ class MpvMediaActivity(MediaActivity):
         return playlist
 
     # ------------------------------------------------------------ la lista (desde el celular)
-    async def play_files(self, files: list[str], start: int = 0) -> bool:
+    async def play_files(self, files: list[str], start: int = 0, shuffle: bool = False) -> bool:
         """Con mpv abierto: cambia la lista por estos temas y arranca en el número `start` (sin que suene antes el
-        primero: playlist-start vale para el loadlist que sigue)."""
+        primero: playlist-start vale para el loadlist que sigue). shuffle: después mezcla los demás."""
         playlist = await self._write_playlist(files)
         if playlist is None:
             return False
@@ -154,6 +158,8 @@ class MpvMediaActivity(MediaActivity):
         self.shuffled = False
         if ok:
             await self.mpv.set("pause", False)
+            if shuffle:
+                await self._shuffle_now(len(files))
             await self.osd("show")
         return ok
 
@@ -221,12 +227,37 @@ class MpvMediaActivity(MediaActivity):
         vol = await self.mpv.get("volume") if ok else None
         return round(vol) if isinstance(vol, (int, float)) else None
 
+    # Aleatorio y repetir quedan en las propiedades de mpv «shuffle», «loop-playlist» y «loop-file»: las mismas que
+    # lee y cambia mpv-mpris, así la barra de la TV y los botones del celular dicen y hacen lo mismo.
+    async def _shuffle_now(self, count: int = 0) -> None:
+        """Mezcla la lista sin cortar el tema que suena (mpv mueve los demás alrededor)."""
+        for _ in range(30 if count else 0):  # recién cargada: que mpv tenga la lista entera
+            if (await self.mpv.get("playlist-count") or 0) >= count:
+                break
+            await asyncio.sleep(0.1)
+        await self.mpv.command("playlist-shuffle")
+        await self.mpv.set("shuffle", True)
+        self.shuffled = True
+
     async def toggle_shuffle(self) -> bool:
-        """Mezcla la lista (o vuelve al orden de la carpeta). Devuelve si quedó mezclada."""
-        self.shuffled = not getattr(self, "shuffled", self.shuffle)
-        await self.mpv.command("playlist-shuffle" if self.shuffled else "playlist-unshuffle")
+        """Mezcla la lista (o vuelve al orden de la carpeta o del disco). Devuelve si quedó mezclada."""
+        cur = await self.mpv.get("shuffle")
+        on = not (cur if isinstance(cur, bool) else getattr(self, "shuffled", self.shuffle))
+        await self.mpv.command("playlist-shuffle" if on else "playlist-unshuffle")
+        await self.mpv.set("shuffle", on)
+        self.shuffled = on
         await self.osd("show")
-        return self.shuffled
+        return on
+
+    async def cycle_loop(self) -> str:
+        """Repetir: no → toda la lista → este tema → no. Devuelve "none", "playlist" o "track" (como MPRIS)."""
+        lf, lp = await self.mpv.get("loop-file"), await self.mpv.get("loop-playlist")
+        cur = "track" if lf not in (None, False, "no") else "playlist" if lp not in (None, False, "no") else "none"
+        nxt = {"none": "playlist", "playlist": "track", "track": "none"}[cur]
+        await self.mpv.set("loop-file", "inf" if nxt == "track" else "no")
+        await self.mpv.set("loop-playlist", "inf" if nxt == "playlist" else "no")
+        await self.osd("show")
+        return nxt
 
     async def cycle(self, kind: str) -> str:
         """Pasa a la siguiente pista de subtítulos (sub), de audio (audio) o proporción (aspect). Devuelve cómo

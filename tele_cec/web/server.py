@@ -324,6 +324,11 @@ class WebRemote:
             return await self.tidal.like()
         if command == "loop":
             value = track.loop
+        act = self._act_of(player)
+        if command == "shuffle" and isinstance(act, activities_mod.MpvMediaActivity) and act.running():
+            # Música: como el amarillo de la TV (mpv-mpris mezcla, pero al apagarlo no vuelve al orden)
+            on = await act.toggle_shuffle()
+            return {"ok": True, "message": "Mezclado" if on else "En orden"}
         ok = await nowplaying.control(player, command, value)
         return {"ok": ok} if ok else {"ok": False, "error": "Ese reproductor no lo permite"}
 
@@ -550,6 +555,11 @@ class WebRemote:
             # Netflix y YouTube son el mismo navegador para MPRIS: la que esté en pantalla.
             cur = self.ctl.current_app()
             return self.ctl.activities[cur].name if cur in ("netflix", "youtube") else "Navegador"
+        act = self._act_of(player)
+        return act.name if act is not None else base
+
+    def _act_of(self, player: str) -> Any:
+        """La actividad de un reproductor MPRIS (o None)."""
         found = []
         for ident, act in self.ctl.activities.items():
             mpris = self._mpris(ident)
@@ -557,9 +567,7 @@ class WebRemote:
                 found.append(act)
         # Videos y Música son los dos mpv: el que esté abierto (si están los dos, el de la pantalla).
         cur = self.ctl.activities.get(self.ctl.current_app() or "")
-        for act in sorted(found, key=lambda a: (a is not cur, not a.running())):
-            return act.name
-        return base
+        return min(found, key=lambda a: (a is not cur, not a.running()), default=None)
 
     async def _build_state(self) -> dict[str, Any]:
         ctl = self.ctl

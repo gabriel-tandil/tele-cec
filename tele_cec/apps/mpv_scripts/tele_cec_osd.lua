@@ -143,6 +143,16 @@ local function render()
     end
     out[#out + 1] = text(x1, by + 50, 4, 36, fmt(t), "FFFFFF")
     if dur > 0 then out[#out + 1] = text(x2, by + 50, 6, 36, fmt(dur), "BBBBBB") end
+    if opts.audio then  -- Música: aleatorio y repetir (amarillo y verde), a la izquierda de la duración
+        local modes = {}
+        if mp.get_property_bool("shuffle", false) then modes[#modes + 1] = "aleatorio" end
+        local lf, lp = mp.get_property("loop-file", "no"), mp.get_property("loop-playlist", "no")
+        if lf ~= "no" then modes[#modes + 1] = "repite este tema"
+        elseif lp ~= "no" then modes[#modes + 1] = "repite la lista" end
+        if #modes > 0 then
+            out[#out + 1] = text(x2 - 150, by + 50, 6, 32, table.concat(modes, "  ·  "), "66D1FF", true)
+        end
+    end
 
     -- la miniatura del punto elegido (videos, con thumbfast)
     if scrub_target and is_video() and thumbfast.available and not thumbfast.disabled
@@ -210,6 +220,9 @@ mp.register_script_message("cancel", function()
 end)
 
 mp.observe_property("pause", "bool", function() show() end)
+for _, prop in ipairs({"shuffle", "loop-file", "loop-playlist"}) do  -- también si lo cambia el celular
+    mp.observe_property(prop, "native", function(_, _) if opts.audio then show() end end)
+end
 mp.register_event("file-loaded", function()
     scrub_target = nil
     show(opts.show_s + 1)
