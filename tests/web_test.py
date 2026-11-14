@@ -30,7 +30,8 @@ def check(cond: bool, what: str) -> None:
 
 
 def app(name, icon="", mpris=None, installed=True):
-    return SimpleNamespace(name=name, icon=icon, mpris=mpris, installed=lambda: installed, fail_text="")
+    return SimpleNamespace(name=name, icon=icon, mpris=mpris, installed=lambda: installed, fail_text="",
+                           running=lambda: False)
 
 
 class FakeMusic:
@@ -124,7 +125,8 @@ class FakeCtl:
         self.log.append(("menu_close",))
 
     async def switch_to(self, ident, folder=None):
-        self.log.append(("switch", ident, self._no_activate))
+        self.log.append(("switch", ident, self._no_activate) if folder is None
+                        else ("switch", ident, self._no_activate, folder))
         self.cur = ident
         if ident == "tidal":
             self.music.on = True
@@ -462,6 +464,136 @@ async def main() -> int:
         _, _, body = await http(port, "GET", "/api/tidal/library?what=tracks")
         r = json.loads(body)
         check(r.get("login") and "cuenta" in r["error"], f"sin la sesión de Tidal iniciada lo dice: {r}")
+        ctl.music.logged = True
+
+        print("El menú de actividades, como en la TV")
+        import tempfile
+        import types
+        from tele_cec import apps as activities_mod
+        from tele_cec.controller.menu import MenuMixin
+
+        class FakeVideos(activities_mod.VideosActivity):
+            on = False
+
+            def installed(self):
+                return True
+
+            def running(self):
+                return self.on
+
+            async def close(self):
+                ctl.log.append(("close", "videos"))
+                self.on = False
+
+        class FakeAndroid(activities_mod.AndroidActivity):
+            devs: list = []
+            on = False
+
+            def installed(self):
+                return True
+
+            def running(self):
+                return self.on
+
+            def devices(self):
+                return list(self.devs)
+
+        tmp = Path(tempfile.mkdtemp(prefix="tele-web-"))
+        (tmp / "Vacaciones" / "2024").mkdir(parents=True)
+        (tmp / "Vacaciones" / "peli.mp4").write_bytes(b"x")
+        outside = Path(tempfile.mkdtemp(prefix="tele-fuera-"))
+        vids = FakeVideos({"folders": [str(tmp)]})
+        andr = FakeAndroid({})
+        andr.devs = [activities_mod.android.Device("ZY327", "device", "moto_e7_plus"),
+                     activities_mod.android.Device("192.168.0.9:5555", "unauthorized", "")]
+        ctl.activities["videos"] = vids
+        ctl.activities["android"] = andr
+        ctl._picker_entries = types.MethodType(MenuMixin._picker_entries, ctl)
+        ctl._picker_title = types.MethodType(MenuMixin._picker_title, ctl)
+
+        def menu_entries():
+            out = []
+            for ident in ("netflix", "youtube", "tidal", "videos", "android"):
+                act = ctl.activities[ident]
+                out.append({"id": ident, "name": act.name, "icon": getattr(act, "icon", ""), "sub": "algo",
+                            "enabled": True, "current": ident == ctl.cur})
+            out.append({"id": "_sound", "name": "Sonido", "icon": "sonido.svg", "sub": "TV (HDMI)", "enabled": True,
+                        "current": False})
+            out.append({"id": "_help", "name": "Ayuda", "icon": "ayuda.svg", "sub": "", "enabled": True,
+                        "current": False})
+            return out
+        ctl._menu_entries = menu_entries
+        ctl.cur = "tidal"
+        web.menu.invalidate()
+        _, _, body = await http(port, "GET", "/api/menu")
+        r = json.loads(body)
+        rows = {it["id"]: it for it in r["items"]}
+        check(list(rows) == ["netflix", "youtube", "tidal", "videos", "android", "_sound"]
+              and rows["videos"]["option"] == "folders" and rows["videos"]["chip"] == "Carpetas"
+              and rows["android"]["chip"] == "Conectar" and rows["tidal"]["chip"] == "Explorar"
+              and rows["netflix"]["option"] == "search" and rows["tidal"]["current"]
+              and rows["netflix"]["icon"] == "/icons/netflix.svg",
+              f"las filas del menú de la TV (sin la Ayuda), con su botoncito y la actual marcada: "
+              f"{[(i['id'], i['chip'], i['current']) for i in r['items']]}")
+
+        _, _, body = await http(port, "GET", "/api/folders?app=videos")
+        r = json.loads(body)
+        check(r["items"] and r["items"][0]["kind"] == "dir" and r["items"][0]["path"] == str(tmp),
+              f"Carpetas: primero las configuradas: {r}")
+        _, _, body = await http(port, "GET", f"/api/folders?app=videos&path={tmp / 'Vacaciones'}")
+        r = json.loads(body)
+        kinds = [(i["kind"], i["name"]) for i in r["items"]]
+        check(kinds[0][0] == "play" and r["items"][0]["enabled"] and ("dir", "2024") in kinds,
+              f"adentro: «Reproducir esta carpeta» y sus subcarpetas: {kinds}")
+        _, _, body = await http(port, "GET", f"/api/folders?app=videos&path={outside}")
+        check("error" in json.loads(body), "una carpeta fuera de las configuradas: no se lista")
+        _, _, body = await http(port, "GET", "/api/folders?app=videos&path=/etc")
+        check("error" in json.loads(body), "ni /etc")
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": str(tmp / "Vacaciones")}, H)
+        check(json.loads(body)["ok"] and ("switch", "videos", False, str((tmp / "Vacaciones").resolve())) in ctl.log,
+              f"elegir una carpeta la abre: {ctl.log}")
+        _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": str(outside)}, H)
+        check(not json.loads(body)["ok"], "abrir una carpeta de afuera: no")
+
+        _, _, body = await http(port, "GET", "/api/android")
+        r = json.loads(body)
+        check([(d["name"], d["ready"]) for d in r["devices"]] == [("moto e7 plus", True), ("192.168.0.9:5555", False)]
+              and "Permitir" in r["devices"][1]["sub"], f"Android: los celulares y su estado: {r['devices']}")
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/app", {"id": "android", "serial": "ZY327"}, H)
+        check(json.loads(body)["ok"] and andr.want_serial == "ZY327" and ("switch", "android", False) in ctl.log,
+              f"tocar un celular lo comparte: {ctl.log}")
+        _, _, body = await http(port, "POST", "/api/app", {"id": "android", "serial": "192.168.0.9:5555"}, H)
+        check(not json.loads(body)["ok"], "uno sin autorizar: no")
+
+        async def menu_open(sel=None):
+            ctl.log.append(("menu_open",))
+        ctl.menu_open = menu_open
+        ctl._foreground = "videos"
+        vids.on, ctl.cur = True, "videos"
+        orig_current = ctl.current_app
+        ctl.current_app = lambda: "videos" if vids.on else None
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/close", {"id": "videos"}, H)
+        check(json.loads(body)["ok"] and ("close", "videos") in ctl.log and ctl.log[-1] == ("menu_open",)
+              and ctl._foreground is None and not ctl._switching,
+              f"cerrar la app en uso: se cierra (sin el aviso de «se cerró sola») y vuelve el menú: {ctl.log}")
+        ctl.current_app = orig_current
+
+        print("Buscar desde el celular con la app cerrada")
+        yt = ctl.activities["youtube"]
+        yt.search_url = lambda t: "https://www.youtube.com/tv#/search?q=" + t
+        yt.running = lambda: False
+        ctl.cur = None
+        ctl.log.clear()
+        _, _, body = await http(port, "POST", "/api/search", {"app": "youtube", "text": "  gatitos\n "}, H)
+        r = json.loads(body)
+        check(r["ok"] and ("switch", "youtube", False) in [x[:3] for x in ctl.log]
+              and any(x[0] == "switch" and x[1] == "youtube" for x in ctl.log),
+              f"YouTube cerrado: se abre directo en la búsqueda: {ctl.log} {r}")
+        _, _, body = await http(port, "POST", "/api/search", {"app": "tidal", "text": "x"}, H)
+        check(not json.loads(body)["ok"], "buscar solo en Netflix y YouTube")
     finally:
         await web.close()
 

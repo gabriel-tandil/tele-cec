@@ -28,9 +28,11 @@ import urllib.parse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .. import apps as activities_mod
 from ..keys import parse_key
 from ..system import audio, keyboard
 from . import nowplaying
+from .menu import MenuWeb
 from .tidal import TidalWeb
 
 if TYPE_CHECKING:
@@ -100,6 +102,7 @@ class WebRemote:
         self._apps: list[dict[str, Any]] = []
         self._apps_at = 0.0
         self.tidal = TidalWeb(ctl, self.launch)
+        self.menu = MenuWeb(ctl, self.launch)
 
     # ---------------------------------------------------------------- servidor
     async def start(self) -> bool:
@@ -162,6 +165,14 @@ class WebRemote:
                 return _json(await self.state())
             if path == "/api/art":
                 return self._art_file()
+            if path == "/api/menu":
+                return _json(await self.menu.items())
+            if path == "/api/folders":
+                return _json(await self.menu.folders(query))
+            if path == "/api/games":
+                return _json(await self.menu.games())
+            if path == "/api/android":
+                return _json(await self.menu.android())
             if path == "/api/tidal/library":
                 return _json(await self.tidal.library(query))
             if path == "/api/tidal/list":
@@ -194,7 +205,11 @@ class WebRemote:
             return _json(await self.media(str(data.get("command") or ""), str(data.get("player") or ""),
                                           data.get("value")))
         if path == "/api/app":
-            return _json(await self.launch(str(data.get("id") or "")))
+            return _json(await self.open_app(data))
+        if path == "/api/close":
+            return _json(await self.menu.close(str(data.get("id") or "")))
+        if path == "/api/search":
+            return _json(await self.search(str(data.get("app") or ""), str(data.get("text") or "")))
         if path == "/api/text":
             return _json(await self.type_text(str(data.get("text") or ""), str(data.get("key") or "")))
         if path == "/api/tidal/play":
@@ -250,9 +265,35 @@ class WebRemote:
         cur = next((o for o in self._outputs if o.default), None)
         return cur.kind if cur else ""
 
-    async def launch(self, ident: str) -> dict[str, Any]:
+    async def open_app(self, data: dict[str, Any]) -> dict[str, Any]:
+        """/api/app: {id} y, según la app, {folder} (Videos, Fotos), {rom} (Juegos) o {serial} (Android)."""
+        ident = str(data.get("id") or "")
+        folder: str | None = None
+        if data.get("folder"):
+            path = self.menu.allowed_folder(ident, str(data["folder"]))
+            if path is None:
+                return {"ok": False, "error": "esa carpeta no está entre las configuradas"}
+            folder = str(path)
+        elif data.get("rom"):
+            if ident != "juegos" or not self.menu.allowed_rom(str(data["rom"])):
+                return {"ok": False, "error": "ese juego no está"}
+            folder = str(data["rom"])
+        elif data.get("serial"):
+            act = self.ctl.activities.get(ident)
+            if not isinstance(act, activities_mod.AndroidActivity):
+                return {"ok": False, "error": "pedido inválido"}
+            serial = str(data["serial"])
+            if not any(d.serial == serial and d.ready for d in await asyncio.to_thread(act.devices)):
+                return {"ok": False, "error": "ese celular ya no está listo"}
+            if act.running() and act.serial != serial:
+                await self.menu.close(ident)  # otro celular: se cierra y se abre con el elegido
+            act.want_serial = serial
+        return await self.launch(ident, folder)
+
+    async def launch(self, ident: str, folder: str | None = None) -> dict[str, Any]:
         """Abrir una app desde el celular, como elegirla en el menú. Despierta a la Pi si está en reposo. Tidal con
-        el sonido en un parlante Bluetooth no prende la TV ni le cambia la entrada (es solo música)."""
+        el sonido en un parlante Bluetooth no prende la TV ni le cambia la entrada (es solo música). Con folder:
+        esa carpeta (Videos, Fotos), ese juego (Juegos) o esa dirección (YouTube)."""
         ctl = self.ctl
         act = ctl.activities.get(ident)
         if act is None:
@@ -272,7 +313,7 @@ class WebRemote:
             ctl.power.note_key()  # cuenta como uso (cancela una cuenta regresiva de reposo)
         if ctl._switching:
             return {"ok": False, "error": "Esperá: está cambiando de app"}
-        if ctl.current_app() == ident:
+        if ctl.current_app() == ident and folder is None:
             if ctl._menu_open:
                 await ctl.menu_close()
             return {"ok": True, "message": f"{act.name} ya está abierto"}
@@ -284,12 +325,13 @@ class WebRemote:
         ok = False
         try:
             await ctl.overlay.busy(f"Abriendo {act.name}…")
-            ok = await ctl.switch_to(ident)
+            ok = await ctl.switch_to(ident, folder)
         finally:
             ctl._no_activate = before
             await ctl.overlay.hide()
             self._state = None
             self._apps_at = 0.0
+            self.menu.invalidate()
         if not ok:
             why = getattr(act, "fail_text", "") or f"No pude abrir {act.name}"
             await ctl.overlay.toast(why, 3000)
@@ -351,6 +393,33 @@ class WebRemote:
         if ok:
             await self.ctl.overlay.toast(msg, 2000)
         return {"ok": ok, "message": msg}
+
+    async def search(self, app: str, text: str) -> dict[str, Any]:
+        """Buscar en Netflix o YouTube desde el celular; si la app está cerrada, la abre primero."""
+        text = " ".join("".join(ch for ch in text if ch.isprintable()).split())[:120]
+        if app not in ("netflix", "youtube") or app not in self.ctl.activities:
+            return {"ok": False, "error": "solo Netflix y YouTube"}
+        if not text:
+            return {"ok": False, "error": "escribí qué buscar"}
+        ctl = self.ctl
+        act = ctl.activities[app]
+        if app == "youtube":
+            if act.running():
+                return await self._youtube_search(text)
+            log.info("Celular: abro YouTube en la búsqueda «%s»", text)
+            r = await self.launch("youtube", act.search_url(text))
+            return {**r, "message": f"Buscando «{text}» en YouTube"} if r.get("ok") else r
+        if ctl.page is None:
+            r = await self.launch("netflix")
+            if not r.get("ok"):
+                return r
+            deadline = time.monotonic() + 30
+            while ctl.page is None and time.monotonic() < deadline:
+                await asyncio.sleep(0.5)
+            if ctl.page is None:
+                return {"ok": False, "error": "Netflix no terminó de abrir: probá de nuevo"}
+            await asyncio.sleep(2)  # que cargue la página (perfiles o inicio)
+        return await self.type_text(text, "")
 
     async def _youtube_search(self, text: str) -> dict[str, Any]:
         """YouTube para TV: se reabre en su búsqueda con el texto puesto. Escribir con el teclado no sirve: la
