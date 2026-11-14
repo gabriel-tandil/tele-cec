@@ -19,7 +19,7 @@ from typing import Any
 
 from ..system.mpris import Mpris
 from ..system.procs import LOG_DIR
-from .folders import scan_media
+from .folders import list_media, scan_media
 from .media import MediaActivity
 from .mpv import SCRIPTS, Mpv, base_args, mpris_plugin, mpv_pids
 
@@ -105,8 +105,14 @@ class MpvMediaActivity(MediaActivity):
                 log.warning("%s: no hay contenido en %s", self.name,
                             ", ".join(map(str, self.folders)) or "(sin carpetas)")
                 return False
-            if await asyncio.to_thread(folder.is_file):  # un archivo elegido en el menú (Videos): solo ese
-                files, folder = [str(folder)], folder.parent
+            if await asyncio.to_thread(folder.is_file):  # un archivo elegido en el menú
+                chosen, folder = str(folder), folder.parent
+                files = [chosen]
+                if self.pick_continues:  # Música: desde ese tema, con los demás de la carpeta
+                    files = [str(f) for f in await asyncio.to_thread(list_media, folder, self.exts)] or files
+                    start = files.index(chosen) if chosen in files else None
+                    if start is None:
+                        files, start = [chosen], 0
             else:
                 files = await asyncio.to_thread(self.files, folder)
         if not files:

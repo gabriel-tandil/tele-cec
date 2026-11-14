@@ -21,7 +21,9 @@ class MusicActivity(MpvMediaActivity):
     play_label = "▶ Escuchar esta carpeta"
     empty_in_folder = "No hay música en esta carpeta"
     audio_only = True
-    browse_on_ok = True   # OK en el menú: la carpeta predeterminada (▶ Escuchar esta carpeta, o una subcarpeta)
+    browse_on_ok = True   # OK en el menú: la carpeta predeterminada (▶ Escuchar esta carpeta, o un tema)
+    pick_files = True     # un tema elegido: desde ese, con los demás de su carpeta
+    pick_continues = True
     thumbnails = False
     TITLE = "tele-cec musica"
 

@@ -16,7 +16,8 @@ class VideosActivity(MpvMediaActivity):
     play_label = "▶ Reproducir esta carpeta"
     empty_in_folder = "No hay videos en esta carpeta"
     browse_on_ok = True   # OK en el menú: la carpeta predeterminada, para elegir qué ver
-    pick_files = True
+    pick_files = True     # se elige el video (solo ese), no la carpeta entera
+    play_folder = False
     TITLE = "tele-cec videos"
 
     def extra_args(self) -> list[str]:

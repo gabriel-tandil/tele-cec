@@ -54,8 +54,12 @@ class MediaActivity(ProcActivity):
     empty_in_folder = "No hay nada para mostrar acá"
     # OK sobre la fila del menú: abre el selector en la carpeta predeterminada (en vez de arrancar con todo).
     browse_on_ok = False
-    # En el selector se elige un archivo (Videos: una película), no se reproduce la carpeta entera.
+    # En el selector, además de las subcarpetas, los archivos de la carpeta para elegir uno (Videos, Música).
     pick_files = False
+    # La opción «▶ Reproducir esta carpeta» (Videos no: se elige el video).
+    play_folder = True
+    # Al elegir un archivo: sigue con los demás de su carpeta (Música, como un disco) o solo ese (Videos).
+    pick_continues = False
 
     def roots(self) -> list[Path]:
         """Las carpetas configuradas que existen (punto de partida para elegir otra desde el menú)."""

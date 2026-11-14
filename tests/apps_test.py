@@ -382,6 +382,7 @@ class FakeVideos(FakePlayerMixin, FakeProcMixin, activities_mod.VideosActivity):
 
 class FakeMusicLocal(FakePlayerMixin, FakeProcMixin, activities_mod.MusicActivity):
     browse_on_ok = False
+    pick_files = False
 
     def __init__(self, log: list[str]):
         activities_mod.MusicActivity.__init__(self, {})
@@ -776,9 +777,10 @@ async def main() -> int:
 
         mus_root = tmp / "pick" / "Música"
         (mus_root / "Disco").mkdir(parents=True)
-        (mus_root / "Disco" / "1.mp3").write_bytes(b"")
+        for n in ("1 - Uno.mp3", "2 - Dos.mp3", "10 - Diez.mp3", "tapa.jpg"):
+            (mus_root / "Disco" / n).write_bytes(b"")
         mlocal = FakeMusicLocal(log)
-        mlocal.folders, mlocal.browse_on_ok = [str(mus_root)], True
+        mlocal.folders, mlocal.browse_on_ok, mlocal.pick_files = [str(mus_root)], True, True
         ctl.activities["musica"] = mlocal
         items_before = ctl.cfg.menu.get("items")
         ctl.cfg.menu["items"] = ["netflix", "tidal", "videos", "musica", "fotos"]
@@ -791,7 +793,20 @@ async def main() -> int:
         out = await press("SELECT")
         check(not mlocal.on and ctl._menu_mode == "folders" and [it['name'] for it in ctl.overlay.items] == ["▶ Escuchar esta carpeta", "Disco"],
               f"Música: OK abre la carpeta, con «Escuchar esta carpeta» y los discos: {[it['name'] for it in ctl.overlay.items]}")
-        out = await press("SELECT")
+        await press("DOWN", "SELECT")
+        got = [(it.get("kind"), it["name"]) for it in ctl.overlay.items]
+        check(got == [("play", "▶ Escuchar esta carpeta"), ("file", "1 - Uno"), ("file", "2 - Dos"), ("file", "10 - Diez")],
+              f"en un disco: escucharlo entero o elegir un tema (en orden, sin la tapa): {got}")
+        out = await press("DOWN", "DOWN", "SELECT")
+        check("musica:open:2 - Dos.mp3" in out and mlocal.on, f"OK sobre un tema lo pone: {out}")
+        await mlocal.close()
+        ctl._foreground = None
+        await press("ROOT_MENU")
+        for _ in range(8):
+            if ctl._menu_mode == "activities" and ctl._menu_sel == mi:
+                break
+            await press("DOWN")
+        out = await press("SELECT", "SELECT")
         check("musica:open:Música" in out and mlocal.on, f"y escuchar la carpeta entera sigue igual: {out}")
         await mlocal.close()
         del ctl.activities["musica"]
@@ -2293,6 +2308,15 @@ echo '</mame>'
         check(ok and lst.read_text().splitlines() == [str(mdir / "peli.mkv")] and vi.current_folder == mdir,
               f"Videos con un archivo elegido: solo ese (no la carpeta): {lst.read_text().splitlines()}")
         (mdir / "peli.mkv").unlink()
+        mu2 = activities_mod.MusicActivity({"folders": [str(mdir)]})
+        mu2.mpv.socket_path = tmp / "cache" / "musica2-mpv.sock"
+        mu2.spawn, mu2.mpv.ready = fake_spawn, fake_ready
+        ok = await mu2.open(mdir / "2 - Dos.flac")
+        lst = Path(next(a for a in spawned[-1] if a.startswith("--playlist=")).split("=", 1)[1])
+        names_ = [Path(x).name for x in lst.read_text().splitlines()]
+        check(ok and names_[:3] == ["1 - Uno.ogg", "2 - Dos.flac", "10 - Diez.mp3"]
+              and f"--playlist-start={names_.index('2 - Dos.flac')}" in spawned[-1],
+              f"Música con un tema elegido: desde ese, con los demás de la carpeta: {names_} {spawned[-1][-2:]}")
         sent: list = []
 
         async def fake_cmd(*args, timeout=3.0):

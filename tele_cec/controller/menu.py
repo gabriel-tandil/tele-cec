@@ -38,11 +38,15 @@ def _size_text(n: int) -> str:
     return f"{max(1, round(n / (1 << 20)))} MB"
 
 
-def _file_items(folder: Path, exts: set[str]) -> list[dict]:
-    """Los videos de la carpeta para elegir uno (tamaño y si tiene subtítulos al lado)."""
-    files = activities_mod.list_media(folder, exts)
+def _file_items(folder: Path, act: activities_mod.MediaActivity) -> list[dict]:
+    """Los archivos de la carpeta para elegir uno: los temas (Música) o los videos, con su tamaño y si tienen
+    subtítulos al lado."""
+    files = activities_mod.list_media(folder, act.exts)
     if not files:
         return []
+    if getattr(act, "audio_only", False):
+        return [{"kind": "file", "path": str(f), "name": f.stem, "icon": "audio-x-generic", "sub": "",
+                 "enabled": True, "current": False} for f in files]
     try:
         subs = [p.stem.lower() for p in folder.iterdir() if p.suffix.lower() in SUB_EXT]
     except OSError:
@@ -565,8 +569,8 @@ class MenuMixin:
                               "icon": "folder", "sub": "predeterminada" if root == default else "",
                               "enabled": True, "current": False})
             return f"{act.name} · elegir carpeta", items
-        pick = act.pick_files and not act.command  # Videos: se elige el archivo, no la carpeta entera
-        if not pick:
+        pick = act.pick_files and not act.command  # los archivos, para elegir uno (Videos, Música)
+        if act.play_folder or not pick:
             has = activities_mod.count_media(path, act.exts) > 0  # corta en el primero (y tiene tope de tiempo)
             items.append({"kind": "play", "path": str(path), "name": act.play_label, "icon": "media-playback-start",
                           "sub": "con sus subcarpetas" if has else act.empty_in_folder, "enabled": has,
@@ -587,7 +591,7 @@ class MenuMixin:
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})
         if pick:
-            items += _file_items(path, act.exts)
+            items += _file_items(path, act)
             if not items:
                 items.append({"kind": "empty", "path": str(path), "name": act.empty_in_folder, "icon": "folder",
                               "sub": "Conectá un pendrive o elegí otra carpeta", "enabled": False, "current": False})
