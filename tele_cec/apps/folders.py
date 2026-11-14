@@ -11,6 +11,8 @@ from pathlib import Path
 VIDEO_EXT = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".mpg", ".mpeg", ".ts", ".m2ts", ".wmv",
              ".flv", ".ogv", ".3gp", ".vob", ".divx"}
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff", ".pnm", ".ppm", ".heic"}
+AUDIO_EXT = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma", ".aiff", ".aif", ".ape",
+             ".alac", ".mka", ".wv", ".mpc"}
 
 # Tope de la búsqueda de contenido en una carpeta (un disco USB grande no debe trabar el menú).
 SCAN_MAX_DEPTH = 5

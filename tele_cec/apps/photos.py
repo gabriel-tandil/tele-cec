@@ -18,18 +18,20 @@ import random
 import re
 import shutil
 import signal
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 from ..system.keyboard import xdotool_key
-from ..system.procs import LOG_DIR, run_cmd
+from ..system.procs import LOG_DIR, find_pids, run_cmd
 from .folders import IMAGE_EXT, VIDEO_EXT, describe_folder, scan_media
 from .media import MediaActivity
-from .mpv import Mpv
+from .mpv import Mpv, base_args, mpv_pids
 
 MODES = ("photos", "mixed", "videos")
+REFRESH_EVERY_S = 600   # la lista guardada se vuelve a recorrer (en segundo plano) como mucho cada 10 minutos
 MODE_NAMES = {"photos": "solo fotos", "mixed": "fotos y videos", "videos": "solo videos"}
 _DATE_RE = re.compile(r"((?:19|20)\d{6})[_-]?(\d{6})?")  # IMG_20201130_185306 · VID-20201108-WA0001
 
@@ -53,7 +55,7 @@ class PhotosActivity(MediaActivity):
     id = "fotos"
     name = "Fotos"
     icon = "fotos.svg"
-    procs = {"feh", "mpv"}
+    procs = {"feh"}  # y su mpv, reconocido por su canal (pids)
     exts = IMAGE_EXT - {".heic"}  # feh (imlib2) no abre HEIC
     media_exts = exts | VIDEO_EXT  # la lista guardada tiene fotos y videos (cada modo toma lo suyo)
     empty_text = "Sin fotos: conectá un pendrive"
@@ -130,9 +132,14 @@ class PhotosActivity(MediaActivity):
             return 0
         dest = self.list_file(folder)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_suffix(".tmp")
-        tmp.write_text("\n".join(files) + "\n", encoding="utf-8")
-        tmp.replace(dest)
+        # Un temporal propio y se reemplaza de una: quien lee la lista la ve entera (la vieja o la nueva), nunca
+        # a medio escribir (antes, dos actualizaciones a la vez compartían el temporal y la dejaban cortada).
+        tmp = dest.with_name(f"{dest.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            tmp.write_text("\n".join(files) + "\n", encoding="utf-8")
+            tmp.replace(dest)
+        finally:
+            tmp.unlink(missing_ok=True)
         videos = sum(1 for f in files if is_video(f))
         log.info("Fotos: lista de %s actualizada (%d fotos, %d videos, %.1f s)", describe_folder(folder),
                  len(files) - videos, videos, time.monotonic() - t0)
@@ -190,6 +197,7 @@ class PhotosActivity(MediaActivity):
                 return False
         files = await asyncio.to_thread(self.mode_files, folder, mode)
         if not files:
+            log.warning("Fotos: no hay archivos para «%s» en %s", MODE_NAMES[mode], describe_folder(folder))
             self.fail_text = {"photos": "No hay fotos en esta carpeta", "videos": "No hay videos en esta carpeta",
                               "mixed": "No hay fotos ni videos en esta carpeta"}[mode]
             return False
@@ -198,8 +206,22 @@ class PhotosActivity(MediaActivity):
             self.current_folder, self.mode = folder, mode
             log.info("Fotos: %s (%s)", describe_folder(folder), MODE_NAMES[mode])
         if ok and had_list:
-            self._refresh_task = asyncio.get_running_loop().create_task(asyncio.to_thread(self.write_list, folder))
+            self._refresh_later(folder)
         return ok
+
+    def _refresh_later(self, folder: Path) -> None:
+        """Actualiza la lista guardada en segundo plano (las fotos nuevas aparecen la vez siguiente). Una sola a la
+        vez, y no si se actualizó hace poco: cambiar de modo con ▼ reabre Fotos, y en una carpeta de red grande
+        recorrerla tarda medio minuto."""
+        if self._refresh_task is not None and not self._refresh_task.done():
+            return
+        try:
+            age = time.time() - self.list_file(folder).stat().st_mtime
+        except OSError:
+            age = REFRESH_EVERY_S
+        if age < REFRESH_EVERY_S:
+            return
+        self._refresh_task = asyncio.get_running_loop().create_task(asyncio.to_thread(self.write_list, folder))
 
     async def _open_feh(self, folder: Path, files: list[str], start: str | None) -> bool:
         # feh reescribe su --filelist al cerrarse: se le da una copia para que no pise la actualización.
@@ -228,12 +250,17 @@ class PhotosActivity(MediaActivity):
                 return i
         return 0
 
+    def pids(self, fresh: bool = False) -> list[int]:
+        """feh, o el mpv de Fotos (por su canal: Videos y Música también usan mpv)."""
+        if self.command:
+            return super().pids(fresh)
+        return find_pids(lambda argv: os.path.basename(argv[0]) == "feh", fresh) + mpv_pids(self.mpv.socket_path, fresh)
+
     def mpv_args(self, playlist: Path, start: int) -> list[str]:
         delay = float(self.cfg.get("delay_s", 8))
-        args = ["mpv", "--fs", "--no-terminal", "--osd-level=0", "--title=" + self.TITLE,
-                f"--image-display-duration={delay:g}", "--loop-playlist=inf", "--hwdec=auto-safe",
-                "--keep-open=no", "--force-window=yes", "--cursor-autohide=always", "--background-color=#000000",
-                f"--input-ipc-server={self.mpv.socket_path}", f"--playlist={playlist}", f"--playlist-start={start}"]
+        args = base_args(self.mpv.socket_path, self.TITLE) + [
+            f"--image-display-duration={delay:g}", "--loop-playlist=inf", "--background-color=#000000",
+            f"--playlist={playlist}", f"--playlist-start={start}"]
         if self.shuffle:
             args.append("--shuffle")
         return args

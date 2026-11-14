@@ -175,7 +175,7 @@ def _check_power_off(cfg: config_mod.Config) -> None:
 
 
 def _check_activities(cfg: config_mod.Config) -> None:
-    """Menú de actividades: el panel en pantalla, VLC, feh y de dónde saca cada una el contenido."""
+    """Menú de actividades: el panel en pantalla, mpv, feh y de dónde saca cada una el contenido."""
     print("\nMenú de actividades")
     gtk, layer, detail = overlay_mod.available()
     env = graphical_env()
@@ -191,8 +191,11 @@ def _check_activities(cfg: config_mod.Config) -> None:
     _check(bool(keys), "tecla Menú: " + (" / ".join(keys) if keys else "ninguna en [keys.global] (poné ROOT_MENU = \"menu\")")
            + " — confirmá con «tele-cec aprender» qué manda tu control")
     acts = activities_mod.build(_NoCtl(cfg), cfg)  # type: ignore[arg-type]
-    order = [str(i) for i in (cfg.menu.get("items") or [])]
-    order += [k for k in acts if k not in order and k not in ("netflix", "tidal", "videos", "fotos")]
+    groups = cfg.menu.get("groups") or {}
+    order = []
+    for i in (str(i) for i in (cfg.menu.get("items") or [])):  # un grupo («Videos y música») trae las suyas
+        order += [str(x) for x in (groups[i].get("items") or [])] if isinstance(groups.get(i), dict) else [i]
+    order += [k for k in acts if k not in order and k not in ("netflix", "tidal", "videos", "musica", "fotos")]
     shown = []
     for ident in order:
         act = acts.get(ident)
@@ -204,7 +207,9 @@ def _check_activities(cfg: config_mod.Config) -> None:
                 shown.append(act.name)
             continue
         if not act.installed():
-            hint = {"videos": " (./install.sh o sudo apt install vlc)", "fotos": " (./install.sh o sudo apt install feh)",
+            hint = {"videos": " (./install.sh o sudo apt install mpv mpv-mpris)",
+                    "musica": " (./install.sh o sudo apt install mpv mpv-mpris)",
+                    "fotos": " (./install.sh o sudo apt install feh)",
                     "android": " (./install.sh: instala adb y compila scrcpy)"}.get(ident, "")
             _check(None, f"{act.name}: no está instalado{hint}: no aparece en el menú")
             continue
@@ -218,9 +223,10 @@ def _check_activities(cfg: config_mod.Config) -> None:
             else:
                 where = ", ".join(map(str, folders)) or "ninguna carpeta existe"
                 _check(None, f"{act.name}: sin contenido en {where} (aparece en gris)")
-            if isinstance(act, activities_mod.VideosActivity) or ident == "videos":
-                _check(bool(shutil.which("playerctl")), "controles de VLC (playerctl)" +
-                       ("" if shutil.which("playerctl") else ": falta (sudo apt install playerctl)"))
+            if isinstance(act, activities_mod.MpvMediaActivity) and not act.command:
+                from ..apps.mpv import mpris_plugin  # noqa: PLC0415
+                _check(bool(mpris_plugin()) or None, f"{act.name}: lo que suena en la página del celular (mpv-mpris)" +
+                       ("" if mpris_plugin() else ": falta (sudo apt install mpv-mpris)"))
         elif isinstance(act, activities_mod.AndroidActivity):
             devs = act.devices()
             dev = act._pick(devs)

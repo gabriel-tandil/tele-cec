@@ -341,7 +341,7 @@ class WebRemote:
             return {"ok": False, "error": f"{act.name} no está instalado"}
         if time.monotonic() - self._outputs_at > OUTPUTS_TTL_S and audio.available():
             await self._refresh_outputs()
-        quiet = ident == "tidal" and self._output_kind() == "bluetooth"
+        quiet = ident in ("tidal", "musica") and self._output_kind() == "bluetooth"  # solo música: sin prender la TV
         if ctl.power.asleep:
             log.info("Celular: despierto la Pi para abrir %s", act.name)
             ctl.power.wake(by_key=not quiet)
@@ -512,10 +512,15 @@ class WebRemote:
             # Netflix y YouTube son el mismo navegador para MPRIS: la que esté en pantalla.
             cur = self.ctl.current_app()
             return self.ctl.activities[cur].name if cur in ("netflix", "youtube") else "Navegador"
+        found = []
         for ident, act in self.ctl.activities.items():
             mpris = self._mpris(ident)
             if mpris is not None and (player == mpris.player or player.startswith(mpris.player + ".")):
-                return act.name
+                found.append(act)
+        # Videos y Música son los dos mpv: el que esté abierto (si están los dos, el de la pantalla).
+        cur = self.ctl.activities.get(self.ctl.current_app() or "")
+        for act in sorted(found, key=lambda a: (a is not cur, not a.running())):
+            return act.name
         return base
 
     async def _build_state(self) -> dict[str, Any]:

@@ -21,6 +21,7 @@ PAGES: list[tuple[str, str]] = [
     ("tidal_nav", "Tidal · recorrer la interfaz (así arranca)"),
     ("tidal", "Tidal · controles (después de 0)"),
     ("videos", "Videos"),
+    ("musica", "Música"),
     ("fotos", "Fotos"),
     ("fotos_zoom", "Fotos · con zoom (▲)"),
     ("android", "Android · la pantalla del celular"),
@@ -90,9 +91,13 @@ SUB_ACTIONS = {
               "my_tracks": "Mis canciones → Colección → Inicio (en ciclo)", "lyrics": "Letras (otra vez: volver)", "back": "Atrás en la app",
               "nav": "Cambia las flechas: recorrer la app ↔ controles (volumen, temas)", "move": "Moverse por la app",
               "tab": "Siguiente elemento (si las flechas se traban)"},
-    "video": {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "stop": "Pausa", "next": "Video siguiente",
-              "previous": "Video anterior", "subtitles": "Subtítulos", "audio": "Idioma de audio",
-              "aspect": "Proporción de la imagen"},
+    "video": {"play_pause": "Play / pausa", "ok": "Play / pausa (buscando: saltar ahí)", "play": "Play",
+              "pause": "Pausa", "stop": "Pausa", "next": "Video siguiente", "previous": "Video anterior",
+              "subtitles": "Subtítulos", "audio": "Idioma de audio", "aspect": "Proporción de la imagen",
+              "back": "Dejar de buscar (sin saltar)"},
+    "musica": {"play_pause": "Play / pausa", "ok": "Play / pausa (buscando: saltar ahí)", "play": "Play",
+               "pause": "Pausa", "stop": "Pausa", "next": "Tema siguiente", "previous": "Tema anterior",
+               "shuffle": "Mezclar / volver al orden", "back": "Dejar de buscar (sin saltar)"},
     "fotos": {"next": "Foto siguiente", "previous": "Foto anterior", "pause": "Pausar o seguir la presentación",
               "rotate": "Girar la foto", "random": "Una foto al azar", "info": "Qué foto es (carpeta y archivo)",
               "filename": "Nombre del archivo (chico)", "zoom_in": "Zoom: acercar", "zoom_out": "Alejar",
@@ -142,7 +147,7 @@ def describe(action: Any, ctx: str, cfg: Config) -> str:
             return {"inicio": "Ir a Inicio", "explorar": "Ir a Explorar"}.get(rest, "Ir a Colección")
         if name == "music" and sub in ("volume", "seek"):
             return _plus_minus(sub, rest or "+")
-        if name == "video" and sub in ("volume", "seek"):
+        if name in ("video", "musica") and sub in ("volume", "seek"):
             return _plus_minus(sub, rest or "+")
         if name == "music" and sub == "key":
             return {"Return": "OK en la app", "Up": "Moverse por la app", "Down": "Moverse por la app",
@@ -239,7 +244,7 @@ def rows(cfg: Config, ctx: str) -> list[tuple[str, str]]:
 def pages(cfg: Config, installed: set[str]) -> list[tuple[str, str]]:
     """Páginas que tienen sentido: las de las apps instaladas (installed = ids de actividades)."""
     needs = {"browse": "netflix", "player": "netflix", "youtube": "youtube", "tidal": "tidal", "tidal_nav": "tidal",
-             "videos": "videos", "fotos": "fotos", "fotos_zoom": "fotos", "android": "android", "juegos": "juegos"}
+             "videos": "videos", "musica": "musica", "fotos": "fotos", "fotos_zoom": "fotos", "android": "android", "juegos": "juegos"}
     out = []
     for ctx, title in PAGES:
         if ctx in needs and needs[ctx] not in installed:

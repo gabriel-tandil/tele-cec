@@ -1,4 +1,4 @@
-"""Acciones de las apps que no son Netflix: Videos (VLC), YouTube, Fotos (feh), Android (scrcpy) y Tidal (High Tide)."""
+"""Acciones de las apps que no son Netflix: Videos y Música (mpv), YouTube, Fotos, Android (scrcpy) y Tidal."""
 
 from __future__ import annotations
 
@@ -20,37 +20,50 @@ class MediaMixin:
         self._tidal_view = ""
         self._tidal_pids: tuple[int, ...] = ()
 
-    # ---------------------------------------------------------------- Videos (VLC) y Fotos (feh)
+    # ---------------------------------------------------------------- Videos, Música (mpv) y Fotos
     async def a_video(self, arg: str) -> None:
-        """Videos (VLC): video:play_pause, play, pause, next, previous, stop, seek:+10, volume:+, subtitles, audio,
-        aspect (proporción de la imagen)."""
-        v = self.activities.get("videos")
-        if not isinstance(v, activities_mod.VideosActivity) or not v.running():
-            log.info("Videos no está abierto: no ejecuto video:%s", arg)
+        """Videos (mpv): video:play_pause (OK: si se está buscando, salta ahí), play, pause, next, previous, stop,
+        seek:+10 (buscar con la barra), volume:+, subtitles, audio, aspect (proporción), back (deja de buscar)."""
+        await self._player_action(self.activities.get("videos"), "video", arg)
+
+    async def a_musica(self, arg: str) -> None:
+        """Música local (mpv): las mismas que video: (play_pause, next, previous, seek:+10, volume:+, audio…)."""
+        await self._player_action(self.activities.get("musica"), "musica", arg)
+
+    async def _player_action(self, v, prefix: str, arg: str) -> None:
+        if not isinstance(v, activities_mod.MpvMediaActivity) or not v.running():
+            log.info("%s no está abierto: no ejecuto %s:%s", getattr(v, "name", prefix), prefix, arg)
             return
         cmd, _, rest = arg.strip().partition(":")
-        mpris = {"play_pause": "play-pause", "play": "play", "pause": "pause", "next": "next",
-                 "previous": "previous", "stop": "stop"}
-        if cmd in mpris:
-            await v.mpris.ctl(mpris[cmd])
+        if cmd in ("play_pause", "ok"):
+            await v.play_pause()
+        elif cmd in ("play", "pause", "stop"):
+            await v.set_pause(cmd != "play")
+        elif cmd == "next":
+            await v.next()
+        elif cmd == "previous":
+            await v.previous()
+        elif cmd == "back":
+            await v.osd("cancel")
+        elif cmd == "shuffle":
+            await self.toast("Mezclado" if await v.toggle_shuffle() else "En orden", 1500)
         elif cmd == "volume":
-            await v.mpris.volume(rest or "+")
+            vol = await v.volume(rest or "+")
+            if vol is not None:
+                await self.toast(f"Volumen {vol} %", 1200)
         elif cmd == "seek":
             try:
-                await v.mpris.seek(int(rest or 10))
+                await v.seek(int(rest or 10))
             except ValueError:
-                log.warning("video:seek:%s inválido (segundos, p. ej. -10)", rest)
+                log.warning("%s:seek:%s inválido (segundos, p. ej. -10)", prefix, rest)
         elif cmd in ("subtitles", "audio", "aspect"):
-            kind, label = {"subtitles": ("strack", "Subtítulos"), "audio": ("atrack", "Audio"),
-                           "aspect": ("vratio", "Proporción")}[cmd]
+            kind, label = {"subtitles": ("sub", "Subtítulos"), "audio": ("audio", "Audio"),
+                           "aspect": ("aspect", "Proporción")}[cmd]
             name = await v.cycle(kind)
-            log.info("Videos: %s %s", label.lower(), name.strip("\0") or "(sin opciones)")
-            if name == v.PAUSED:
-                await self.toast(f"Poné play para cambiar {label.lower()}", 1800)
-            else:
-                await self.toast(f"{label}: {name}" if name else f"{label}: este video no tiene opciones", 1800)
+            log.info("%s: %s %s", v.name, label.lower(), name or "(sin opciones)")
+            await self.toast(f"{label}: {name}" if name else f"{label}: este archivo no tiene opciones", 1800)
         else:
-            log.warning("video:%s desconocida", arg)
+            log.warning("%s:%s desconocida", prefix, arg)
 
     async def a_yt(self, arg: str) -> None:
         """YouTube para TV: yt:key:<Tecla> (flechas, Return, Escape: la interfaz las entiende de fábrica),
@@ -131,6 +144,9 @@ class MediaMixin:
         elif cmd == "media_play_pause":
             if f._video_now:  # suena un video (la música ya está en pausa): ⏯ es del video
                 await f.toggle_pause()
+            elif not self.music.running() and isinstance(self.activities.get("musica"), activities_mod.MpvMediaActivity) \
+                    and self.activities["musica"].running():  # la música local de fondo: ⏯ es de ella
+                await self.activities["musica"].play_pause()
             elif self.music.running():  # Tidal de fondo: ⏯ es de la música
                 await self.music.ctl("play-pause")
                 await asyncio.sleep(0.4)

@@ -317,18 +317,64 @@ class FakeProcMixin:
         self.on = False
 
 
-class FakeVideos(FakeProcMixin, activities_mod.VideosActivity):
+class FakePlayerMixin:
+    """Videos o Música (mpv) simulados: lo que se le pide queda en el registro como «mpv:…»."""
+
+    async def play_pause(self) -> bool:
+        self.log.append("mpv:ok")
+        return True
+
+    async def set_pause(self, on: bool) -> bool:
+        self.log.append(f"mpv:pause={on}")
+        return True
+
+    async def pause(self) -> None:
+        self.log.append("mpv:pause")
+
+    async def seek(self, seconds: int) -> bool:
+        self.log.append(f"mpv:seek{seconds:+d}")
+        return True
+
+    async def next(self) -> bool:
+        self.log.append("mpv:next")
+        return True
+
+    async def previous(self) -> bool:
+        self.log.append("mpv:previous")
+        return True
+
+    async def volume(self, sign: str):
+        self.log.append(f"mpv:volume{sign}")
+        return 55
+
+    async def osd(self, message, *args) -> bool:
+        self.log.append("mpv:osd:" + " ".join([message, *map(str, args)]).strip())
+        return True
+
+    async def toggle_shuffle(self) -> bool:
+        self.log.append("mpv:shuffle")
+        self.shuffled = not getattr(self, "shuffled", False)
+        return self.shuffled
+
+    async def cycle(self, kind: str) -> str:
+        self.log.append(f"mpv:{kind}")
+        return {"sub": "Español", "audio": "Inglés", "aspect": "4:3"}[kind]
+
+    async def playback(self) -> str:
+        return "Playing" if self.on else ""
+
+
+class FakeVideos(FakePlayerMixin, FakeProcMixin, activities_mod.VideosActivity):
     def __init__(self, log: list[str]):
         activities_mod.VideosActivity.__init__(self, {})
         self.setup(log)
-        self.mpris = FakeMpris(log, "vlc")
+        self.mpris = FakeMpris(log, "mpv")
 
-    async def pause(self) -> None:
-        await self.mpris.ctl("pause")
 
-    async def cycle(self, kind: str) -> str:
-        self.log.append(f"vlc:{kind}")
-        return {"strack": "Español", "atrack": "Inglés", "vratio": "4:3"}[kind]
+class FakeMusicLocal(FakePlayerMixin, FakeProcMixin, activities_mod.MusicActivity):
+    def __init__(self, log: list[str]):
+        activities_mod.MusicActivity.__init__(self, {})
+        self.setup(log)
 
 
 class FakePhotos(FakeProcMixin, activities_mod.PhotosActivity):
@@ -477,13 +523,14 @@ async def main() -> int:
 
     print("Tidal → Videos")
     out = await press("ROOT_MENU", "DOWN", "SELECT")
-    check(opened(out) == ["music:quit", "videos:open"], f"cierra Tidal y abre VLC: {opened(out)}")
+    check(opened(out) == ["music:quit", "videos:open"], f"cierra Tidal y abre Videos: {opened(out)}")
     check(await ctl.context() == "videos", "contexto 'videos'")
-    out = await press("SELECT", "RIGHT", "LEFT", "UP", "FORWARD", "CHANNEL_DOWN", "F1_BLUE", "F2_RED", "F4_YELLOW", "EXIT")
-    check(out == ["vlc:play-pause", "vlc:seek+10", "vlc:seek-10", "vlc:volume+", "vlc:next", "vlc:previous",
-                  "vlc:strack", "ov:toast:Subtítulos: Español", "vlc:atrack", "ov:toast:Audio: Inglés",
-                  "vlc:vratio", "ov:toast:Proporción: 4:3"],
-          f"OK, ▶, ◀, ▲, ⏭, Canal−, azul (subtítulos), rojo (audio), amarillo (proporción), Atrás nada: {out}")
+    out = await press("SELECT", "RIGHT", "LEFT", "FAST_FORWARD", "UP", "FORWARD", "CHANNEL_DOWN", "F1_BLUE", "F2_RED",
+                      "F4_YELLOW", "EXIT")
+    check(out == ["mpv:ok", "mpv:seek+10", "mpv:seek-10", "mpv:seek+60", "mpv:volume+", "ov:toast:Volumen 55 %",
+                  "mpv:next", "mpv:previous", "mpv:sub", "ov:toast:Subtítulos: Español", "mpv:audio",
+                  "ov:toast:Audio: Inglés", "mpv:aspect", "ov:toast:Proporción: 4:3", "mpv:osd:cancel"],
+          f"OK, ▶ ◀ (buscar), ⏩ (1 min), ▲, ⏭, Canal−, azul, rojo, amarillo, Atrás (deja de buscar): {out}")
 
     print("Fotos sin contenido")
     fotos.content = False
@@ -682,7 +729,7 @@ async def main() -> int:
     print("Standby de la TV")
     log.clear()
     await ctl._pause_if_playing()
-    check(log == ["vlc:pause"], f"con Videos: pausa VLC: {log}")
+    check(log == ["mpv:pause"], f"con Videos: los pausa: {log}")
     await ctl.run_action("app:tidal")
     log.clear()
     await ctl._pause_if_playing()
@@ -1756,6 +1803,59 @@ echo '</mame>'
         ctl.cfg.menu["items"] = menu_items_before
     ctl._menu_columns = 1
 
+    print("Menú: el grupo «Videos y música»")
+    musica = FakeMusicLocal(log)
+    ctl.activities["musica"] = musica
+    items_before = ctl.cfg.menu.get("items")
+    ctl.cfg.menu["items"] = ["netflix", "tidal", "local", "fotos"]
+    ctl.cfg.menu["groups"] = {"local": {"name": "Videos y música", "icon": "local.svg", "items": ["videos", "musica"]}}
+    try:
+        await ctl.menu_close()
+        await press("ROOT_MENU")
+        names = [it["name"] for it in ctl.overlay.items]
+        grp = next(it for it in ctl.overlay.items if it.get("group") == "local")
+        check(names[:4] == ["Netflix", "Tidal", "Videos y música", "Fotos"] and "Videos" not in names
+              and "Música" not in names and grp["sub"] == "Videos · Música",
+              f"una sola fila «Videos y música» (Videos y Música van adentro): {names} {grp['sub']}")
+        out = await press("NUMBER3")
+        check([it["name"] for it in ctl.overlay.items] == ["Videos", "Música"] and ctl._menu_group == "local"
+              and ctl._menu_open, f"OK la abre: su lista, con Videos y Música: {[it['name'] for it in ctl.overlay.items]}")
+        out = await press("EXIT")
+        check(ctl._menu_open and ctl._menu_group is None and ctl.overlay.items[ctl.overlay.sel].get("group") == "local",
+              f"Atrás vuelve al menú, con «Videos y música» elegida: {ctl.overlay.sel}")
+        await press("RIGHT")
+        out = await press("DOWN", "SELECT")
+        check("musica:open" in out and ctl.current_app() == "musica" and not ctl._menu_open,
+              f"▶ también la abre; elegir Música la abre: {[x for x in out if not x.startswith('ov:')]}")
+        check(await ctl.context() == "musica", "contexto «musica»")
+        out = await press("SELECT", "RIGHT", "FORWARD", "F4_YELLOW")
+        check(out == ["mpv:ok", "mpv:seek+10", "mpv:next", "mpv:shuffle", "ov:toast:Mezclado"],
+              f"en Música: OK, ▶ (buscar), ⏭ (tema siguiente), amarillo (mezclar): {out}")
+        await press("ROOT_MENU")
+        grp = next(it for it in ctl.overlay.items if it.get("group") == "local")
+        check(grp["current"] and ctl.overlay.items[ctl.overlay.sel] is grp,
+              f"con Música abierta, el menú abre con «Videos y música» elegida y «en uso»: {grp}")
+        fotos.content, fotos.on = True, False
+        out = await press("NUMBER4")
+        check("fotos:open" in out and "musica:close" not in out and musica.on,
+              f"abrir Fotos con la música local sonando no la corta: {[x for x in out if not x.startswith('ov:')]}")
+        await press("ROOT_MENU")
+        grp = next(it for it in ctl.overlay.items if it.get("group") == "local")
+        check(grp.get("badge") == "sonando", f"y en el menú, «Videos y música» dice «sonando»: {grp}")
+        await press("EXIT")
+        out = await press("PAUSE_PLAY_FUNCTION")
+        check(out == ["mpv:ok"], f"en Fotos, ⏯ es de la música local: {out}")
+        log.clear()
+        await fotos._set_video(True)
+        await fotos._set_video(False)
+        check(log == ["mpv:pause=True", "mpv:pause=False"], f"un video de Fotos la pausa y al terminar sigue: {log}")
+        await fotos.close()
+    finally:
+        ctl.cfg.menu["items"] = items_before
+        ctl.cfg.menu.pop("groups", None)
+        await musica.close()
+        del ctl.activities["musica"]
+
     print("Menú al arrancar")
     ov_running = True
     ctl.overlay.running = lambda: ov_running  # type: ignore[attr-defined]
@@ -1951,6 +2051,19 @@ echo '</mame>'
     check(names(pm.mode_files(tmp / "mix", "videos")) == ["VID_20201108_154412.3gp", "VID-20201120-WA0001.mp4"]
           and len(pm.mode_files(tmp / "mix", "photos")) == 3 and pm.counts(tmp / "mix") == (3, 2),
           f"solo videos / solo fotos / cuántos hay: {pm.counts(tmp / 'mix')}")
+    import threading as _th
+    for i in range(300):  # una carpeta más grande: que escribir la lista tarde un poco
+        (mix / f"IMG_2020110{i % 9}_{i:06d}.jpg").write_bytes(b"")
+    workers = [_th.Thread(target=pm.write_list, args=(tmp / "mix",)) for _ in range(4)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    check(pm.counts(tmp / "mix") == (303, 2) and not list((tmp / "cache").glob("*.tmp")),
+          f"cuatro actualizaciones a la vez: la lista queda entera y sin temporales: {pm.counts(tmp / 'mix')}")
+    pm._refresh_task = None
+    pm._refresh_later(tmp / "mix")
+    check(pm._refresh_task is None, "recién actualizada: no la vuelve a recorrer (cambiar de modo con ▼ no la repite)")
     vids = pm.mode_files(tmp / "mix", "videos")
     check(pm._start_at(vids, str(mix / "IMG_20201110_120000.jpg")) == 1 and pm._start_at(mixed, mixed[3]) == 3,
           "al cambiar de modo sigue desde ahí (el mismo archivo o el siguiente por fecha)")
@@ -1998,10 +2111,21 @@ echo '</mame>'
     info = await pm.photo_info()
     check(info == {"path": mixed[1], "index": 2, "total": 5}, f"qué foto es, preguntado a mpv: {info}")
 
-    args = activities_mod.VideosActivity({}).default_args(usb)
-    check(args[:3] == ["vlc", "-I", "dummy"] and "--extraintf=dbus:oldrc" in args
-          and any(a.startswith("--rc-unix=") for a in args) and args[-1] == str(usb),
-          f"VLC por defecto sin interfaz, con MPRIS y la carpeta al final: {args}")
+    args = activities_mod.VideosActivity({}).default_args(usb, tmp / "v.lst")
+    check(args[0] == "mpv" and "--fs" in args and "--load-scripts=no" in args and args[-1] == f"--playlist={tmp / 'v.lst'}"
+          and any(a.endswith("tele_cec_osd.lua") for a in args) and any(a.endswith("thumbfast.lua") for a in args)
+          and any(a.startswith("--input-ipc-server=") and a.endswith("videos-mpv.sock") for a in args),
+          f"Videos con mpv: pantalla completa, sin la configuración personal, con la barra, miniaturas y canal: {args}")
+    margs = activities_mod.MusicActivity({}).default_args(usb, tmp / "m.lst")
+    check(not any(a.endswith("thumbfast.lua") for a in margs) and "--cover-art-auto=fuzzy" in margs
+          and any("tele_cec_osd-audio=yes" in a for a in margs) and any(a.endswith("musica-mpv.sock") for a in margs),
+          f"Música: la tapa del disco, la barra siempre a la vista, sin miniaturas y con su propio canal: {margs}")
+    mdir = tmp / "musica" / "Disco"
+    mdir.mkdir(parents=True)
+    for n in ("10 - Diez.mp3", "2 - Dos.flac", "1 - Uno.ogg", "cover.jpg", "notas.txt"):
+        (mdir / n).write_bytes(b"")
+    check([Path(f).name for f in activities_mod.MusicActivity({}).files(tmp / "musica")]
+          == ["1 - Uno.ogg", "2 - Dos.flac", "10 - Diez.mp3"], "Música: solo los temas, en orden natural (2 antes que 10)")
 
     print("Aviso de emparejamiento del panel del escritorio")
     from tele_cec.system import audio as audio_mod2

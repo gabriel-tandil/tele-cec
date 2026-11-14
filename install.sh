@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Instalador de tele-cec. Ejecutalo como tu usuario (sin sudo):
 #     ./install.sh [--chromium] [--sin-tidal] [--sin-android] [--apagado-automatico] [--copiar-perfil] [--sin-apt] …
-# Instala lo que falte: los paquetes, las apps del menú (navegador, VLC, feh, High Tide, scrcpy) y el servicio.
+# Instala lo que falte: los paquetes, las apps del menú (navegador, mpv, feh, High Tide, scrcpy) y el servicio.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,7 +41,7 @@ Uso: ./install.sh [opciones]
   --firefox         usar Firefox (es el que se usa por defecto; lo deja escrito en la configuración)
 
   Instala lo que falte de cada app del menú. Para no instalar alguna:
-  --sin-videos      sin VLC (Videos)
+  --sin-videos      sin mpv (Videos y Música; Fotos sigue con feh)
   --sin-fotos       sin feh (Fotos)
   --sin-tidal       sin High Tide (Tidal; Flatpak para tu usuario, con playerctl, wtype y accesibilidad)
   --sin-android     sin scrcpy ni adb (Android: la pantalla del celular). scrcpy no está en los repositorios:
@@ -106,7 +106,7 @@ python3 -c 'import tomllib' 2>/dev/null || python3 -c 'import tomli' 2>/dev/null
 # Menú de actividades: panel en pantalla con GTK 3 y gtk-layer-shell (encima de las apps en pantalla completa).
 python3 -c 'import gi; gi.require_version("Gtk", "3.0")' 2>/dev/null || need+=(python3-gi gir1.2-gtk-3.0)
 python3 -c 'import gi; gi.require_version("GtkLayerShell", "0.1")' 2>/dev/null || need+=(gir1.2-gtklayershell-0.1)
-# Controles por MPRIS (VLC, YouTube, Tidal) y teclas a las ventanas: wtype (Wayland) y xdotool (feh, por Xwayland).
+# Controles por MPRIS (Videos, YouTube, Tidal) y teclas a las ventanas: wtype (Wayland) y xdotool (feh, por Xwayland).
 command -v playerctl >/dev/null 2>&1 || need+=(playerctl)
 command -v wtype >/dev/null 2>&1 || need+=(wtype)
 command -v xdotool >/dev/null 2>&1 || need+=(xdotool)
@@ -119,7 +119,8 @@ if [ "$ENGINE" = firefox ]; then
 elif ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
   if pkg="$(first_pkg chromium chromium-browser)"; then add_app "$pkg"; else warn "no encontré un paquete de Chromium: instalalo a mano."; fi
 fi
-((VIDEOS)) && { command -v vlc >/dev/null 2>&1 || add_app vlc; }
+# Videos, Música y «fotos y videos» con mpv; mpv-mpris: lo que suena se ve en la página del celular.
+((VIDEOS)) && { command -v mpv >/dev/null 2>&1 || add_app mpv; apt_has mpv-mpris && ! dpkg -s mpv-mpris >/dev/null 2>&1 && add_app mpv-mpris; }
 ((FOTOS)) && { command -v feh >/dev/null 2>&1 || add_app feh; }
 if ((TIDAL)); then
   command -v flatpak >/dev/null 2>&1 || add_app flatpak

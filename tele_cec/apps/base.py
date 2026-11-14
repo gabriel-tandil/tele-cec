@@ -1,9 +1,9 @@
-"""Actividades que se eligen con el menú: Netflix, Tidal, Videos (VLC), Fotos (feh) y programas propios.
+"""Actividades que se eligen con el menú: Netflix, Tidal, Videos y Música (mpv), Fotos y programas propios.
 
 Una sola actividad abierta a la vez: elegir otra cierra la actual. Cada una sabe si está instalada, si
 está abierta, de dónde va a sacar el contenido (para la línea secundaria del menú), abrirse y cerrarse.
 
-Netflix y Tidal envuelven lo que ya hace el controller (navegador y High Tide). VLC, feh y los programas
+Netflix y Tidal envuelven lo que ya hace el controller (navegador y High Tide). mpv, feh y los programas
 de [activities.<id>] son procesos: se abren en un scope propio de systemd y se cierran con SIGTERM.
 """
 

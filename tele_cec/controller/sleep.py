@@ -32,7 +32,7 @@ class SleepMixin:
         act = self.activities.get(cur)
         if isinstance(act, activities_mod.MediaActivity) and act.current_folder:
             state["folder"] = str(act.current_folder)
-        if isinstance(act, activities_mod.VideosActivity):
+        if isinstance(act, activities_mod.MpvMediaActivity):  # Videos y Música: qué archivo y en qué segundo
             state.update(await act.where())
         if cur in KEEP_PLAYING and self.music.running():
             state["music"] = True  # Tidal sonando de fondo con las fotos
@@ -74,12 +74,12 @@ class SleepMixin:
             elif app == "tidal":
                 if await self.activities["tidal"].open(resume=False):
                     self._foreground = "tidal"
-            elif app in ("videos", "fotos"):
+            elif app in ("videos", "musica", "fotos"):
                 if state.get("music"):
                     await self.activities["tidal"].open(resume=False)
                 ok = await self.switch_to(app, state.get("folder"))
-                if ok and app == "videos":
-                    await self._restore_video(state)
+                if ok and app in ("videos", "musica"):
+                    await self._restore_video(app, state)
             else:
                 await self.switch_to(app)
         except Exception:  # noqa: BLE001
@@ -89,7 +89,8 @@ class SleepMixin:
             self._no_activate = False
             self.power.last_activity = time.monotonic()  # la cuenta empieza cuando terminó de volver
             await self.overlay.hide()
-        await self.toast(f"{name} en pausa · ⏯ para seguir" if app in ("netflix", "videos") else f"Volviste a {name}",
+        await self.toast(f"{name} en pausa · ⏯ para seguir" if app in ("netflix", "videos", "musica")
+                         else f"Volviste a {name}",
                          3500)
 
     async def _page_ctx(self, timeout: float = 15.0, unwanted: str = "") -> str:
@@ -143,11 +144,10 @@ class SleepMixin:
                     break
                 await asyncio.sleep(0.5)
 
-    async def _restore_video(self, state: dict[str, Any]) -> None:
-        v = self.activities["videos"]
-        assert isinstance(v, activities_mod.VideosActivity)
-        await asyncio.sleep(2)  # que VLC termine de abrir y publique su interfaz de comandos
+    async def _restore_video(self, app: str, state: dict[str, Any]) -> None:
+        v = self.activities[app]
+        assert isinstance(v, activities_mod.MpvMediaActivity)
         if state.get("file"):
             await v.go_to(state["file"], int(state.get("seconds") or 0))
         await asyncio.sleep(0.5)
-        await v.mpris.ctl("pause")
+        await v.pause()

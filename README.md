@@ -1,17 +1,17 @@
 # tele-cec
 
-Maneja **Netflix**, **YouTube**, **Tidal**, **videos** (VLC), **fotos** (feh) y la **pantalla de un celular Android** (scrcpy) con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS (Bookworm o Trixie) conectada a la TV. Netflix y YouTube se ven en **Firefox** (o en Chromium, como alternativa).
+Maneja **Netflix**, **YouTube**, **Tidal**, **videos** y **música** locales (mpv), **fotos** (feh y mpv) y la **pantalla de un celular Android** (scrcpy) con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS (Bookworm o Trixie) conectada a la TV. Netflix y YouTube se ven en **Firefox** (o en Chromium, como alternativa).
 
 > Antes se llamaba **netflix-cec**. `./install.sh` migra solo una instalación anterior: tu configuración, el servicio y la regla de apagado (ver [Instalación](#instalación)).
 
 No convierte el control en un teclado, como hace [cec-mini-kb](https://github.com/spleen1981/cec-mini-kb): entiende qué hay en pantalla y hace lo que corresponde.
 
 - **Navegación espacial** con las flechas por perfiles, filas de títulos, fichas y menús, con un **resaltado bien visible** del elemento enfocado. OK = clic, Atrás = volver.
-- **Menú de actividades**: el botón **Menú** abre un menú en el centro de la pantalla, encima de lo que esté abierto, para elegir **Netflix, YouTube, Tidal, Videos, Fotos, Juegos (MAME), Android** u otros programas. Elegir una cierra la que estaba abierta. Ver [Menú de actividades](#menú-de-actividades).
+- **Menú de actividades**: el botón **Menú** abre un menú en el centro de la pantalla, encima de lo que esté abierto, para elegir **Netflix, YouTube, Tidal, Videos y música, Fotos, Juegos (MAME), Android** u otros programas. Elegir una cierra la que estaba abierta. Ver [Menú de actividades](#menú-de-actividades).
 - **YouTube para TV**: la versión de YouTube de los Smart TV, hecha para manejarse con flechas, OK y Atrás (ver [YouTube](#youtube)).
 - **Control desde el celular**: una página en `http://raspberrypi.local:8765/` con el mismo menú de actividades de la TV, buscar en Netflix y YouTube, tu Tidal (biblioteca, búsqueda y cola), lo que está sonando y la salida de sonido (ver [Control desde el celular](#control-desde-el-celular)).
 - **Android**: la pantalla del celular en la TV, por USB o Wi‑Fi, con su sonido, y manejable con el control (ver [Android](#android)).
-- **Videos y fotos** de un pendrive o de una carpeta local, en pantalla completa y con el control: VLC para los videos y una presentación con feh para las fotos.
+- **Videos, música y fotos** de un pendrive o de una carpeta local, en pantalla completa y con el control: mpv para los videos y la música (con una barra para la TV que, al buscar, muestra una miniatura del punto elegido) y una presentación con feh o mpv para las fotos.
 - **Botón inteligente** (⏭): salta la intro o el resumen, o pasa al siguiente episodio, según lo que muestre Netflix.
 - **Perfiles y "Seguir viendo"**: elegís el perfil con los números y retomás lo último visto con el rojo (en el inicio).
 - **Tidal** con [High Tide](#tidal): play/pausa, temas, volumen, "me gusta" y "Mis canciones" con el control.
@@ -37,7 +37,7 @@ Control remoto ──IR──▶ TV ──HDMI-CEC──▶ cec-client (libcec) 
 - Raspberry Pi OS Bookworm (o Debian/Ubuntu) con escritorio, Wayland o X11.
 - Firefox con Netflix funcionando, o Chromium con Netflix funcionando (`libwidevinecdm0`; ver [Firefox y Chromium](#firefox-y-chromium)).
 - `/dev/cec0` (lo crea el driver `vc4-kms-v3d`, que viene activo por defecto).
-- Python ≥ 3.11 (Bookworm trae 3.11). Todo lo demás (`cec-utils`, el navegador, VLC, feh, High Tide, scrcpy…) lo instala el instalador si falta.
+- Python ≥ 3.11 (Bookworm trae 3.11). Todo lo demás (`cec-utils`, el navegador, mpv, feh, High Tide, scrcpy…) lo instala el instalador si falta.
 
 ## Instalación
 
@@ -49,7 +49,7 @@ Control remoto ──IR──▶ TV ──HDMI-CEC──▶ cec-client (libcec) 
 | Opción | Qué hace |
 |---|---|
 | `--chromium` | Usa Chromium en vez de Firefox (que es el de por defecto): deja `engine = "chromium"` en `[browser]` de tu configuración. |
-| `--sin-videos` · `--sin-fotos` | No instala VLC (Videos) o feh (Fotos). |
+| `--sin-videos` · `--sin-fotos` | No instala mpv (Videos y Música) o feh (Fotos). |
 | `--sin-tidal` | No instala High Tide (Tidal). Sin esta opción instala High Tide (Flatpak, para tu usuario) y la accesibilidad (AT-SPI), y configura el portal de secretos (ver [Tidal](#tidal)). |
 | `--sin-android` | No instala scrcpy ni adb (Android). Sin esta opción instala `adb`, `avahi-utils` y `qrencode`, y compila scrcpy, que no está en los repositorios (unos minutos en una Pi; ver [Android](#android)). |
 | `--copiar-perfil` | Copia tu perfil de Firefox al perfil propio de tele-cec para Netflix (`~/.config/firefox-netflix`), así no tenés que volver a iniciar sesión. **Cerrá Firefox antes.** Con `--chromium` copia tu perfil de Chromium (`~/.config/chromium`) a `~/.config/chromium-netflix` (funciona porque usás `--password-store=basic`). |
@@ -58,7 +58,7 @@ Control remoto ──IR──▶ TV ──HDMI-CEC──▶ cec-client (libcec) 
 | `--sin-servicio` | Instala todo pero no habilita el servicio. |
 
 El instalador:
-- instala lo que falte: los paquetes que necesita el servicio y las apps del menú (Firefox o Chromium, VLC, feh, High Tide, scrcpy); lo que ya está no lo toca, así que se puede volver a correr sin problema;
+- instala lo que falte: los paquetes que necesita el servicio y las apps del menú (Firefox o Chromium, mpv y mpv-mpris, feh, High Tide, scrcpy); lo que ya está no lo toca, así que se puede volver a correr sin problema;
 - copia el programa a `~/.local/share/tele-cec`;
 - crea el comando `~/.local/bin/tele-cec`;
 - crea la configuración `~/.config/tele-cec/config.toml` (si no existe) y el acceso **"Netflix (TV)"** en el menú;
@@ -122,17 +122,18 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 
 GTK solo mueve el foco con flechas dentro de cada bloque (una fila de portadas, una lista), así que a muchos lugares no se llegaba. El parche que tele-cec le carga a High Tide (ver abajo) hace que las flechas vayan al elemento más cercano en esa dirección según dónde está en la pantalla, como en una TV, primero dentro del mismo panel (así, al final de una lista sigue bajando por la lista y no salta a la barra de abajo). Para que se vea qué está elegido, tele-cec le pone a High Tide un estilo con **marco y fondo amarillos** en el elemento con el foco (GTK lo dibuja muy tenue); el color se cambia con `[apps.tidal] focus_color` (`""` lo desactiva). Las **portadas** (discos, playlists, artistas) de High Tide no se pueden elegir con el teclado: solo se abren con un clic del mouse. Por eso, al abrirlo, tele-cec le carga un pequeño parche (un `usercustomize.py` en su carpeta de datos, sin modificar la app instalada) que hace que la portada reciba el foco, que **OK** abra las portadas y los atajos de Inicio (que High Tide solo abre con un clic), que las flechas se muevan por posición, y le abre un canal de control para que tele-cec cambie de pantalla (Inicio, Colección, Mis canciones, Atrás, Letras, me gusta) llamando a las mismas funciones que sus botones; se desactiva con `[apps.tidal] keyboard_cards = false` (entonces esas acciones vuelven a ir por accesibilidad).
 
-**Videos** (`videos`, VLC) y **Fotos** (`fotos`, feh), ver [Videos y fotos](#videos-y-fotos):
+**Videos** (`videos`) y **Música** (`musica`), con mpv, y **Fotos** (`fotos`), ver [Videos, música y fotos](#videos-música-y-fotos):
 
-| Tecla | Videos | Fotos |
+| Tecla | Videos · Música | Fotos |
 |---|---|---|
-| OK · ⏯ · ▶ · ⏸ | Play / pausa | OK: pausar o seguir la presentación · ⏯: con Tidal sonando, la música |
-| ◀ ▶ | −/+10 s | Foto anterior / siguiente |
-| ▲ ▼ | Volumen de VLC | ▲ = zoom (ver abajo) · ▼ = cambiar de modo: solo fotos → fotos y videos → solo videos |
-| ⏮ ⏭ · Canal −/+ | Video anterior / siguiente | Foto anterior / siguiente (⏮ ⏭ también con zoom o con música) |
-| ⏪ ⏩ | −/+10 s | — |
-| 🔵 Azul · 🔴 Rojo | Subtítulos · idioma de audio | Qué foto es (carpeta, archivo y número, en letra grande) · girar la foto |
-| 🟡 Amarillo | Proporción de la imagen (16:9, 4:3…) | Una foto al azar |
+| OK · ⏯ · ▶ · ⏸ | Play / pausa (si estás buscando, salta ahí) | OK: pausar o seguir la presentación · ⏯: con música de fondo, la música |
+| ◀ ▶ | Buscar de a 10 s: la barra muestra a dónde (en videos, con una miniatura) y salta al soltar | Foto anterior / siguiente |
+| ⏪ ⏩ | Buscar de a 1 minuto | — |
+| ▲ ▼ | Volumen | ▲ = zoom (ver abajo) · ▼ = cambiar de modo: solo fotos → fotos y videos → solo videos |
+| ⏮ ⏭ · Canal −/+ | Video o tema anterior / siguiente | Foto anterior / siguiente (⏮ ⏭ también con zoom o con música) |
+| Atrás | Deja de buscar (sin saltar) | — |
+| 🔵 Azul · 🔴 Rojo | Videos: subtítulos · idioma de audio | Qué foto es (carpeta, archivo y número, en letra grande) · girar la foto |
+| 🟡 Amarillo | Videos: proporción (16:9, 4:3…) · Música: mezclar / en orden | Una foto al azar |
 
 **Zoom en las fotos** (`fotos_zoom`): ▲ acerca la foto y pausa la presentación. Mientras hay zoom:
 
@@ -187,7 +188,7 @@ Las flechas, los ±10 s y el volumen se repiten mientras mantenés el botón, si
 
 ## Menú de actividades
 
-El botón **Menú** del control abre un menú en el centro de la pantalla para elegir qué usar: **Netflix**, **YouTube**, **Tidal**, **Videos**, **Fotos**, **Juegos**, **Android** y los programas que agregues. Aparece encima de lo que esté abierto, aunque esté en pantalla completa.
+El botón **Menú** del control abre un menú en el centro de la pantalla para elegir qué usar: **Netflix**, **YouTube**, **Tidal**, **Videos y música**, **Fotos**, **Juegos**, **Android** y los programas que agregues. **Videos y música** es una fila que abre otra lista con **Videos** y **Música** (Atrás vuelve al menú); cada una tiene su botoncito **Carpetas**. Aparece encima de lo que esté abierto, aunque esté en pantalla completa.
 
 Es la pantalla de inicio: **aparece sola al prender la Pi** (`[menu] open_on_start`) y al volver del reposo. Sin nada abierto no se cierra sola; con una app abierta se cierra a los 10 s sin teclas (`timeout_s`).
 
@@ -209,7 +210,7 @@ Las opciones van en **dos columnas**, sin desplazar (`[menu] columns = 2`; con `
 - **Con el teclado** (el de la Pi 400 o uno USB/Bluetooth), mientras el menú está a la vista: flechas, **Enter** (o espacio) para elegir, **Esc** o **Retroceso** para volver, números, **F1** para la ayuda y la tecla Menú para pasar a la siguiente opción. El panel toma el teclado solo mientras se ve el menú; al cerrarse, las teclas vuelven a la app (`[menu] keyboard = false` lo desactiva).
 - Al abrirse, queda resaltada la actividad **en uso**. OK sobre ella solo cierra el menú.
 - **Ayuda**: la última opción del menú (o las teclas Info / Ayuda del control, si tu TV las manda) muestra una tabla «tecla → qué hace», empezando por la app que estabas usando. ◀ ▶ pasan a otra app (Netflix en el inicio y viendo un título, Tidal, Videos, Fotos, Fotos con zoom, Android, el propio menú…), ▲ ▼ muestran más filas y Atrás vuelve. Se arma con tu configuración de teclas, así que si cambiás alguna en `config.toml` la ayuda lo refleja.
-- **Música mientras pasan las fotos**: abrir Fotos no cierra Tidal, así que podés poner música y después la presentación. En el menú, Tidal figura «sonando» (o «en pausa», o «abierto» si no tiene nada cargado). Mientras tanto, ⏯ pone play o pausa a la música (con un aviso de qué suena); OK pausa la presentación y ◀ ▶ ⏮ ⏭ pasan de foto. Para cambiar de tema, usá la página del celular o elegí Tidal en el menú: cierra las fotos y deja Tidal en pantalla, sin cortar la música. Abrir Netflix, Videos u otra app sí cierra la música. Sin música, ⏯ pausa la presentación.
+- **Música mientras pasan las fotos**: abrir Fotos no cierra Tidal ni la Música local (con la Música pasa lo mismo que se cuenta acá de Tidal), así que podés poner música y después la presentación. En el menú, Tidal figura «sonando» (o «en pausa», o «abierto» si no tiene nada cargado). Mientras tanto, ⏯ pone play o pausa a la música (con un aviso de qué suena); OK pausa la presentación y ◀ ▶ ⏮ ⏭ pasan de foto. Para cambiar de tema, usá la página del celular o elegí Tidal en el menú: cierra las fotos y deja Tidal en pantalla, sin cortar la música. Abrir Netflix, Videos u otra app sí cierra la música. Sin música, ⏯ pausa la presentación.
 - **Elegir otra carpeta**: OK sobre Videos o Fotos abre la carpeta predeterminada (para Videos, el pendrive; para Fotos, la primera de `[apps.fotos] folders`). Con **▶** en cambio se abre un selector de carpetas en el mismo panel:
   - primero las carpetas configuradas (`folders`), con la predeterminada marcada;
   - **OK** o **▶** entra en una carpeta y muestra sus subcarpetas (por ejemplo, los años de las fotos), y la primera opción es «▶ Reproducir esta carpeta» o «▶ Ver las fotos de esta carpeta», con todas sus subcarpetas;
@@ -293,7 +294,7 @@ Si no sale sonido y nadie toca el control durante un rato, la Raspberry Pi entra
   - apretás **una tecla del control** (esa tecla solo despierta) — la TV cambia a la Pi;
   - **se prende la TV** (en reposo le pregunta cada minuto por CEC) — en este caso **no** le cambia la entrada, por si la prendiste para ver otra cosa. Si nadie toca el control, a los 10 minutos vuelve al reposo **sin apagar la TV**.
 - **Varios días en reposo**: si pasan **72 horas seguidas** sin que nadie la despierte (`off_after_hours`), se apaga de verdad, sin tocar la TV. Apagada, el control y la TV ya no la despiertan: en una Pi 400 se prende con Fn+F10, o desenchufando y enchufando. Necesita la regla de polkit que instala `--apagado-automatico`; con `off_after_hours = 0` nunca se apaga.
-- **Al volver aparece el menú de actividades**, sin abrir nada. Si preferís que restaure lo que había (`resume_apps = true`), lo reabre en pausa: Netflix en la misma página (si estabas viendo algo, en ese título, que Netflix retoma donde quedó) y con el mismo perfil; Tidal sin poner música; Videos en la misma carpeta, video y minuto; Fotos en la misma carpeta (con la música de fondo, si estaba).
+- **Al volver aparece el menú de actividades**, sin abrir nada. Si preferís que restaure lo que había (`resume_apps = true`), lo reabre en pausa: Netflix en la misma página (si estabas viendo algo, en ese título, que Netflix retoma donde quedó) y con el mismo perfil; Tidal sin poner música; Videos y Música en la misma carpeta, archivo y minuto; Fotos en la misma carpeta (con la música de fondo, si estaba).
 
 También se puede apagar en vez de reposar (`mode = "apagar"`), pero entonces el control no la vuelve a prender: CEC no funciona con la Pi apagada. En una Pi 400 se prende con Fn+F10 o desenchufando y enchufando, y hace falta una regla de polkit para que el servicio pueda apagar sin contraseña.
 
@@ -315,9 +316,11 @@ resume_apps = false           # al volver: el menú (false) o lo que estaba abie
 
 `tele-cec diagnostico` muestra si está activo y si en este momento sale sonido. Para probar por SSH: `tele-cec tecla ok` manda una tecla como si viniera del control.
 
-## Videos y fotos
+## Videos, música y fotos
 
-- **Videos** abre **VLC** en pantalla completa con todos los videos de la carpeta (y subcarpetas) y se cierra solo al terminar la lista. Se maneja por MPRIS (`playerctl`); subtítulos, audio y proporción, por la interfaz de comandos de VLC (un socket local: en Wayland el video de VLC no recibe teclas).
+- **Videos** abre **mpv** en pantalla completa con todos los videos de la carpeta (y subcarpetas) y se cierra solo al terminar la lista. Abajo aparece una **barra para la TV** al pausar, al empezar cada video y al buscar: con ◀ ▶ (o ⏪ ⏩) se mueve un cursor sobre la barra con el tiempo y una **miniatura** de ese punto, y cuando dejás de tocar (o con OK) salta ahí; Atrás deja de buscar. Las miniaturas las hace [thumbfast](https://github.com/po5/thumbfast) (MPL 2.0, viene incluido). Subtítulos que estén al lado del video se cargan solos; se prefiere el audio y los subtítulos en español.
+- **Música** abre **mpv** con los temas de la carpeta (y subcarpetas, en orden natural: «2 - …» antes que «10 - …») y muestra la **tapa del disco**: la que trae el archivo o una imagen al lado (`cover.jpg`, `folder.jpg`…). La barra queda siempre a la vista con el tema, el artista y el tiempo. Puede quedar sonando mientras pasan las fotos.
+- Videos y Música se manejan por el canal de control de mpv; con **mpv-mpris** (lo instala `install.sh`) lo que suena aparece en la página del celular. Cada uno usa su propio mpv, sin la configuración personal de mpv (`~/.config/mpv`).
 - **Fotos** abre una presentación con **feh** en pantalla completa: avanza sola cada 8 s y con ◀ ▶ pasás a mano. OK la pausa. ▲ hace zoom y las flechas recorren la foto (ver [Teclas](#teclas-por-defecto)).
 - **De dónde**: la primera carpeta de `folders` que tenga videos o fotos. Por defecto, primero los **pendrives** (`/media/<usuario>/<disco>`, donde los monta el escritorio) y después `~/Vídeos` o `~/Imágenes`. El menú muestra cuál va a usar («Pendrive KINGSTON», «~/Vídeos»).
 
@@ -325,8 +328,12 @@ resume_apps = false           # al volver: el menú (false) o lo que estaba abie
 [apps.videos]
 folders = ["/media/*/*", "~/Vídeos", "~/Videos"]
 shuffle = false
-command = []      # otro comando en vez de VLC; {carpeta} = la carpeta elegida, p. ej.:
-                  # ["vlc", "--qt-minimal-view", "--fullscreen", "{carpeta}"]
+command = []      # otro programa en vez de mpv; {carpeta} = la carpeta elegida, p. ej.:
+                  # ["vlc", "--fullscreen", "{carpeta}"]
+
+[apps.musica]
+folders = ["/media/*/*", "~/Música", "~/Music"]
+shuffle = false
 
 [apps.fotos]
 folders = ["/media/*/*", "~/Imágenes", "~/Pictures"]
@@ -349,7 +356,7 @@ y en tu `config.toml`: `[apps.fotos] folders = ["/mnt/fotosRemotas", "/media/*/*
 
 **Teclas a feh**: feh es una app X11 (corre por Xwayland) y sus atajos (pausa, zoom, girar) se le mandan con `xdotool`, que instala `install.sh`. Con `wtype` no sirve: Xwayland no usa su mapa de teclas y a feh le llega otra tecla (Escape, que lo cierra).
 
-Si VLC no queda en pantalla completa, probá el comando con interfaz mínima del ejemplo de arriba. `tele-cec diagnostico` muestra qué carpeta usa cada actividad y cuántos archivos tiene.
+`tele-cec diagnostico` muestra qué carpeta usa cada actividad y cuántos archivos tiene.
 
 ## YouTube
 
@@ -468,13 +475,13 @@ La página es el mismo **menú de actividades** de la TV, con sus mismos colores
 
 - **Tocar una app** hace lo mismo que elegirla con OK en la TV: la abre y, si la Pi está en reposo, la despierta. Tocar la que está **en uso** ofrece cerrarla (vuelve el menú en la TV) o sus opciones.
 - **El botoncito de la derecha**, como «Carpetas ▸» / «Conectar ▸» en la TV:
-  - **Videos, Fotos** · *Carpetas*: elegir carpeta, entrando en las subcarpetas. Solo las configuradas: no se puede abrir cualquier carpeta de la Pi.
+  - **Videos y música**: abre una página con Videos y Música. **Videos, Música, Fotos** · *Carpetas*: elegir carpeta, entrando en las subcarpetas. Solo las configuradas: no se puede abrir cualquier carpeta de la Pi.
   - **Juegos** · *Juegos*: elegir el juego, o «Salir del juego».
   - **Android** · *Conectar*: tocar un celular para verlo en la TV, o «Dejar de compartir la pantalla». Vincular uno nuevo por Wi‑Fi sigue siendo desde el menú de la TV (el QR).
   - **Netflix, YouTube** · *Buscar*: escribís en el celular y los resultados aparecen en la TV. Si la app estaba cerrada, se abre. En Netflix va directo a la búsqueda; en «¿Quién está viendo?» primero hay que elegir el perfil. En YouTube abre su búsqueda con el texto puesto (tarda unos segundos porque reabre YouTube: escribir con el teclado no sirve ahí).
   - **Tidal** · *Explorar*: tu cuenta (ver abajo).
 - **Sonido**: el volumen de la salida actual y por dónde sale (la TV por HDMI o un parlante Bluetooth ya emparejado; tocarlo lo conecta). Emparejar uno nuevo sigue siendo desde «Sonido» en el menú de la TV. Con la TV por HDMI, este volumen es el de la Pi: la TV tiene el suyo aparte.
-- **Abajo, lo que suena** (Tidal, Videos, Netflix o YouTube) con ⏯ y ⏭. Tocarlo abre el reproductor grande: la tapa, la barra (tocar o arrastrar para ir a otra parte del tema), ⏮ ⏯ ⏭, aleatorio, repetir (lista o un tema), ♥ «Me gusta» en Tidal y el volumen. Maneja ese reproductor aunque en la TV haya otra cosa, por ejemplo la música de Tidal mientras pasan las fotos.
+- **Abajo, lo que suena** (Tidal, Videos, Música, Netflix o YouTube) con ⏯ y ⏭. Tocarlo abre el reproductor grande: la tapa, la barra (tocar o arrastrar para ir a otra parte del tema), ⏮ ⏯ ⏭, aleatorio, repetir (lista o un tema), ♥ «Me gusta» en Tidal y el volumen. Maneja ese reproductor aunque en la TV haya otra cosa, por ejemplo la música de Tidal mientras pasan las fotos.
 
 **Tidal · Explorar**: tu cuenta, a través de High Tide (una sola sesión y una sola cola: lo que elegís en el celular se ve en la TV, y al revés).
 - **Mis canciones, Playlists, Mixes** (los guardados y los que arma Tidal para vos), **Discos** y **Artistas**. Tocar un tema lo pone a sonar desde ahí. Tocar una playlist, mix, disco o artista muestra sus temas, con **▶ Reproducir** y **🔀 Mezclar**.
@@ -615,7 +622,8 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `netflix.volume_step` | `0.1` | Paso de volumen (10 %) |
 | `netflix.default_profile` | `0` | Perfil para "Seguir viendo" (0 = preguntar) |
 | `menu.items` · `menu.timeout_s` | las 4 · `10` | Orden del menú de actividades · cierre automático (ver [Menú de actividades](#menú-de-actividades)) |
-| `apps.videos.folders` · `apps.fotos.folders` | pendrives, después `~/Vídeos` · `~/Imágenes` | De dónde salen los videos y las fotos (ver [Videos y fotos](#videos-y-fotos)) |
+| `apps.videos.folders` · `apps.musica.folders` · `apps.fotos.folders` | pendrives, después `~/Vídeos` · `~/Música` · `~/Imágenes` | De dónde salen los videos, la música y las fotos (ver [Videos, música y fotos](#videos-música-y-fotos)) |
+| `menu.groups.<id>` | `local` = Videos y Música | Filas del menú que abren otra lista: `name`, `icon`, `items` (y el id va en `menu.items`) |
 | `apps.fotos.delay_s` | `8` | Segundos por foto |
 | `apps.fotos.scroll_step` · `apps.fotos.zoom_step` | `150` · `25` | Con zoom: píxeles por flecha · % de cada paso de zoom |
 | `apps.netflix.on_reselect` | `"continue_watching"` | Qué hace `app:netflix` con Netflix ya abierto |
@@ -656,7 +664,8 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `music:nav` · `music:move:Down` · `music:key:Down` · `music:back` | Tidal: cambiar las flechas (recorrer la interfaz ↔ controles) · mover el foco (con Tab de respaldo) · mandar una tecla sola · botón Atrás |
 | `music:lyrics` · `music:page:inicio` (`explorar`, `coleccion`) | Tidal: mostrar u ocultar las letras · ir a esa página |
 | `my_list` | Netflix: abrir Mi lista |
-| `video:play_pause` `video:next` `video:previous` `video:seek:+10` `video:volume:+` | Videos (VLC): reproducción, saltar segundos, volumen |
+| `video:ok` `video:play_pause` `video:next` `video:previous` `video:seek:+10` `video:volume:+` `video:back` | Videos (mpv): reproducción, buscar (con la barra), volumen, dejar de buscar |
+| `musica:…` (las mismas) · `musica:shuffle` | Música local: lo mismo que Videos, y mezclar / en orden |
 | `video:subtitles` · `video:audio` | Videos: ciclar subtítulos · pista de audio |
 | `fotos:next` · `fotos:previous` · `fotos:pause` | Fotos (feh): siguiente, anterior, pausar o seguir la presentación |
 | `fotos:rotate` · `fotos:random` · `fotos:info` · `video:aspect` | Fotos: girar, una al azar, mostrar el nombre · Videos: proporción de la imagen |
@@ -800,7 +809,7 @@ python3 tests/e2e_mock.py                    # navegador headless + Netflix simu
 python3 tests/e2e_mock.py --layout nuevo     # solo el diseño actual de Netflix (o --layout viejo)
 python3 tests/e2e_mock.py --motor firefox    # solo Firefox (o --motor chromium); por defecto, los que estén instalados
 python3 tests/serve_mock.py                  # sirve el Netflix simulado en http://www.netflix.com.localhost:8765/browse (?layout=viejo para el diseño anterior)
-python3 tests/apps_test.py                   # menú de actividades con Netflix, Tidal, VLC, feh y el panel simulados
+python3 tests/apps_test.py                   # menú de actividades con Netflix, Tidal, mpv, feh y el panel simulados
 tele-cec servicio --teclado               # escribir teclas por consola: u d l r ok b m (menú) rojo verde amarillo azul 1..9
 ```
 
@@ -820,7 +829,8 @@ tele_cec/
 │   ├── netflix/           navegador (cdp.py, bidi.py), script inyectado (nfx.js)
 │   ├── youtube/           YouTube para TV (y la extensión H.264 para Chromium)
 │   ├── tidal/             High Tide: control, parche que se le carga y accesibilidad
-│   ├── videos.py, photos.py, media.py, folders.py   VLC, feh y las carpetas de contenido
+│   ├── videos.py, music.py, player.py, mpv.py   Videos y Música con mpv (mpv_scripts/: la barra y thumbfast)
+│   ├── photos.py, media.py, folders.py   Fotos (feh y mpv) y las carpetas de contenido
 │   ├── android.py         la pantalla del celular (scrcpy y adb)
 │   └── base.py, webprofile.py                        base de las actividades y perfiles de navegador
 ├── system/                procesos, CEC, sonido (audio.py), reposo (power.py), MPRIS y teclas sintéticas

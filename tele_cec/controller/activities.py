@@ -12,8 +12,8 @@ from ..apps.photos import MODE_NAMES, MODES
 
 log = logging.getLogger("tele")
 
-# Apps que pueden quedar sonando de fondo al abrir otra: con Fotos, la música de Tidal sigue.
-KEEP_PLAYING = {"fotos": {"tidal"}}
+# Apps que pueden quedar sonando de fondo al abrir otra: con Fotos, la música de Tidal (o la local) sigue.
+KEEP_PLAYING = {"fotos": {"tidal", "musica"}}
 WATCH_EVERY_S = 1.5    # cada cuánto se mira si la app en pantalla se cerró sola
 FOTOS_REMINDER_S = 3.0  # cuánto se ve el aviso del modo de Fotos antes de que arranque la presentación
 CLOSED_TEXT = {"android": "Se desconectó el celular", "videos": "Terminaron los videos", "juegos": "Terminó el juego"}
@@ -151,18 +151,26 @@ class ActivitiesMixin:
         await asyncio.sleep(FOTOS_REMINDER_S)
 
     async def _fotos_video(self, playing: bool) -> None:
-        """Mientras suena un video de Fotos, la música de Tidal de fondo se pausa; al terminar el video, sigue."""
+        """Mientras suena un video de Fotos, la música de fondo (Tidal o la local) se pausa; al terminar, sigue."""
         m = self.music
+        local = self.activities.get("musica")
+        local = local if isinstance(local, activities_mod.MpvMediaActivity) and local.running() else None
         if playing:
             if m.running() and (await m.status()).get("status") == "Playing":
                 log.info("Fotos: suena un video, pauso la música")
                 await m.ctl("pause")
                 self._music_by_video = True
+            elif local is not None and await local.playback() == "Playing":
+                log.info("Fotos: suena un video, pauso la música")
+                await local.set_pause(True)
+                self._music_by_video = True
         elif self._music_by_video:
             self._music_by_video = False
+            log.info("Fotos: terminó el video, sigue la música")
             if m.running():
-                log.info("Fotos: terminó el video, sigue la música")
                 await m.ctl("play")
+            elif local is not None:
+                await local.set_pause(False)
 
     # ---------------------------------------------------------------- app que se cierra sola
     def _left_alone(self) -> str | None:
@@ -176,7 +184,7 @@ class ActivitiesMixin:
         return fg
 
     async def watch_apps(self) -> None:
-        """Si la app en pantalla se cierra sola (el celular se desconectó, VLC terminó la carpeta, un programa se
+        """Si la app en pantalla se cierra sola (el celular se desconectó, terminó la carpeta de videos, un programa se
         cayó), vuelve el menú de actividades: si no, quedaría el escritorio sin nada que hacer con el control."""
         while True:
             await asyncio.sleep(WATCH_EVERY_S)

@@ -60,6 +60,16 @@ class MenuWeb:
             return "search", "Buscar"
         return "", ""
 
+    def _row(self, e: dict[str, Any]) -> dict[str, Any]:
+        ident = e["id"]
+        act = self.ctl.activities.get(ident)
+        option, chip = self._option(ident, act)
+        return {"id": ident, "name": e["name"], "icon": icon_url(e.get("icon", "")),
+                "sub": e.get("sub", ""), "enabled": bool(e.get("enabled", True)),
+                "current": bool(e.get("current")), "badge": e.get("badge") or "",
+                "option": option, "chip": chip, "running": bool(act is not None and act.running()),
+                "background": bool(e.get("background"))}
+
     def _build(self) -> list[dict[str, Any]]:
         ctl = self.ctl
         out = []
@@ -72,13 +82,15 @@ class MenuWeb:
                             "sub": e.get("sub", ""), "enabled": True, "current": False, "badge": "",
                             "option": "sound", "chip": ""})
                 continue
-            act = ctl.activities.get(ident)
-            option, chip = self._option(ident, act)
-            out.append({"id": ident, "name": e["name"], "icon": icon_url(e.get("icon", "")),
-                        "sub": e.get("sub", ""), "enabled": bool(e.get("enabled", True)),
-                        "current": bool(e.get("current")), "badge": e.get("badge") or "",
-                        "option": option, "chip": chip, "running": bool(act is not None and act.running()),
-                        "background": bool(e.get("background"))})
+            if e.get("group"):  # «Videos y música»: una página con las de adentro
+                children = [self._row(c) for c in ctl._menu_entries(e["group"])]
+                out.append({"id": ident, "group": e["group"], "name": e["name"], "icon": icon_url(e.get("icon", "")),
+                            "sub": e.get("sub", ""), "enabled": True, "current": bool(e.get("current")),
+                            "badge": e.get("badge") or "", "option": "group", "chip": "",
+                            "running": any(c["running"] for c in children), "children": children,
+                            "background": bool(e.get("background")), "bg_id": e.get("bg_id", "")})
+                continue
+            out.append(self._row(e))
         return out
 
     async def items(self) -> dict[str, Any]:
@@ -91,9 +103,13 @@ class MenuWeb:
                 self._at = time.monotonic()
             cur = self.ctl.current_app()
             for it in self._items:  # lo que está en pantalla cambia más seguido que el resto
-                if it["id"] in self.ctl.activities:
-                    it["current"] = it["id"] == cur
-                    it["running"] = self.ctl.activities[it["id"]].running()
+                for row in it.get("children") or [it]:
+                    if row["id"] in self.ctl.activities:
+                        row["current"] = row["id"] == cur
+                        row["running"] = self.ctl.activities[row["id"]].running()
+                if it.get("children"):
+                    it["current"] = any(c["current"] for c in it["children"])
+                    it["running"] = any(c["running"] for c in it["children"])
             if any(it.get("background") for it in self._items):
                 await self.ctl._menu_playback(self._items)  # «sonando» / «en pausa»: cambia seguido
             return {"title": "Actividades", "items": self._items}

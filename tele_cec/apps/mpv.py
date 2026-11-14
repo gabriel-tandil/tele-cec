@@ -1,8 +1,16 @@
 """mpv por su canal de control (--input-ipc-server): comandos y avisos de cuándo cambia de archivo.
 
-Lo usa Fotos para «fotos y videos» y «solo videos» (feh no reproduce videos). El protocolo es JSON por un socket
-Unix, una línea por mensaje: {"command": [...], "request_id": N} → {"error": "success", "data": ..., "request_id": N},
-y además avisos sueltos ({"event": "property-change", ...}).
+Lo usan Fotos («fotos y videos», «solo videos»), Videos y Música. El protocolo es JSON por un socket Unix, una línea
+por mensaje: {"command": [...], "request_id": N} → {"error": "success", "data": ..., "request_id": N}, y además avisos
+sueltos ({"event": "property-change", ...}).
+
+Cada actividad abre su propio mpv con su propio canal, y lo reconoce por ese canal (mpv_pids): por el nombre del
+programa no se puede, porque las tres usan mpv (y thumbfast abre otro mpv para las miniaturas).
+
+Scripts que se cargan (con --load-scripts=no: nada de la configuración personal de mpv):
+- mpv_scripts/tele_cec_osd.lua: la barra para la TV (título, tiempo, avance con miniatura al adelantar);
+- mpv_scripts/thumbfast.lua (MPL 2.0, https://github.com/po5/thumbfast): las miniaturas del video;
+- mpv-mpris (paquete del sistema), si está: publica lo que suena por MPRIS (la página del celular lo muestra).
 """
 
 from __future__ import annotations
@@ -12,11 +20,36 @@ import contextlib
 import itertools
 import json
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from ..system.procs import find_pids
+
 log = logging.getLogger("actividades")
+SCRIPTS = Path(__file__).resolve().parent / "mpv_scripts"
+MPRIS_PLUGIN = ("/usr/lib/mpv-mpris/mpris.so", "/etc/mpv/scripts/mpris.so", "/usr/share/mpv/scripts/mpris.so",
+                "/usr/lib/x86_64-linux-gnu/mpv-mpris/mpris.so", "/usr/lib/aarch64-linux-gnu/mpv-mpris/mpris.so")
+
+
+def mpv_pids(socket_path: Path, fresh: bool = False) -> list[int]:
+    """El mpv que se abrió con ese canal de control (no otro mpv, ni el de las miniaturas)."""
+    flag = f"--input-ipc-server={socket_path}"
+    return find_pids(lambda argv: os.path.basename(argv[0]) == "mpv" and flag in argv, fresh)
+
+
+def mpris_plugin() -> str:
+    """El complemento mpv-mpris (sudo apt install mpv-mpris), o "" si no está."""
+    return next((p for p in MPRIS_PLUGIN if os.path.isfile(p)), "")
+
+
+def base_args(socket_path: Path, title: str) -> list[str]:
+    """Lo que comparten todos los mpv de tele-cec: pantalla completa, sin la configuración personal ni la barra
+    propia de mpv, sin puntero y con canal de control."""
+    return ["mpv", "--fs", "--no-terminal", "--load-scripts=no", "--osc=no", "--osd-level=0", "--title=" + title,
+            "--force-window=yes", "--cursor-autohide=always", "--hwdec=auto-safe", "--keep-open=no",
+            f"--input-ipc-server={socket_path}"]
 
 
 class Mpv:

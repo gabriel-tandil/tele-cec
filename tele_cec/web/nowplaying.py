@@ -1,6 +1,6 @@
 """Lo que está sonando (MPRIS, con playerctl) y el volumen de la salida actual (wpctl), para la página del celular.
 
-Todos los reproductores que usa tele-cec publican MPRIS: High Tide (Tidal), VLC (Videos) y Firefox o Chromium
+Todos los reproductores que usa tele-cec publican MPRIS: High Tide (Tidal), mpv (Videos y Música, con mpv-mpris) y Firefox o Chromium
 (Netflix, YouTube). playerctl -a los recorre a todos de una vez.
 """
 
@@ -20,7 +20,7 @@ SINK = "@DEFAULT_AUDIO_SINK@"
 
 @dataclass
 class Track:
-    player: str          # instancia de playerctl (p. ej. "vlc", "firefox.instance_1_42")
+    player: str          # instancia de playerctl (p. ej. "mpv", "firefox.instance_1_42")
     status: str          # Playing / Paused / Stopped
     title: str = ""
     artist: str = ""

@@ -33,7 +33,7 @@
 # resume_on_open = true       # al abrir Tidal, seguir con lo último que sonaba (por defecto: Inicio, en pausa)
 # start_in_nav = false        # al abrir Tidal, flechas = controles (por defecto recorren la interfaz)
 
-# [apps.videos]               # Videos con VLC (la primera carpeta con videos: pendrive o la local)
+# [apps.videos]               # Videos con mpv (la primera carpeta con videos: pendrive o la local)
 # folders = ["/media/*/*", "~/Vídeos", "/mnt/nas/peliculas"]
 # shuffle = true
 

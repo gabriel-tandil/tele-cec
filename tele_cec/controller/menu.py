@@ -24,6 +24,8 @@ SOUND_HINT = "▲ ▼ elegir · OK usar esta salida · ◀ volver"
 BT_SCAN_SECONDS = 25   # cuánto se buscan parlantes y auriculares Bluetooth al abrir «Sonido»
 BT_POLL_SECONDS = 2.0  # cada cuánto se mira qué encontró la búsqueda
 HELP_HINT = "◀ ▶ otra app · ▲ ▼ más filas · Atrás volver"
+GROUP_HINT = "▲ ▼ elegir · OK abrir · ▶ carpetas · Atrás volver"
+KEEP = "\0mismo"   # menu_open(group=KEEP): quedarse en la lista en que estaba
 BACKGROUND_BADGE = {"Playing": "sonando", "Paused": "en pausa"}  # si no, «abierto» (sin nada cargado)
 
 
@@ -43,6 +45,7 @@ class MenuMixin:
         # y por dónde se vino (para volver con ◀ a la carpeta de arriba y a la misma fila).
         self._menu_mode = "activities"
         self._menu_act_sel = 0
+        self._menu_group: str | None = None   # adentro de un grupo del menú («Videos y música»)
         self._picker_act = ""
         self._picker_path: Path | None = None
         self._picker_stack: list[tuple[Path | None, int]] = []
@@ -75,36 +78,83 @@ class MenuMixin:
         await self.menu_open()
 
     # ---------------------------------------------------------------- menú de actividades
-    def _menu_order(self) -> list[str]:
-        items = [str(i).strip().lower() for i in (self.cfg.menu.get("items") or [])]
-        out = [i for i in items if i in self.activities]
-        for unknown in (i for i in items if i not in self.activities):
-            log.warning("menu.items: no hay ninguna actividad «%s»", unknown)
-        out += [k for k in self.activities if k not in out and k not in activities_mod.BUILTIN]
+    def _menu_groups(self) -> dict[str, dict]:
+        """[menu.groups.<id>]: filas que abren otra lista («Videos y música» → Videos, Música)."""
+        out = {}
+        for gid, g in (self.cfg.menu.get("groups") or {}).items():
+            if not isinstance(g, dict):
+                continue
+            items = [str(i).strip().lower() for i in g.get("items") or []]
+            items = [i for i in items if i in self.activities]
+            if items:
+                out[str(gid).strip().lower()] = {"name": str(g.get("name") or gid), "icon": str(g.get("icon") or ""),
+                                                 "items": items}
         return out
 
-    def _menu_entries(self) -> list[dict]:
-        """Las opciones del menú (en un hilo aparte: mira qué está instalado y busca contenido en carpetas)."""
+    def _menu_order(self, group: str | None = None) -> list[str]:
+        """Las filas, en orden: ids de actividades y «_group:<id>» para los grupos (o las de adentro de un grupo)."""
+        groups = self._menu_groups()
+        if group:
+            return list(groups.get(group, {}).get("items", []))
+        items = [str(i).strip().lower() for i in (self.cfg.menu.get("items") or [])]
+        used = [i for i in items if i in groups and i not in self.activities]
+        inside = {a for g in used for a in groups[g]["items"]}
+        out: list[str] = []
+        for i in items:
+            if i in used:
+                out.append("_group:" + i)
+            elif i in self.activities and i not in inside:
+                out.append(i)
+            elif i not in self.activities:
+                log.warning("menu.items: no hay ninguna actividad ni grupo «%s»", i)
+        out += [k for k in self.activities if k not in out and k not in activities_mod.BUILTIN and k not in inside]
+        return out
+
+    def _menu_row(self, ident: str, cur: str | None) -> dict | None:
+        act = self.activities[ident]
+        try:
+            if not act.installed():
+                return None
+            sub, enabled = act.source()
+        except Exception:  # noqa: BLE001
+            log.exception("Menú: no pude revisar %s", ident)
+            return None
+        item = {"id": ident, "name": act.name, "icon": act.icon, "sub": sub, "enabled": enabled,
+                "current": ident == cur}
+        if self._menu_columns > 1 and isinstance(act, (activities_mod.MediaActivity,
+                                                       activities_mod.AndroidActivity)):
+            item["action"] = "Conectar" if isinstance(act, activities_mod.AndroidActivity) else "Carpetas"
+        if ident != cur and ident in KEEP_PLAYING.get(cur or "", set()) and act.running():
+            item["badge"] = "sonando"  # p. ej. Tidal de fondo mientras pasan las fotos
+            item["background"] = True  # _menu_playback la corrige si en realidad está en pausa
+        return item
+
+    def _group_row(self, gid: str, g: dict, cur: str | None) -> dict | None:
+        rows = [r for r in (self._menu_row(i, cur) for i in g["items"]) if r is not None]
+        if not rows:
+            return None
+        with_content = [r["name"] for r in rows if r["enabled"]]
+        item = {"id": "_group:" + gid, "group": gid, "name": g["name"], "icon": g["icon"] or "local.svg",
+                "sub": " · ".join(with_content) if with_content else "Sin contenido: conectá un pendrive",
+                "enabled": True, "current": any(r["current"] for r in rows)}
+        bg = next((r for r in rows if r.get("background")), None)
+        if bg is not None:  # Música de fondo con las fotos: la fila del grupo lo dice
+            item.update(badge="sonando", background=True, bg_id=bg["id"])
+        return item
+
+    def _menu_entries(self, group: str | None = None) -> list[dict]:
+        """Las opciones del menú, o las de adentro de un grupo (en un hilo aparte: mira qué está instalado y busca
+        contenido en carpetas)."""
         cur = self.current_app()
+        groups = self._menu_groups()
         out = []
-        for ident in self._menu_order():
-            act = self.activities[ident]
-            try:
-                if not act.installed():
-                    continue
-                sub, enabled = act.source()
-            except Exception:  # noqa: BLE001
-                log.exception("Menú: no pude revisar %s", ident)
-                continue
-            item = {"id": ident, "name": act.name, "icon": act.icon, "sub": sub, "enabled": enabled,
-                    "current": ident == cur}
-            if self._menu_columns > 1 and isinstance(act, (activities_mod.MediaActivity,
-                                                           activities_mod.AndroidActivity)):
-                item["action"] = "Conectar" if isinstance(act, activities_mod.AndroidActivity) else "Carpetas"
-            if ident != cur and ident in KEEP_PLAYING.get(cur or "", set()) and act.running():
-                item["badge"] = "sonando"  # p. ej. Tidal de fondo mientras pasan las fotos
-                item["background"] = True  # _menu_playback la corrige si en realidad está en pausa
-            out.append(item)
+        for ident in self._menu_order(group):
+            item = (self._group_row(ident[7:], groups[ident[7:]], cur) if ident.startswith("_group:")
+                    else self._menu_row(ident, cur))
+            if item is not None:
+                out.append(item)
+        if group:
+            return out
         if self._sound_on and audio.available():
             try:
                 current = audio.current_name()
@@ -145,17 +195,25 @@ class MenuMixin:
             if not item.get("background"):
                 continue
             try:
-                st = await self.activities[item["id"]].playback()
+                st = await self.activities[item.get("bg_id") or item["id"]].playback()
             except Exception:  # noqa: BLE001
                 log.exception("Menú: no pude ver si %s está sonando", item["id"])
                 continue
             item["badge"] = BACKGROUND_BADGE.get(st, "sonando" if not st else "abierto")
 
-    async def menu_open(self, sel: int | None = None) -> None:
+    async def menu_open(self, sel: int | None = None, group: str | None = KEEP, select_id: str = "") -> None:
+        """Abre el menú de actividades (o vuelve a él). group: la lista de adentro de un grupo; sin decirlo, se
+        queda en la que estaba si el menú ya estaba abierto (al volver de Carpetas, Sonido…). select_id: elegir
+        esa fila."""
         self._sound_scan_stop()
         self._android_stop()
-        items = await asyncio.to_thread(self._menu_entries)
+        if group is KEEP:
+            group = self._menu_group if self._menu_open else None
+        items = await asyncio.to_thread(self._menu_entries, group)
         await self._menu_playback(items)
+        self._menu_group = group
+        if select_id:
+            sel = next((i for i, it in enumerate(items) if it["id"] == select_id), sel)
         if not items:
             await self.toast("No hay actividades para elegir")
             return
@@ -171,12 +229,14 @@ class MenuMixin:
         self._menu_items, self._menu_sel = items, sel
         self._menu_chip = False
         qr = None
-        if self.phone_qr is not None:
+        if self.phone_qr is not None and not group:
             try:
                 qr = await asyncio.to_thread(self.phone_qr)
             except Exception:  # noqa: BLE001  (sin QR el menú igual se abre)
                 log.exception("Menú: no pude armar el QR del celular")
-        if not await self.overlay.show(items, sel, hint=GRID_HINT if self._grid() else MENU_HINT,
+        title = self._menu_groups().get(group or "", {}).get("name") or "Actividades"
+        hint = GROUP_HINT if group else GRID_HINT if self._grid() else MENU_HINT
+        if not await self.overlay.show(items, sel, title=title, hint=hint,
                                        columns=self._menu_columns if self._grid() else 1, qr=qr):
             log.warning("No pude mostrar el menú: %s", self.overlay.error or "?")
             await self.toast("No pude mostrar el menú")
@@ -190,6 +250,7 @@ class MenuMixin:
         self._sound_scan_stop()
         self._android_stop()
         self._menu_open = False
+        self._menu_group = None
         self._menu_mode = "activities"
         if self._menu_timer:
             self._menu_timer.cancel()
@@ -200,7 +261,8 @@ class MenuMixin:
             await mame.unfreeze()  # se vuelve al juego
 
     def _grid(self) -> bool:
-        return self._menu_columns > 1 and self._menu_mode == "activities" and len(self._menu_items) > 1
+        return (self._menu_columns > 1 and self._menu_mode == "activities" and len(self._menu_items) > 1
+                and not self._menu_group)  # adentro de un grupo, una lista simple
 
     async def _grid_move(self, drow: int, dcol: int) -> None:
         """Moverse por la grilla del menú (la primera columna se llena primero, como la dibuja el panel)."""
@@ -236,7 +298,9 @@ class MenuMixin:
         act = self.activities.get(item["id"])
         self._menu_act_sel = index
         self._menu_chip = False
-        if isinstance(act, activities_mod.MediaActivity):
+        if item.get("group"):
+            await self.menu_open(group=item["group"])
+        elif isinstance(act, activities_mod.MediaActivity):
             self._menu_sel = index
             await self._picker_open(item["id"])
         elif isinstance(act, activities_mod.AndroidActivity):
@@ -276,6 +340,9 @@ class MenuMixin:
             self._menu_restart_timer()
             return
         item = self._menu_items[index]
+        if item.get("group"):
+            await self.menu_open(group=item["group"])  # «Videos y música»: su lista
+            return
         if item["id"] == "_help":
             self._menu_act_sel = index
             await self.help_open(from_menu=True)
@@ -386,6 +453,8 @@ class MenuMixin:
         elif sub == "right":
             if self._menu_mode == "folders":
                 await self._picker_enter(self._menu_sel)
+            elif self._menu_mode == "activities" and self._menu_items[self._menu_sel].get("group"):
+                await self.menu_open(group=self._menu_items[self._menu_sel]["group"])
             elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] == "_sound":
                 self._menu_act_sel = self._menu_sel
                 await self._sound_open()
@@ -409,6 +478,8 @@ class MenuMixin:
                 await self._picker_back()
             elif self._menu_mode == "sound":
                 await self.menu_open(self._menu_act_sel)
+            elif self._menu_mode == "activities" and self._menu_group:
+                await self.menu_open(group=None, select_id="_group:" + self._menu_group)
             else:
                 self._menu_restart_timer()
         elif sub == "back":
@@ -416,6 +487,8 @@ class MenuMixin:
                 await self._picker_back()
             elif self._menu_mode == "sound":
                 await self.menu_open(self._menu_act_sel)
+            elif self._menu_mode == "activities" and self._menu_group:
+                await self.menu_open(group=None, select_id="_group:" + self._menu_group)  # al menú principal
             else:
                 await self.menu_close()
         elif sub == "ok":

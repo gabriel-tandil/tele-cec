@@ -1,4 +1,4 @@
-"""Actividades de una carpeta de contenido: la base común de Videos (VLC) y Fotos (feh)."""
+"""Actividades de una carpeta de contenido: la base común de Videos, Música y Fotos."""
 
 from __future__ import annotations
 

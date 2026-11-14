@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 log = logging.getLogger("procs")
 
-# Lo que escriben los programas que abre tele-cec (VLC, feh, High Tide): sirve para ver por qué se cerraron.
+# Lo que escriben los programas que abre tele-cec (mpv, feh, High Tide): sirve para ver por qué se cerraron.
 LOG_DIR = Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")).expanduser() / "tele-cec"
 
 # Variables que inyecta un snap (p. ej. la terminal de VS Code instalado como snap) y que

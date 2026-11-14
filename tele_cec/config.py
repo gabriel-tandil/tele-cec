@@ -23,7 +23,7 @@ DEFAULTS_FILE = PKG_DIR / "defaults.toml"
 USER_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser() / "tele-cec" / "config.toml"
 
 CONTEXTS = ("global", "profiles", "browse", "player", "player_menu", "text", "offline", "tidal", "tidal_nav",
-            "menu", "youtube", "videos", "fotos", "fotos_zoom", "android", "juegos", "app")
+            "menu", "youtube", "videos", "musica", "fotos", "fotos_zoom", "android", "juegos", "app")
 
 # Orden de búsqueda de una tecla según el contexto actual.
 CHAINS: dict[str, tuple[str, ...]] = {
@@ -38,11 +38,12 @@ CHAINS: dict[str, tuple[str, ...]] = {
     "tidal_nav": ("tidal_nav", "tidal", "global"),
     # Menú de actividades abierto: captura todas las teclas (ninguna llega a la app de abajo).
     "menu": ("menu",),
-    # Videos (VLC), Fotos (feh) y los programas de [activities.<id>].
+    # Videos y Música (mpv), Fotos (feh y mpv) y los programas de [activities.<id>].
     "youtube": ("youtube", "global"),  # YouTube para TV
     "android": ("android", "global"),  # Android: la pantalla del celular (scrcpy)
     "juegos": ("juegos", "global"),    # Juegos (MAME)
     "videos": ("videos", "global"),
+    "musica": ("musica", "global"),    # Música local
     "fotos": ("fotos", "global"),
     "fotos_zoom": ("fotos_zoom", "fotos", "global"),  # Fotos con zoom: las flechas mueven la foto
     "app": ("app", "global"),

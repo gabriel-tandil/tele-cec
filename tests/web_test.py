@@ -681,6 +681,30 @@ async def main() -> int:
               f"las filas del menú de la TV (sin la Ayuda), con su botoncito y la actual marcada: "
               f"{[(i['id'], i['chip'], i['current']) for i in r['items']]}")
 
+        # El grupo «Videos y música»: una fila con las de adentro (para la página del grupo).
+        plain_entries = menu_entries
+
+        def grouped(group=None):
+            if group == "local":
+                return [{"id": "videos", "name": "Videos", "icon": "", "sub": "Pendrive", "enabled": True,
+                         "current": ctl.cur == "videos"}]
+            out = [e for e in plain_entries() if e["id"] != "videos"]
+            out.insert(2, {"id": "_group:local", "group": "local", "name": "Videos y música", "icon": "local.svg",
+                           "sub": "Videos", "enabled": True, "current": ctl.cur == "videos"})
+            return out
+        ctl._menu_entries = grouped
+        ctl.cur = "videos"
+        web.menu.invalidate()
+        _, _, body = await http(port, "GET", "/api/menu")
+        rows = {it["id"]: it for it in json.loads(body)["items"]}
+        g = rows.get("_group:local") or {}
+        check(g.get("option") == "group" and [c["id"] for c in g.get("children", [])] == ["videos"]
+              and g["children"][0]["chip"] == "Carpetas" and g["current"] and "videos" not in rows,
+              f"el grupo «Videos y música» va con sus actividades adentro (y la abierta marcada): {g}")
+        ctl._menu_entries = plain_entries
+        ctl.cur = "tidal"
+        web.menu.invalidate()
+
         # Tidal de fondo (detrás de Fotos): «sonando» solo si suena de verdad.
         ctl.cur = "videos"
         bg_state = ["Paused"]

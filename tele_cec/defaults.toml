@@ -86,7 +86,8 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #    text        -> browse -> global   hay un campo de texto enfocado (PIN, búsqueda)
 #    tidal       -> global             Tidal (High Tide) abierto
 #    tidal_nav   -> tidal -> global    Tidal con las flechas recorriendo su interfaz (0 lo alterna)
-#    videos      -> global             Videos (VLC) abierto
+#    videos      -> global             Videos (mpv) abierto
+#    musica      -> global             Música local (mpv) abierta
 #    fotos       -> global             Fotos (feh) abierto
 #    fotos_zoom  -> fotos -> global    Fotos con zoom (▲ lo activa): las flechas recorren la foto
 #    android     -> global             Android (la pantalla del celular, con scrcpy) abierto
@@ -329,17 +330,17 @@ NUMBER8 = "android:key:8"
 NUMBER9 = "android:key:9"
 CLEAR = "android:key:BackSpace"
 
-[keys.videos]                 # Videos (VLC)
-SELECT = "video:play_pause"
-ENTER = "video:play_pause"
+[keys.videos]                 # Videos (mpv)
+SELECT = "video:ok"           # OK: play / pausa (si estás buscando con ◀ ▶, salta ahí)
+ENTER = "video:ok"
 PLAY = "video:play"
 PAUSE = "video:pause"
-PAUSE_PLAY_FUNCTION = "video:play_pause"
+PAUSE_PLAY_FUNCTION = "video:ok"
 STOP = "video:pause"
-LEFT = "video:seek:-10"
+LEFT = "video:seek:-10"       # ◀ ▶: buscar de a 10 s (la barra muestra a dónde, con una miniatura; salta al soltar)
 RIGHT = "video:seek:+10"
-REWIND = "video:seek:-10"
-FAST_FORWARD = "video:seek:+10"
+REWIND = "video:seek:-60"     # ⏪ ⏩: de a 1 minuto
+FAST_FORWARD = "video:seek:+60"
 UP = "video:volume:+"
 DOWN = "video:volume:-"
 VOLUME_UP = "video:volume:+"
@@ -351,8 +352,31 @@ CHANNEL_DOWN = "video:previous"
 F1_BLUE = "video:subtitles"   # azul = subtítulos
 F2_RED = "video:audio"        # rojo = idioma de audio
 F4_YELLOW = "video:aspect"    # amarillo = proporción de la imagen (16:9, 4:3…)
-EXIT = ""
-AN_RETURN = ""
+EXIT = "video:back"           # Atrás: deja de buscar (sin saltar)
+AN_RETURN = "video:back"
+
+[keys.musica]                 # Música local (mpv)
+SELECT = "musica:ok"
+ENTER = "musica:ok"
+PLAY = "musica:play"
+PAUSE = "musica:pause"
+PAUSE_PLAY_FUNCTION = "musica:ok"
+STOP = "musica:pause"
+LEFT = "musica:seek:-10"
+RIGHT = "musica:seek:+10"
+REWIND = "musica:seek:-60"
+FAST_FORWARD = "musica:seek:+60"
+UP = "musica:volume:+"
+DOWN = "musica:volume:-"
+VOLUME_UP = "musica:volume:+"
+VOLUME_DOWN = "musica:volume:-"
+FORWARD = "musica:next"       # ⏭ ⏮ · Canal ±: tema siguiente / anterior
+BACKWARD = "musica:previous"
+CHANNEL_UP = "musica:next"
+CHANNEL_DOWN = "musica:previous"
+F4_YELLOW = "musica:shuffle"  # amarillo = mezclar / volver al orden
+EXIT = "musica:back"
+AN_RETURN = "musica:back"
 
 [keys.fotos]                  # Fotos (feh; con videos, mpv)
 LEFT = "fotos:previous"
@@ -460,8 +484,9 @@ RS_RIGHT = ""
 
 # Menú de actividades.
 [menu]
-items = ["netflix", "youtube", "tidal", "videos", "fotos", "juegos", "android"]   # orden; las no instaladas no aparecen. Las de
+items = ["netflix", "youtube", "tidal", "local", "fotos", "juegos", "android"]   # orden; las no instaladas no aparecen. Las de
                                                   # [activities.<id>] se agregan al final si no están acá.
+                                                  # Un nombre de [menu.groups] es una «carpeta» con otras adentro.
 columns = 2                   # en dos columnas (sin desplazar): ◀ ▶ cambian de columna. OK abre de una; Videos,
                               # Fotos y Android tienen un botoncito («Carpetas», «Conectar»): ▶ lo enfoca y OK lo
                               # abre (o el amarillo). 1 = una columna, con ▶ = más opciones
@@ -470,6 +495,11 @@ open_on_start = true          # al prender la Pi (al arrancar el servicio), el m
 sound = true                  # opción «Sonido» al final del menú: elegir la salida (TV por HDMI, Bluetooth…)
 keyboard = true               # mientras el menú está a la vista, también se maneja con el teclado: flechas,
                               # Enter elige, Esc o Retroceso vuelve, números, F1 ayuda, tecla Menú = siguiente
+
+[menu.groups.local]           # «Videos y música»: una fila del menú que abre otra lista con estas actividades
+name = "Videos y música"
+icon = "local.svg"
+items = ["videos", "musica"]
 
 # Control desde el celular: una página en http://raspberrypi.local:8765/ (en la misma red Wi‑Fi) con el control
 # remoto, lo que está sonando (play/pausa, anterior, siguiente), el volumen y la salida de sonido. En el celular:
@@ -505,13 +535,19 @@ force_h264 = true                    # como h264ify: la Pi decodifica H.264 por 
 user_agent = ""                      # "" = el de una TV (YouTube muestra la versión para TV solo a TVs)
 open_wait_s = 10                     # el navegador tarda en abrir: el menú muestra «Abriendo YouTube…» este tiempo
 
-[apps.videos]                        # Videos con VLC: reproduce la carpeta entera en pantalla completa
-# Se usa la primera carpeta que tenga videos: los pendrives van primero.
+[apps.videos]                        # Videos con mpv: la carpeta entera (y sus subcarpetas) en pantalla completa
+# Se usa la primera carpeta que tenga videos: los pendrives van primero. (sudo apt install mpv mpv-mpris)
 folders = ["/media/*/*", "~/Vídeos", "~/Videos"]
 shuffle = false                      # orden aleatorio
 volume_step = 0.05
-command = []                         # otro comando en vez de VLC; {carpeta} = la carpeta elegida, p. ej.
-                                     #   ["vlc", "--qt-minimal-view", "--fullscreen", "{carpeta}"]
+command = []                         # otro programa en vez de mpv; {carpeta} = la carpeta elegida, p. ej.
+                                     #   ["vlc", "--fullscreen", "{carpeta}"]
+
+[apps.musica]                        # Música local con mpv: los temas de la carpeta, con la tapa del disco en la TV
+folders = ["/media/*/*", "~/Música", "~/Music"]
+shuffle = false
+volume_step = 0.05
+command = []
 
 [apps.fotos]                         # Fotos: presentación en pantalla completa (feh; «fotos y videos» y «solo
                                      #   videos» con mpv: sudo apt install mpv)

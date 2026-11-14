@@ -349,15 +349,28 @@ const ACTIVITIES = {
   title: "Actividades",
   render(body, page) {
     if (!page.data) { body.replaceChildren(note("Cargando…")); refreshMenu(); return; }
-    const rows = el("div", "rows");
-    page.data.items.forEach((it) => {
-      const opts = {};
-      if (it.option && it.option !== "sound") { opts.chip = it.chip; opts.onChip = () => openOption(it); }
-      rows.appendChild(row(it, () => tapActivity(it), opts));
-    });
-    body.replaceChildren(rows);
+    body.replaceChildren(activityRows(page.data.items));
   },
 };
+function activityRows(items) {
+  const rows = el("div", "rows");
+  items.forEach((it) => {
+    const opts = {};
+    if (it.option && it.option !== "sound" && it.option !== "group") { opts.chip = it.chip; opts.onChip = () => openOption(it); }
+    rows.appendChild(row(it, () => tapActivity(it), opts));
+  });
+  return rows;
+}
+// Un grupo del menú («Videos y música»): las actividades de adentro, con lo último que mandó la Pi.
+function groupPage(group) {
+  return {
+    title: group.name, group: group.id,
+    render(body) {
+      const fresh = ((ACTIVITIES.data || {}).items || []).find((x) => x.id === group.id) || group;
+      body.replaceChildren(activityRows(fresh.children || []));
+    },
+  };
+}
 async function refreshMenu() {
   const r = await get("/api/menu");
   if (r.error || !r.items) return;
@@ -365,9 +378,11 @@ async function refreshMenu() {
   if (ACTIVITIES.key === key) return;
   ACTIVITIES.key = key;
   ACTIVITIES.data = r;
-  if (stack[stack.length - 1] === ACTIVITIES) render();
+  const top = stack[stack.length - 1];
+  if (top === ACTIVITIES || (top && top.group)) render();
 }
 function tapActivity(it) {
+  if (it.children) return show(groupPage(it));
   if (it.option === "sound") return openOption(it);
   if (!it.enabled && it.option) return openOption(it);  // sin contenido: elegir otra carpeta o conectar
   if (!it.enabled) { toast(it.sub || "No disponible"); return; }
