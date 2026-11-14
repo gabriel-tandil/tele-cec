@@ -170,6 +170,40 @@ async def http(port: int, method: str, path: str, body: dict | None = None, head
     return status, hdrs, payload
 
 
+def phone_qr_test() -> None:
+    """El QR de la página del celular para el menú de la TV: con la IP de la red de la casa y el puerto."""
+    import shutil
+    import tempfile
+    print("QR del celular para el menú de la TV")
+    tmp = Path(tempfile.mkdtemp(prefix="nfx-qr-"))
+    real = (server.LOG_DIR, server._lan_ip, server.shutil.which, server.subprocess.run)
+    runs = []
+
+    def fake_run(cmd, **_kw):
+        runs.append(cmd)
+        Path(cmd[cmd.index("-o") + 1]).write_text("<svg/>")
+    try:
+        server.LOG_DIR, server._lan_ip = tmp, lambda: "192.168.0.111"
+        server.shutil.which = lambda name: "/usr/bin/" + name
+        server.subprocess.run = fake_run
+        web = server.WebRemote(SimpleNamespace(), {"port": 8765})
+        check(web.phone_qr() is None, "sin el servidor andando: sin QR")
+        web.server = object()
+        qr = web.phone_qr()
+        check(qr and qr["url"] == "192.168.0.111:8765" and runs and runs[0][-1] == "http://192.168.0.111:8765/"
+              and Path(qr["path"]).is_file(), f"QR con la IP y el puerto: {qr} {runs}")
+        web.phone_qr()
+        check(len(runs) == 1, "la segunda vez usa el mismo archivo (no lo regenera)")
+        server._lan_ip = lambda: "192.168.0.120"
+        check(web.phone_qr()["url"] == "192.168.0.120:8765" and len(runs) == 2, "si cambia la IP, lo regenera")
+        server.shutil.which = lambda name: None
+        server._lan_ip = lambda: "192.168.0.5"
+        check(web.phone_qr() is None, "sin qrencode: sin QR (el menú se abre igual)")
+    finally:
+        server.LOG_DIR, server._lan_ip, server.shutil.which, server.subprocess.run = real
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def collection_playlists_test() -> None:
     import types
     """Parche de High Tide: «Mis playlists» y «Favoritas», también las guardadas en carpetas (y sin repetir)."""
@@ -737,6 +771,7 @@ async def main() -> int:
     finally:
         await web.close()
 
+    phone_qr_test()
     collection_playlists_test()
     print(f"\n{OK}/{OK + FAIL} verificaciones OK")
     return 1 if FAIL else 0

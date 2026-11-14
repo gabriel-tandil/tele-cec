@@ -23,6 +23,8 @@ import json
 import logging
 import mimetypes
 import re
+import shutil
+import subprocess
 import time
 import urllib.parse
 from pathlib import Path
@@ -31,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from .. import apps as activities_mod
 from ..keys import parse_key
 from ..system import audio, keyboard
+from ..system.procs import LOG_DIR
 from . import nowplaying
 from .menu import MenuWeb
 from .tidal import TidalWeb
@@ -92,6 +95,9 @@ class WebRemote:
         self.bind = str(cfg.get("bind") or "0.0.0.0")  # noqa: S104  (es para la red de la casa; ver allowed_client)
         self.lan_only = bool(cfg.get("lan_only", True))
         self.volume_step = int(cfg.get("volume_step", 5))
+        self.menu_qr = bool(cfg.get("menu_qr", True))
+        self._qr_url = ""
+        self._qr_warned = False
         self.server: asyncio.AbstractServer | None = None
         self._state: dict[str, Any] | None = None
         self._state_at = 0.0
@@ -114,7 +120,33 @@ class WebRemote:
             log.warning("No pude abrir la página del celular en el puerto %d: %s", self.port, exc)
             return False
         log.info("Control desde el celular: http://%s:%d/", _hostname(), self.port)
+        if self.menu_qr:
+            self.ctl.phone_qr = self.phone_qr  # el menú de la TV muestra el QR de esta página
         return True
+
+    def phone_qr(self) -> dict[str, Any] | None:
+        """El QR para abrir esta página desde el celular (con la IP de la Pi en la red de la casa: los nombres .local
+        no andan en todos los celulares). Se regenera solo si cambia la dirección. None = no se puede mostrar."""
+        if self.server is None:
+            return None
+        url = f"http://{_lan_ip() or _hostname()}:{self.port}/"
+        path = LOG_DIR / "celular-qr.svg"
+        if url != self._qr_url or not path.is_file():
+            if not shutil.which("qrencode"):
+                if not self._qr_warned:
+                    log.warning("Falta qrencode (sudo apt install qrencode): el menú no muestra el QR del celular")
+                    self._qr_warned = True
+                return None
+            try:
+                LOG_DIR.mkdir(parents=True, exist_ok=True)
+                subprocess.run(["qrencode", "-t", "SVG", "-m", "1", "-o", str(path), url],  # noqa: S603,S607
+                               check=True, capture_output=True, timeout=10)
+            except (OSError, subprocess.SubprocessError) as exc:
+                log.warning("No pude armar el QR del celular: %s", exc)
+                return None
+            self._qr_url = url
+        return {"path": str(path), "url": url.removeprefix("http://").rstrip("/"),
+                "title": "Manejá la TV desde el celular", "text": "Apuntá la cámara del celular a este código"}
 
     async def close(self) -> None:
         if self.server is None:
@@ -575,6 +607,18 @@ def _detail(o: audio.Output) -> str:
 
 def _out_id(o: audio.Output) -> str:
     return o.mac or o.node_name or o.name
+
+
+def _lan_ip() -> str:
+    """La IP de la Pi en la red de la casa (la de la ruta por defecto). Un socket UDP «conectado» no manda nada."""
+    import socket  # noqa: PLC0415
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("10.254.254.254", 1))
+            ip = sock.getsockname()[0]
+    except OSError:
+        return ""
+    return "" if ip.startswith("127.") or ip == "0.0.0.0" else ip  # noqa: S104
 
 
 def _hostname() -> str:
