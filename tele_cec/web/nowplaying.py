@@ -13,7 +13,7 @@ from ..system.procs import run_cmd
 
 SEP = "\x1f"  # separador que no aparece en un título
 FIELDS = ("playerInstance", "status", "title", "artist", "album", "mpris:artUrl", "position", "mpris:length",
-          "shuffle", "loop")
+          "shuffle", "loop", "xesam:url")
 FORMAT = SEP.join("{{" + f + "}}" for f in FIELDS)
 SINK = "@DEFAULT_AUDIO_SINK@"
 
@@ -30,6 +30,7 @@ class Track:
     length: float = 0.0     # segundos (0 = no se sabe, p. ej. en vivo)
     shuffle: bool | None = None   # None = el reproductor no lo informa
     loop: str = ""          # None / Playlist / Track ("" = no lo informa)
+    url: str = ""           # xesam:url: el archivo (file://…) en la Música local, para buscarle la tapa
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -47,12 +48,13 @@ def parse_players(text: str) -> list[Track]:
     out = []
     for line in text.splitlines():
         f = line.split(SEP)
-        if len(f) != len(FIELDS) or not f[0]:
+        if len(f) not in (len(FIELDS), len(FIELDS) - 1) or not f[0]:  # (sin xesam:url: un playerctl viejo)
             continue
         shuffle = {"true": True, "false": False}.get(f[8].strip().lower())
         loop = f[9].strip() if f[9].strip() in ("None", "Playlist", "Track") else ""
         out.append(Track(player=f[0], status=f[1], title=f[2], artist=f[3], album=f[4], art=f[5],
-                         position=_seconds(f[6]), length=_seconds(f[7]), shuffle=shuffle, loop=loop))
+                         position=_seconds(f[6]), length=_seconds(f[7]), shuffle=shuffle, loop=loop,
+                         url=f[10] if len(f) > 10 else ""))
     return out
 
 

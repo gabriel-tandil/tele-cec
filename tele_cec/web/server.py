@@ -571,6 +571,9 @@ class WebRemote:
                 now["art"] = f"/api/art?v={abs(hash(self._art)) % 10 ** 8}"
             elif not track.art.startswith(("http://", "https://")):
                 now["art"] = ""
+            if not now["art"] and track.url.startswith("file://"):  # Música local: la tapa del disco
+                now["art"] = await self.music.art_for(urllib.parse.unquote(urllib.parse.urlparse(track.url).path))
+            now.pop("url", None)
             now["tidal"] = self._is_tidal(track.player)
             if now["tidal"]:
                 now["liked"] = await self.tidal.liked()

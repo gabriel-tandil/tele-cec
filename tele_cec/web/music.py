@@ -170,6 +170,17 @@ class LocalMusicWeb:
         nxt = out[pos + 1:] if pos >= 0 else out
         return {"current": cur, "next": nxt[:QUEUE_MAX], "total_next": len(nxt), "pos": pos}
 
+    async def art_for(self, path: str) -> str:
+        """La tapa (su dirección) del tema que está sonando, si es de la Música local ("" si no)."""
+        lib = self.lib
+        if lib is None or not path:
+            return ""
+        if path not in lib.by_path:
+            await asyncio.to_thread(lib.refresh)  # como mucho cada RESCAN_S
+        s = lib.by_path.get(path)
+        al = lib.album_of(s) if s else None
+        return f"/api/music/art?id={al.id}&s={BIG}" if al else ""
+
     async def art(self, query: dict[str, str]) -> tuple[bytes, str] | None:
         ident = query.get("id", "")
         lib = self.lib

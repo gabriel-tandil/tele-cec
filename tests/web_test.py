@@ -297,6 +297,11 @@ async def local_music_test(ctl, port) -> None:
         st, hdrs, body = await http(port, "GET", f"/api/music/art?id={albums['Desde Cero']['id']}&s=240")
         check(st == 200 and hdrs.get("Content-Type") == "image/jpeg" and body.startswith(b"\xff\xd8"),
               f"la tapa del disco (cover.jpg): {st} {hdrs.get('Content-Type')}")
+        from tele_cec.web.music import LocalMusicWeb
+        lm = LocalMusicWeb(ctl, None)
+        got = await lm.art_for(str(root / "Los Pericos/Desde Cero/05 Casi Nunca Lo Ves.mp3"))
+        check(got == f"/api/music/art?id={albums['Desde Cero']['id']}&s=640" and await lm.art_for("/otro/x.mp3") == "",
+              f"lo que suena en Música: la tapa de su disco para el reproductor del celular: {got}")
         st, _, _ = await http(port, "GET", f"/api/music/art?id={albums['Signos']['id']}")
         check(st == 404, "un disco sin tapa: 404 (la página pone la nota)")
 
@@ -451,6 +456,8 @@ async def main() -> int:
           == [("vlc", "Paused", "Peli", 5.0, 60.0, None, ""),
               ("io.github.nokse22.high-tide", "Playing", "Tema", 1.5, 200.0, True, "Playlist")],
           f"lee cada reproductor (segundos, no microsegundos; aleatorio y repetir si los informa): {tracks}")
+    t = nowplaying.parse_players(f"mpv{S}Playing{S}Tema{S}{S}{S}{S}0{S}0{S}false{S}None{S}file:///m/a%20b.m4a\n")
+    check(t and t[0].url == "file:///m/a%20b.m4a", f"y el archivo (para la tapa de la Música local): {t}")
     check(nowplaying.pick(tracks, ["vlc"]).player == "io.github.nokse22.high-tide",
           "el que está sonando gana aunque la app en pantalla sea otra")
     paused = [t for t in tracks if t.player == "vlc"]
