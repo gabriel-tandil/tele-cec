@@ -63,6 +63,7 @@ class PhotosActivity(MediaActivity):
     empty_text = "Sin fotos: conectá un pendrive"
     play_label = "▶ Ver las fotos de esta carpeta"
     empty_in_folder = "No hay fotos en esta carpeta"
+    unit = ("foto", "fotos")
     # feh pone en el título de su ventana qué foto muestra (%u = número, %l = total, %f = archivo):
     # así se puede mostrar en el panel con letra grande (azul).
     TITLE = "tele-cec fotos"

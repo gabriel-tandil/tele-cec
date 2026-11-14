@@ -15,6 +15,7 @@ class VideosActivity(MpvMediaActivity):
     empty_text = "Sin videos: conectá un pendrive"
     play_label = "▶ Reproducir esta carpeta"
     empty_in_folder = "No hay videos en esta carpeta"
+    unit = ("video", "videos")
     browse_on_ok = True   # OK en el menú: la carpeta predeterminada, para elegir qué ver
     pick_files = True     # se elige el video (solo ese), no la carpeta entera
     play_folder = False

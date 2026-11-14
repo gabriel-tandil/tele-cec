@@ -10,6 +10,7 @@ No abre nada: verifica qué hace cada tecla según qué actividad está abierta 
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import shutil
@@ -421,6 +422,8 @@ async def main() -> int:
     from tele_cec.controller import activities as ctl_activities
     ctl_activities.FOTOS_REMINDER_S = 0.0  # el aviso del modo de Fotos, sin esperar en las pruebas
     tmp = Path(tempfile.mkdtemp(prefix="nfx-apps-"))
+    from tele_cec.apps import fileinfo as fileinfo_mod
+    fileinfo_mod._video_info = fileinfo_mod.VideoInfo(tmp / "videos-info.json")  # no tocar el de verdad
     cfg_file = tmp / "config.toml"
     cfg_file.write_text('[browser]\nengine = "firefox"\nlaunch = "on_key"\n[feedback]\nbusy = false\n'
                         '[menu]\nitems = ["netflix", "tidal", "videos", "fotos"]\nsound = false\n')  # YouTube y Sonido, aparte
@@ -791,13 +794,26 @@ async def main() -> int:
             if ctl._menu_mode == "activities" and ctl._menu_sel == mi:
                 break
             await press("DOWN")
+        idx = {"version": 1, "files": {str(mus_root / "Disco" / "2 - Dos.mp3"): {
+            "sig": fileinfo_mod._sig(str(mus_root / "Disco" / "2 - Dos.mp3")),
+            "tags": {"title": "Dos (en vivo)", "artist": "La Banda", "album": "Disco", "dur": 225.4}}}}
+        (tmp / "cache-musica").mkdir(exist_ok=True)
+        (tmp / "cache-musica" / "musica-indice.json").write_text(json.dumps(idx))
+        orig_fi_dir, fileinfo_mod.LOG_DIR = fileinfo_mod.LOG_DIR, tmp / "cache-musica"
         out = await press("SELECT")
         check(not mlocal.on and ctl._menu_mode == "folders" and [it['name'] for it in ctl.overlay.items] == ["▶ Escuchar esta carpeta", "Disco"],
               f"Música: OK abre la carpeta, con «Escuchar esta carpeta» y los discos: {[it['name'] for it in ctl.overlay.items]}")
+        check(ctl.overlay.items[0]["sub"] == "en 1 subcarpeta",
+              f"sin temas sueltos: «en 1 subcarpeta» (no «con sus subcarpetas»): {ctl.overlay.items[0]['sub']}")
         await press("DOWN", "SELECT")
         got = [(it.get("kind"), it["name"]) for it in ctl.overlay.items]
-        check(got == [("play", "▶ Escuchar esta carpeta"), ("file", "1 - Uno"), ("file", "2 - Dos"), ("file", "10 - Diez")],
-              f"en un disco: escucharlo entero o elegir un tema (en orden, sin la tapa): {got}")
+        check(got == [("play", "▶ Escuchar esta carpeta"), ("file", "1 - Uno"), ("file", "Dos (en vivo)"),
+                      ("file", "10 - Diez")],
+              f"en un disco: escucharlo entero o elegir un tema (en orden, sin la tapa; con su título): {got}")
+        check(ctl.overlay.items[0]["sub"] == "3 temas" and ctl.overlay.items[2]["sub"] == "La Banda · 3:45",
+              f"«3 temas» (sin subcarpetas) y el tema dice artista y duración (el disco es esta carpeta): "
+              f"{ctl.overlay.items[0]['sub']} / {ctl.overlay.items[2]['sub']}")
+        fileinfo_mod.LOG_DIR = orig_fi_dir
         out = await press("DOWN", "DOWN", "SELECT")
         check("musica:open:2 - Dos.mp3" in out and mlocal.on, f"OK sobre un tema lo pone: {out}")
         await mlocal.close()
@@ -819,6 +835,35 @@ async def main() -> int:
         videos.browse_on_ok = videos.pick_files = False
         ctl._foreground = None
         await ctl.menu_close()
+
+    print("Datos de los archivos (Música y Videos)")
+    from tele_cec.controller import menu as menu_ctl
+    check([menu_ctl._contents_text(*a, ("tema", "temas")) for a in ((12, 0), (1, 3), (0, 2), (0, 1))]
+          == ["12 temas", "1 tema y 3 subcarpetas", "en 2 subcarpetas", "en 1 subcarpeta"],
+          "lo que tiene la carpeta, en vez de «con sus subcarpetas»")
+    check([fileinfo_mod.quality(*wh) for wh in ((1920, 1080), (1620, 1080), (1280, 720), (3840, 1600), (640, 480))]
+          == ["1080p", "1080p", "720p", "4K", "480p"], "la calidad del video (aunque esté recortado)")
+    check(fileinfo_mod.video_text({"dur": 6533.2, "w": 1620, "h": 1080}) == ["1 h 49 min", "1080p"]
+          and fileinfo_mod.duration_text(225.4) == "3:45", "duraciones")
+    vdir = tmp / "vinfo"
+    vdir.mkdir()
+    (vdir / "rip.2019.1080p.mkv").write_bytes(b"x" * (2 << 20))
+    probes: list = []
+    orig_probe = fileinfo_mod._ffprobe
+
+    def fake_probe(path):
+        probes.append(path)
+        return {"dur": 5400.0, "w": 1920, "h": 1080, "title": "La película", "subs": 2}
+    fileinfo_mod._ffprobe = fake_probe
+    try:
+        vi_items = menu_ctl._file_items(vdir, activities_mod.VideosActivity({}))
+        check([(i["name"], i["sub"]) for i in vi_items] == [("La película", "1 h 30 min · 1080p · 2 MB · con subtítulos")],
+              f"el video con su título, duración, calidad, tamaño y subtítulos de adentro: {vi_items}")
+        menu_ctl._file_items(vdir, activities_mod.VideosActivity({}))
+        check(len(probes) == 1 and json.loads((tmp / "videos-info.json").read_text())["files"],
+              f"lo leído se guarda: la segunda vez no se vuelve a leer: {probes}")
+    finally:
+        fileinfo_mod._ffprobe = orig_probe
 
     print("Fotos: los modos del selector según lo que haya en la carpeta")
     if shutil.which("mpv"):

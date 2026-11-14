@@ -52,6 +52,7 @@ class MediaActivity(ProcActivity):
     # Texto de la opción que abre la carpeta elegida en el selector de carpetas del menú (y si está vacía).
     play_label = "▶ Abrir esta carpeta"
     empty_in_folder = "No hay nada para mostrar acá"
+    unit = ("archivo", "archivos")   # «12 temas», «1 foto»… (lo que hay en la carpeta)
     # OK sobre la fila del menú: abre el selector en la carpeta predeterminada (en vez de arrancar con todo).
     browse_on_ok = False
     # En el selector, además de las subcarpetas, los archivos de la carpeta para elegir uno (Videos, Música).

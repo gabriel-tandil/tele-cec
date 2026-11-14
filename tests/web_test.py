@@ -777,6 +777,8 @@ async def main() -> int:
                 return list(self.devs)
 
         tmp = Path(tempfile.mkdtemp(prefix="tele-web-"))
+        from tele_cec.apps import fileinfo as fileinfo_mod
+        fileinfo_mod._video_info = fileinfo_mod.VideoInfo(tmp / ".videos-info.json")  # no tocar el de verdad
         (tmp / "Vacaciones" / "2024").mkdir(parents=True)
         (tmp / "Vacaciones" / "peli.mp4").write_bytes(b"x")
         outside = Path(tempfile.mkdtemp(prefix="tele-fuera-"))

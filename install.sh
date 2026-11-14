@@ -120,9 +120,11 @@ elif ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/de
   if pkg="$(first_pkg chromium chromium-browser)"; then add_app "$pkg"; else warn "no encontré un paquete de Chromium: instalalo a mano."; fi
 fi
 # Videos, Música y «fotos y videos» con mpv; mpv-mpris: lo que suena se ve en la página del celular;
-# python3-mutagen: las etiquetas de la música (artista, disco…) para elegirla desde el celular.
+# python3-mutagen: las etiquetas de la música (artista, disco…) para elegirla desde el celular y el menú;
+# ffprobe (ffmpeg): duración, calidad y título de cada video en la lista del menú.
 ((VIDEOS)) && { command -v mpv >/dev/null 2>&1 || add_app mpv; apt_has mpv-mpris && ! dpkg -s mpv-mpris >/dev/null 2>&1 && add_app mpv-mpris
-               python3 -c 'import mutagen' 2>/dev/null || add_app python3-mutagen; }
+               python3 -c 'import mutagen' 2>/dev/null || add_app python3-mutagen
+               command -v ffprobe >/dev/null 2>&1 || add_app ffmpeg; }
 ((FOTOS)) && { command -v feh >/dev/null 2>&1 || add_app feh; }
 if ((TIDAL)); then
   command -v flatpak >/dev/null 2>&1 || add_app flatpak

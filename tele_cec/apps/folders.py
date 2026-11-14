@@ -82,7 +82,7 @@ def list_subfolders(folder: Path, limit: int = 300) -> list[Path]:
     return [folder / d for d in sorted(dirs, key=_natural_key)[:limit]]
 
 
-def list_media(folder: Path, exts: set[str], limit: int = 500) -> list[Path]:
+def list_media(folder: Path, exts: set[str], limit: int | None = 500) -> list[Path]:
     """Los archivos de ese tipo de la carpeta (sin las subcarpetas) en orden natural, para elegir uno desde el menú."""
     try:
         with os.scandir(folder) as it:

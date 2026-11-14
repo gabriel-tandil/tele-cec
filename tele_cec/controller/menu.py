@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 
 from .. import apps as activities_mod
+from ..apps import fileinfo
+from ..apps.library import fold
 from ..system import audio
 from ..ui import help as help_mod
 from .activities import KEEP_PLAYING
@@ -38,30 +40,65 @@ def _size_text(n: int) -> str:
     return f"{max(1, round(n / (1 << 20)))} MB"
 
 
-def _file_items(folder: Path, act: activities_mod.MediaActivity) -> list[dict]:
-    """Los archivos de la carpeta para elegir uno: los temas (Música) o los videos, con su tamaño y si tienen
-    subtítulos al lado."""
-    files = activities_mod.list_media(folder, act.exts)
+def _plural(n: int, unit: tuple[str, str]) -> str:
+    return f"{n} {unit[0] if n == 1 else unit[1]}"
+
+
+def _contents_text(files_here: int, subfolders: int, unit: tuple[str, str]) -> str:
+    """Lo que tiene la carpeta: «12 temas», «12 temas y 3 subcarpetas», «en 3 subcarpetas»."""
+    subs = _plural(subfolders, ("subcarpeta", "subcarpetas"))
+    if files_here and subfolders:
+        return f"{_plural(files_here, unit)} y {subs}"
+    if files_here:
+        return _plural(files_here, unit)
+    return f"en {subs}" if subfolders else ""
+
+
+def _song_items(folder: Path, files: list[Path]) -> list[dict]:
+    """Los temas con lo que dicen sus etiquetas: el título y, abajo, artista (y disco, si no es esta carpeta) y
+    duración."""
+    tags = fileinfo.song_tags([str(f) for f in files])
+    here = fold(folder.name)
+    out = []
+    for f in files:
+        t = tags.get(str(f)) or {}
+        info = [t.get("artist") or t.get("album_artist") or ""]
+        if t.get("album") and fold(t["album"]) != here:
+            info.append(t["album"])
+        if t.get("dur"):
+            info.append(fileinfo.duration_text(t["dur"]))
+        out.append({"kind": "file", "path": str(f), "name": t.get("title") or f.stem, "icon": "audio-x-generic",
+                    "sub": " · ".join(x for x in info if x), "enabled": True, "current": False})
+    return out
+
+
+def _file_items(folder: Path, act: activities_mod.MediaActivity, files: list[Path] | None = None) -> list[dict]:
+    """Los archivos de la carpeta para elegir uno: los temas (Música) o los videos (con su título, duración,
+    calidad, tamaño y si tienen subtítulos)."""
+    if files is None:
+        files = activities_mod.list_media(folder, act.exts)
     if not files:
         return []
     if getattr(act, "audio_only", False):
-        return [{"kind": "file", "path": str(f), "name": f.stem, "icon": "audio-x-generic", "sub": "",
-                 "enabled": True, "current": False} for f in files]
+        return _song_items(folder, files)
+    infos = fileinfo.video_info().get([str(f) for f in files])
     try:
         subs = [p.stem.lower() for p in folder.iterdir() if p.suffix.lower() in SUB_EXT]
     except OSError:
         subs = []
     out = []
     for f in files:
+        meta = infos.get(str(f)) or {}
+        info = fileinfo.video_text(meta)
         try:
-            info = [_size_text(f.stat().st_size)]
+            info.append(_size_text(f.stat().st_size))
         except OSError:
-            info = []
+            pass
         stem = f.stem.lower()
-        if any(s.startswith(stem) for s in subs):  # «peli.srt», «peli.es.srt»…
+        if meta.get("subs") or any(s.startswith(stem) for s in subs):  # adentro, o «peli.srt», «peli.es.srt»…
             info.append("con subtítulos")
-        out.append({"kind": "file", "path": str(f), "name": f.stem, "icon": "video-x-generic", "sub": " · ".join(info),
-                    "enabled": True, "current": False})
+        out.append({"kind": "file", "path": str(f), "name": meta.get("title") or f.stem, "icon": "video-x-generic",
+                    "sub": " · ".join(info), "enabled": True, "current": False})
     return out
 
 
@@ -570,11 +607,13 @@ class MenuMixin:
                               "enabled": True, "current": False})
             return f"{act.name} · elegir carpeta", items
         pick = act.pick_files and not act.command  # los archivos, para elegir uno (Videos, Música)
+        subfolders = activities_mod.list_subfolders(path)
+        files = activities_mod.list_media(path, act.exts, limit=None)  # los de acá (sin las subcarpetas)
         if act.play_folder or not pick:
-            has = activities_mod.count_media(path, act.exts) > 0  # corta en el primero (y tiene tope de tiempo)
+            has = bool(files) or activities_mod.count_media(path, act.exts) > 0  # corta en el primero (con tope)
             items.append({"kind": "play", "path": str(path), "name": act.play_label, "icon": "media-playback-start",
-                          "sub": "con sus subcarpetas" if has else act.empty_in_folder, "enabled": has,
-                          "current": False})
+                          "sub": (_contents_text(len(files), len(subfolders), act.unit) or "con sus subcarpetas")
+                          if has else act.empty_in_folder, "enabled": has, "current": False})
         if isinstance(act, activities_mod.PhotosActivity) and not act.command and shutil.which("mpv"):
             # Los otros modos (▼ también los cambia mientras se mira). Cuántos hay se sabe si ya se recorrió.
             counts = act.counts(path)
@@ -587,15 +626,18 @@ class MenuMixin:
                           "icon": "media-playback-start", "enabled": not nothing, "current": False,
                           "sub": "No hay fotos ni videos en esta carpeta" if nothing
                           else "las fotos y, en su lugar, los videos" + (f" ({videos})" if videos else "")})
+            videos_here = 0 if no_videos else len(activities_mod.list_media(path, activities_mod.VIDEO_EXT, None))
             items.append({"kind": "play", "mode": "videos", "path": str(path), "name": "▶ Solo los videos",
                           "icon": "media-playback-start", "enabled": not no_videos, "current": False,
                           "sub": "No hay videos en esta carpeta" if no_videos
-                          else (f"{videos} videos" if videos else "con sus subcarpetas")})
-        for d in activities_mod.list_subfolders(path):
+                          else (_plural(videos, ("video", "videos")) if videos
+                                else _contents_text(videos_here, len(subfolders), ("video", "videos"))
+                                or "con sus subcarpetas")})
+        for d in subfolders:
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})
         if pick:
-            items += _file_items(path, act)
+            items += _file_items(path, act, files[:500])
             if not items:
                 items.append({"kind": "empty", "path": str(path), "name": act.empty_in_folder, "icon": "folder",
                               "sub": "Conectá un pendrive o elegí otra carpeta", "enabled": False, "current": False})
