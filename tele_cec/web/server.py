@@ -285,6 +285,12 @@ class WebRemote:
             return _json(await self.music.enqueue(data))
         if path == "/api/music/jump":
             return _json(await self.music.jump(data))
+        if path == "/api/client-log":
+            # Lo que pasa en el celular con los controles de la pantalla bloqueada (para ver por qué no aparecen).
+            msg = re.sub(r"[^\w\s:·.,;()/+%-]", "", str(data.get("msg") or ""))[:200].strip()
+            if msg:
+                log.info("Celular: %s", msg)
+            return _json({"ok": True})
         if path == "/api/volume":
             level = data.get("level")  # la barra del celular: fijarlo en ese porcentaje
             change = str(data.get("change") or "")

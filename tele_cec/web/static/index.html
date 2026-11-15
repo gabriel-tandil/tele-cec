@@ -1144,6 +1144,7 @@ async function poll() {
   renderMini();
   renderSound();
   renderLock();
+  lockStatus();
   const top = stack[stack.length - 1];
   if (top === ACTIVITIES && Date.now() - (poll.menuAt || 0) > 4000) { poll.menuAt = Date.now(); refreshMenu(); }
   if (top === TIDAL && tView.kind === "queue" && state && state.now && state.now.title !== lastQueueTitle) tidalQueue(true);
@@ -1173,7 +1174,7 @@ function schedule(ms) { clearTimeout(pollTimer); pollTimer = setTimeout(poll, ms
 // barra) manejan lo que suena en la Pi. El navegador los muestra solo mientras la página reproduce algo: un sonido
 // que no se oye, en bucle. Se prende a mano (en el reproductor grande) porque toma el audio del celular: pausaría otra música
 // que suene en el teléfono. Las teclas de volumen siguen siendo las del celular (el navegador no se las pasa a la página).
-const LOCK = {audio: null, key: "", on: false};
+const LOCK = {audio: null, key: "", on: false, err: ""};
 try { LOCK.on = localStorage.getItem("tele-cec-lock") === "1"; } catch (e) {}
 function lockSupported() { return "mediaSession" in navigator && typeof MediaMetadata !== "undefined"; }
 function lockActive() { return LOCK.on && !!LOCK.audio && !LOCK.audio.paused; }
@@ -1195,6 +1196,8 @@ function lockSetup() {
   // Firefox recién toma la página como reproductor un momento después de que empieza a sonar (y no se queda con
   // el tema cargado antes): se lo vuelve a pasar.
   LOCK.audio.addEventListener("playing", () => setTimeout(() => { LOCK.key = ""; renderLock(); }, 2000));
+  LOCK.audio.addEventListener("playing", () => { lockReport("sonando el audio de fondo"); lockStatus(); });
+  LOCK.audio.addEventListener("pause", () => lockStatus());
   const ms = navigator.mediaSession;
   const on = (name, fn) => { try { ms.setActionHandler(name, fn); } catch (e) {} };
   const nudge = (secs) => media("seek", Math.max(0, curPos() + secs));
@@ -1211,7 +1214,24 @@ function lockSetup() {
 function lockStart() {
   if (!LOCK.on || !lockSupported()) return;
   lockSetup();
-  if (state && state.now && state.now.title && LOCK.audio.paused) LOCK.audio.play().then(renderLock).catch(() => {});
+  if (state && state.now && state.now.title && LOCK.audio.paused) {
+    LOCK.audio.play().then(() => { LOCK.err = ""; renderLock(); lockStatus(); })
+      .catch((e) => { LOCK.err = e.name || "error"; lockReport("el audio de fondo no arrancó: " + LOCK.err); lockStatus(); });
+  }
+}
+// Le cuenta a la Pi qué pasa (queda en su registro): sin eso no hay forma de ver qué hace el navegador del celular.
+function lockReport(msg) {
+  const ua = navigator.userAgent, m = ua.match(/(Firefox|Chrome|Safari)\/[\d]+/);
+  post("/api/client-log", {msg: `pantalla bloqueada: ${msg} (${m ? m[0] : "?"}${/Android/.test(ua) ? " Android" : ""})`}, true);
+}
+function lockStatusText() {
+  if (!LOCK.on) return "Los controles de la música en la notificación y con el celular bloqueado";
+  if (LOCK.err) return `El navegador no dejó arrancar (${LOCK.err}): tocá acá abajo de nuevo`;
+  if (!state || !state.now || !state.now.title) return "Prendido: aparece cuando suena algo en la Pi";
+  return lockActive() ? "Prendido: bloqueá el celular o mirá las notificaciones" : "Prendido: tocá la pantalla para que arranque";
+}
+function lockStatus() {
+  document.querySelectorAll(".lockopt .sub").forEach((n) => { n.textContent = lockStatusText(); });
 }
 function lockStop() {
   if (LOCK.audio && !LOCK.audio.paused) LOCK.audio.pause();
@@ -1245,21 +1265,23 @@ function renderLock() {
 function lockOption() {
   const b = el("button", "lockopt" + (LOCK.on ? " on" : ""));
   const tx = el("div", "tx");
-  tx.append(el("div", "name", "En la pantalla bloqueada"),
-            el("div", "sub", "Los controles de la música en la notificación y con el celular bloqueado"));
+  tx.append(el("div", "name", "En la pantalla bloqueada"), el("div", "sub", lockStatusText()));
   b.append(tx, el("span", "switch"));
   b.addEventListener("click", () => {
     buzz();
     LOCK.on = !LOCK.on;
     try { localStorage.setItem("tele-cec-lock", LOCK.on ? "1" : "0"); } catch (e) {}
     b.classList.toggle("on", LOCK.on);
-    if (LOCK.on) { lockStart(); toast("Listo: bloqueá el celular y vas a ver los controles"); }
-    else { lockStop(); toast("Sin controles en la pantalla bloqueada"); }
+    LOCK.err = "";
+    if (LOCK.on) { lockReport("prendido"); lockStart(); }
+    else { lockStop(); lockReport("apagado"); }
+    lockStatus();
   });
   return b;
 }
-// Prendido de antes: arranca con el primer toque en la página.
-document.addEventListener("pointerdown", () => { if (LOCK.on && !lockActive()) lockStart(); }, true);
+// Prendido de antes: arranca con el primer toque en la página. Al levantar el dedo (click, touchend): al apoyarlo
+// (pointerdown) el navegador del celular todavía no lo cuenta como un toque y no deja sonar.
+["click", "touchend"].forEach((e) => document.addEventListener(e, () => { if (LOCK.on && !lockActive()) lockStart(); }, true));
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") schedule(0); });
 
 // Arranque: #tidal, #musica o #sonido abren directo esa página.

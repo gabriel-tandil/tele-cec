@@ -597,6 +597,9 @@ async def main() -> int:
         check(json.loads(body)["ok"] and calls[-1] == ("vol", "=73", 5), f"la barra: fijar el volumen en 73 %: {calls[-1]}")
         await http(port, "POST", "/api/volume", {"level": 250}, {"X-Tele-CEC": "1"})
         check(calls[-1] == ("vol", "=100", 5), f"como mucho 100 %: {calls[-1]}")
+        st, _, body = await http(port, "POST", "/api/client-log", {"msg": "pantalla bloqueada: sonando <b>"},
+                                 {"X-Tele-CEC": "1"})
+        check(st == 200 and json.loads(body)["ok"], "el celular puede dejar una línea en el registro de la Pi")
 
         _, _, body = await http(port, "POST", "/api/sound", {"id": "AA:BB:CC:DD:EE:FF"}, {"X-Tele-CEC": "1"})
         r = json.loads(body)
