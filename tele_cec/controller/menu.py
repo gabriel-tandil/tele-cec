@@ -20,8 +20,8 @@ from .activities import KEEP_PLAYING
 log = logging.getLogger("tele")
 
 # Ayuda al pie del menú.
-MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Juegos, Android) · Atrás cerrar"
-GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar"
+MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Juegos, Android) · Atrás cerrar · • ayuda"
+GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar · • (punto) ayuda, en cualquier app"
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
 SOUND_HINT = "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida · Atrás volver"
 VOLUME_STEP = 5        # % por cada ◀ ▶ en la fila «Volumen»
@@ -315,7 +315,7 @@ class MenuMixin:
             out.append({"id": "_sound", "name": "Sonido", "icon": "sonido.svg",
                         "sub": " · ".join(x for x in (current, vol, timer) if x) or "Elegir por dónde sale el sonido",
                         "output": current, "enabled": True, "current": False})
-        out.append({"id": "_help", "name": "Ayuda", "icon": "ayuda.svg", "sub": "Qué hace cada tecla del control",
+        out.append({"id": "_help", "name": "Ayuda", "icon": "ayuda.svg", "sub": "Qué hace cada tecla (también con •)",
                     "enabled": True, "current": False})
         return out
 
