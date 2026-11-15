@@ -2718,12 +2718,30 @@ echo '</mame>'
         pi_args = mpv_mod.video_args()
         mpv_mod.pi_decoder = lambda: False
         other = mpv_mod.video_args()
+        # Al prender la Pi el servicio arranca antes que el escritorio: sin WAYLAND_DISPLAY en su entorno (las fotos
+        # salían azules). Se encuentra igual, por el socket de Wayland.
+        mpv_mod.pi_decoder = lambda: True
+        os.environ.pop("WAYLAND_DISPLAY", None)
+        run_dir = tmp / "run-user"
+        run_dir.mkdir()
+        (run_dir / "wayland-0").write_text("")
+        real_xdg = os.environ.get("XDG_RUNTIME_DIR")
+        os.environ["XDG_RUNTIME_DIR"] = str(run_dir)
+        try:
+            boot_args = mpv_mod.video_args()
+        finally:
+            if real_xdg is None:
+                os.environ.pop("XDG_RUNTIME_DIR", None)
+            else:
+                os.environ["XDG_RUNTIME_DIR"] = real_xdg
     finally:
         mpv_mod.pi_decoder = real_pi
         if real_env is None:
             os.environ.pop("WAYLAND_DISPLAY", None)
         else:
             os.environ["WAYLAND_DISPLAY"] = real_env
+    check(boot_args[:3] == ["--vo=gpu", "--gpu-api=opengl", "--hwdec=no"],
+          f"recién prendida la Pi (el servicio sin WAYLAND_DISPLAY): igual con OpenGL, no azul: {boot_args}")
     check(pi_args[:3] == ["--vo=gpu", "--gpu-api=opengl", "--hwdec=no"] and pi_args[3].endswith("tele_cec_vo.lua")
           and Path(pi_args[3].split("=", 1)[1]).is_file(),
           f"en la Pi: fotos con OpenGL (8 bits), sin hardware, y el script elige la salida de cada archivo: {pi_args}")

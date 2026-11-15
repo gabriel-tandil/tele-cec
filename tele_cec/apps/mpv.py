@@ -26,7 +26,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from ..system.procs import find_pids
+from ..system.procs import find_pids, graphical_env
 
 log = logging.getLogger("actividades")
 SCRIPTS = Path(__file__).resolve().parent / "mpv_scripts"
@@ -57,7 +57,9 @@ def video_args() -> list[str]:
     H.264 y HEVC por hardware con dmabuf-wayland (el cuadro decodificado va directo a la pantalla: 1080p a 60 cuadros
     sin trabarse), que no muestra fotos. tele_cec_vo.lua cambia entre las dos para cada archivo.
     Sin el decodificador de la Pi: la salida y el hardware que elija mpv."""
-    if pi_decoder() and os.environ.get("WAYLAND_DISPLAY"):
+    # graphical_env: si el servicio arrancó antes que el escritorio (al prender la Pi) no heredó WAYLAND_DISPLAY,
+    # y sin esto las fotos salían azules hasta reiniciar el servicio.
+    if pi_decoder() and graphical_env().get("WAYLAND_DISPLAY"):
         return ["--vo=gpu", "--gpu-api=opengl", "--hwdec=no", f"--script={SCRIPTS / 'tele_cec_vo.lua'}"]
     return [f"--hwdec={HWDEC}"]
 
