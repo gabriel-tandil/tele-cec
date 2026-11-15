@@ -140,6 +140,13 @@
   .opts { display: grid; gap: 6px; margin-top: 12px; }
   .opts button { padding: 14px; text-align: left; border-radius: 12px; background: rgba(255,255,255,0.06); font-weight: 600; }
   .opts button:active { background: var(--sel-bg); color: var(--sel-text); }
+  .lockopt { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 6px 4px; text-align: left; }
+  .lockopt .tx { flex: 1; min-width: 0; }
+  .lockopt .sub { white-space: normal; }
+  .switch { width: 46px; height: 28px; border-radius: 14px; background: rgba(255,255,255,0.18); position: relative; flex: none; transition: background .2s; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--text); transition: left .2s; }
+  .lockopt.on .switch { background: var(--sel-bg); }
+  .lockopt.on .switch::after { left: 21px; background: var(--sel-text); }
   .toast { position: fixed; left: 50%; bottom: calc(var(--mini-h) + 22px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: var(--sel-bg); color: var(--sel-text); padding: 10px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; z-index: 10;
     opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); }
@@ -1070,6 +1077,7 @@ function openPlayer() {
     const pp = btn("play", "main", () => media("play-pause"), "Play o pausa");
     tr.append(shuf, btn("prev", "", () => media("previous"), "Anterior"), pp, btn("next", "", () => media("next"), "Siguiente"), loop);
     sh.append(art, head, seek, times, tr, volumeBox("big"));
+    if (lockSupported()) sh.append(lockOption());
 
     let dragging = false, frac = 0;
     const showPos = (p, l) => {
@@ -1119,7 +1127,8 @@ function openPlayer() {
 // ---------------------------------------------------------------- estado
 async function poll() {
   pollTimer = null;
-  if (document.visibilityState !== "visible") return;
+  // Con la pantalla apagada solo se sigue consultando si están los controles de la pantalla bloqueada.
+  if (document.visibilityState !== "visible" && !lockActive()) return;
   try {
     const r = await fetch("/api/state", {cache: "no-store"});
     if (!r.ok) throw new Error(r.status);
@@ -1134,6 +1143,7 @@ async function poll() {
   renderStatus();
   renderMini();
   renderSound();
+  renderLock();
   const top = stack[stack.length - 1];
   if (top === ACTIVITIES && Date.now() - (poll.menuAt || 0) > 4000) { poll.menuAt = Date.now(); refreshMenu(); }
   if (top === TIDAL && tView.kind === "queue" && state && state.now && state.now.title !== lastQueueTitle) tidalQueue(true);
@@ -1146,7 +1156,8 @@ function checkVersion(ui) {
   if (!checkVersion.seen) { checkVersion.seen = ui; return; }
   if (ui === checkVersion.seen) return;
   const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
-  if (!typing) location.reload();
+  // con la pantalla apagada no: se cortarían los controles de la pantalla bloqueada (se recarga al volver)
+  if (!typing && document.visibilityState === "visible") location.reload();
 }
 function renderStatus() {
   const s = state, st = $("status");
@@ -1156,6 +1167,95 @@ function renderStatus() {
   else st.textContent = s.app && s.app.name ? "En la TV: " + s.app.name : (s.menu ? "Menú en la TV" : "Nada abierto");
 }
 function schedule(ms) { clearTimeout(pollTimer); pollTimer = setTimeout(poll, ms); }
+
+// ---------------------------------------------------------------- pantalla bloqueada y notificación
+// Los controles de música del sistema (en la notificación y con la pantalla bloqueada: tapa, tema, ⏮ ⏯ ⏭ y la
+// barra) manejan lo que suena en la Pi. El navegador los muestra solo mientras la página reproduce algo: un sonido
+// mudo en bucle. Se prende a mano (en el reproductor grande) porque toma el audio del celular: pausaría otra música
+// que suene en el teléfono. Las teclas de volumen siguen siendo las del celular (el navegador no se las pasa a la página).
+const LOCK = {audio: null, key: "", on: false};
+try { LOCK.on = localStorage.getItem("tele-cec-lock") === "1"; } catch (e) {}
+function lockSupported() { return "mediaSession" in navigator && typeof MediaMetadata !== "undefined"; }
+function lockActive() { return LOCK.on && !!LOCK.audio && !LOCK.audio.paused; }
+function silentWav(seconds, rate) {
+  const n = seconds * rate, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVE"); str(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, "data"); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, i & 1 ? 1 : -1, true);  // ±1: no se oye, pero no es silencio puro
+  return URL.createObjectURL(new Blob([buf], {type: "audio/wav"}));
+}
+function lockSetup() {
+  if (LOCK.audio || !lockSupported()) return;
+  LOCK.audio = new Audio(silentWav(10, 8000));
+  LOCK.audio.loop = true;
+  const ms = navigator.mediaSession;
+  const on = (name, fn) => { try { ms.setActionHandler(name, fn); } catch (e) {} };
+  const nudge = (secs) => media("seek", Math.max(0, curPos() + secs));
+  on("play", () => media("play"));
+  on("pause", () => media("pause"));
+  on("stop", () => media("pause"));
+  on("previoustrack", () => media("previous"));
+  on("nexttrack", () => media("next"));
+  on("seekto", (d) => { if (d && d.seekTime != null) media("seek", d.seekTime); });
+  on("seekbackward", (d) => nudge(-((d && d.seekOffset) || 10)));
+  on("seekforward", (d) => nudge((d && d.seekOffset) || 10));
+}
+// Arranca el sonido mudo: la primera vez necesita un toque en la página (el navegador no deja sonar solo).
+function lockStart() {
+  if (!LOCK.on || !lockSupported()) return;
+  lockSetup();
+  if (state && state.now && state.now.title && LOCK.audio.paused) LOCK.audio.play().then(renderLock).catch(() => {});
+}
+function lockStop() {
+  if (LOCK.audio && !LOCK.audio.paused) LOCK.audio.pause();
+  if (lockSupported()) {
+    navigator.mediaSession.metadata = null;
+    navigator.mediaSession.playbackState = "none";
+  }
+  LOCK.key = "";
+}
+function renderLock() {
+  if (!LOCK.audio || (LOCK.on && !state)) return;  // sin conexión un momento: se queda como estaba
+  const n = state && state.now;
+  if (!LOCK.on || !n || !n.title) { lockStop(); return; }
+  if (LOCK.audio.paused) { LOCK.audio.play().catch(() => {}); }
+  const ms = navigator.mediaSession;
+  const key = [n.title, n.artist, n.album, n.art, n.app].join("\u001f");
+  if (key !== LOCK.key) {
+    LOCK.key = key;
+    const artwork = n.art && !n.art.startsWith("file:")
+      ? [{src: new URL(n.art, location.href).href, sizes: "512x512"}] : [];
+    ms.metadata = new MediaMetadata({title: n.title, artist: n.artist || "", album: n.album || n.app || "", artwork});
+  }
+  ms.playbackState = n.status === "Playing" ? "playing" : "paused";
+  if (ms.setPositionState) {
+    try {
+      if (n.length > 0) ms.setPositionState({duration: n.length, position: Math.min(n.length, curPos()), playbackRate: 1});
+      else ms.setPositionState();
+    } catch (e) {}
+  }
+}
+function lockOption() {
+  const b = el("button", "lockopt" + (LOCK.on ? " on" : ""));
+  const tx = el("div", "tx");
+  tx.append(el("div", "name", "En la pantalla bloqueada"),
+            el("div", "sub", "Los controles de la música en la notificación y con el celular bloqueado"));
+  b.append(tx, el("span", "switch"));
+  b.addEventListener("click", () => {
+    buzz();
+    LOCK.on = !LOCK.on;
+    try { localStorage.setItem("tele-cec-lock", LOCK.on ? "1" : "0"); } catch (e) {}
+    b.classList.toggle("on", LOCK.on);
+    if (LOCK.on) { lockStart(); toast("Listo: bloqueá el celular y vas a ver los controles"); }
+    else { lockStop(); toast("Sin controles en la pantalla bloqueada"); }
+  });
+  return b;
+}
+// Prendido de antes: arranca con el primer toque en la página.
+document.addEventListener("pointerdown", () => { if (LOCK.on && !lockActive()) lockStart(); }, true);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") schedule(0); });
 
 // Arranque: #tidal, #musica o #sonido abren directo esa página.
