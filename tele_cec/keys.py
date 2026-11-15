@@ -128,6 +128,7 @@ DESCRIPCION: dict[str, str] = {
     "SETUP_MENU": "configuración",
     "CONTENTS_MENU": "contenidos",
     "DISPLAY_INFORMATION": "info",
+    "DOT": "punto",
     "ELECTRONIC_PROGRAM_GUIDE": "guía",
     **{f"NUMBER{i}": f"número {i}" for i in range(10)},
 }

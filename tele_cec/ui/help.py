@@ -62,13 +62,13 @@ KEY_LABELS = {
     "PLAY": "Play", "PAUSE": "Pausa", "PAUSE_PLAY_FUNCTION": "⏯", "STOP": "Stop",
     "FORWARD": "⏭", "BACKWARD": "⏮", "FAST_FORWARD": "⏩", "REWIND": "⏪",
     "CHANNEL_UP": "Canal +", "CHANNEL_DOWN": "Canal −", "VOLUME_UP": "Vol +", "VOLUME_DOWN": "Vol −",
-    "MUTE": "Silencio", "HELP": "Ayuda", "DISPLAY_INFORMATION": "Info", "CLEAR": "Borrar",
+    "MUTE": "Silencio", "HELP": "Ayuda", "DISPLAY_INFORMATION": "Info", "DOT": "•", "CLEAR": "Borrar",
     **{f"NUMBER{i}": str(i) for i in range(10)},
 }
 # Orden en que se listan (lo más usado primero).
 KEY_ORDER = ["▲", "▼", "◀", "▶", "OK", "Atrás", "⏯", "Play", "Pausa", "Stop", "⏭", "⏮", "⏩", "⏪",
              "Canal +", "Canal −", "Vol +", "Vol −", "Silencio", "Rojo", "Amarillo", "Azul", "Verde",
-             *[str(i) for i in range(10)], "Borrar", "Menú", "Info", "Ayuda"]
+             *[str(i) for i in range(10)], "Borrar", "Menú", "•", "Info", "Ayuda"]
 
 # Descripción de cada acción. Las que tienen la misma descripción se agrupan en una fila.
 ACTIONS = {

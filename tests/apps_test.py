@@ -1171,6 +1171,10 @@ async def main() -> int:
     check(out == ["ov:help:Ayuda · Tidal · controles (después de 0)"], f"la tecla Ayuda abre la ayuda de la app actual: {out}")
     out = await press("EXIT")
     check(out == ["ov:hide"] and not ctl._menu_open, f"Atrás la cierra: {out}")
+    out = await press("DOT")
+    check(out == ["ov:help:Ayuda · Tidal · controles (después de 0)"],
+          f"el punto (•) también: muchas TVs no mandan Info por CEC: {out}")
+    await press("EXIT")
 
     print("YouTube")
     class FakeYouTube(FakeProcMixin, activities_mod.YouTubeActivity):

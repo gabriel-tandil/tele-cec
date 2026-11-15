@@ -128,6 +128,7 @@ CONTENTS_MENU = "menu"
 SETUP_MENU = "menu"
 HELP = "help"                 # ayuda: qué hace cada tecla (también está al final del menú de actividades)
 DISPLAY_INFORMATION = "help"
+DOT = "help"                  # el punto (•): muchas TVs no mandan Info/Ayuda por CEC, y esta sí
 EXIT = "back"
 AN_RETURN = "back"
 F1_BLUE = "home"
@@ -203,6 +204,7 @@ CONTENTS_MENU = "menu"
 SETUP_MENU = "menu"
 HELP = "help"
 DISPLAY_INFORMATION = "help"
+DOT = "help"
 
 [keys.menu]                   # menú de actividades abierto
 F4_YELLOW = "menu:options"    # amarillo: opciones de la fila (carpetas, conectar el celular, juegos, salidas)
