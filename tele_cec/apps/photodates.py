@@ -56,10 +56,11 @@ def name_date(path: str) -> str | None:
     return None
 
 
-def _tiff_date(t: bytes) -> str | None:
-    """DateTimeOriginal (o DateTimeDigitized, o DateTime) del bloque TIFF del EXIF."""
+def _tiff_info(t: bytes) -> dict:
+    """Del bloque TIFF del EXIF: {"date": «AAAAMMDD»} (DateTimeOriginal, o DateTimeDigitized, o DateTime) y
+    {"gps": (latitud, longitud)} si la foto tiene ubicación."""
     if len(t) < 8 or t[:2] not in (b"II", b"MM"):
-        return None
+        return {}
     bo = "little" if t[:2] == b"II" else "big"
 
     def u16(o: int) -> int:
@@ -86,17 +87,44 @@ def _tiff_date(t: bytes) -> str | None:
         off = vo if count <= 4 else u32(vo)
         return t[off:off + count].split(b"\0")[0].decode("ascii", "replace")
 
+    def degrees(entry: tuple[int, int, int] | None) -> float | None:
+        """Grados, minutos y segundos (tres fracciones) → grados."""
+        if entry is None or entry[0] != 5 or entry[1] < 3:
+            return None
+        off = u32(entry[2])
+        if off + 24 > len(t):
+            return None
+        parts = []
+        for k in range(3):
+            num, den = u32(off + 8 * k), u32(off + 8 * k + 4)
+            if not den:
+                return None
+            parts.append(num / den)
+        return parts[0] + parts[1] / 60 + parts[2] / 3600
+
+    out: dict = {}
     ifd0 = ifd(u32(4))
     exif = ifd(u32(ifd0[0x8769][2])) if 0x8769 in ifd0 else {}
     for s in (text(exif.get(0x9003)), text(exif.get(0x9004)), text(ifd0.get(0x0132))):
         m = re.match(r"(\d{4}):(\d{2}):(\d{2})", s)
         if m and (got := _valid(*m.groups())):
-            return got
-    return None
+            out["date"] = got
+            break
+    gps = ifd(u32(ifd0[0x8825][2])) if 0x8825 in ifd0 else {}
+    lat, lon = degrees(gps.get(2)), degrees(gps.get(4))
+    if lat is not None and lon is not None and (lat, lon) != (0, 0) and lat <= 90 and lon <= 180:
+        out["gps"] = (round(-lat if text(gps.get(1)).upper().startswith("S") else lat, 6),
+                      round(-lon if text(gps.get(3)).upper().startswith("W") else lon, 6))
+    return out
 
 
-def _jpeg_exif(data: bytes) -> tuple[str | None, bool]:
-    """(fecha, ¿faltan bytes?) del EXIF de un JPEG: «faltan» si el bloque EXIF sigue más allá de lo leído."""
+def _tiff_date(t: bytes) -> str | None:
+    return _tiff_info(t).get("date")
+
+
+def _jpeg_exif(data: bytes, want: str = "date") -> tuple[object, bool]:
+    """(lo pedido —"date" o "gps"—, ¿faltan bytes?) del EXIF de un JPEG: «faltan» si el bloque EXIF sigue más allá
+    de lo leído."""
     if data[:2] != b"\xff\xd8":
         return None, False
     i = 2
@@ -106,26 +134,43 @@ def _jpeg_exif(data: bytes) -> tuple[str | None, bool]:
             return None, False
         size = int.from_bytes(data[i + 2:i + 4], "big")
         if marker == 0xE1 and data[i + 4:i + 10] == b"Exif\0\0":
-            got = _tiff_date(data[i + 10:i + 2 + size])
+            got = _tiff_info(data[i + 10:i + 2 + size]).get(want)
             return got, got is None and i + 2 + size > len(data)
         i += 2 + size
     return None, i + 4 > len(data)
 
 
-def exif_date(path: str) -> str | None:
-    """«AAAAMMDD» de cuándo se sacó la foto (EXIF de un JPEG), o None. Lee primero 16 KB (casi siempre alcanza: la
-    fecha va antes de la miniatura) y solo si no alcanza, más: en una carpeta de red son miles de fotos."""
+def _read_exif(path: str, want: str) -> object:
+    """Lee primero 16 KB (casi siempre alcanza: la fecha y el GPS van antes de la miniatura) y solo si no alcanza,
+    más: en una carpeta de red son miles de fotos."""
     if os.path.splitext(path)[1].lower() not in (".jpg", ".jpeg"):
         return None
     try:
         with open(path, "rb") as fh:
             data = fh.read(FIRST_BYTES)
-            got, more = _jpeg_exif(data)
+            got, more = _jpeg_exif(data, want)
             if got is None and more and len(data) == FIRST_BYTES:
-                got, _ = _jpeg_exif(data + fh.read(EXIF_BYTES - FIRST_BYTES))
+                got, _ = _jpeg_exif(data + fh.read(EXIF_BYTES - FIRST_BYTES), want)
     except OSError:
         return None
     return got
+
+
+def exif_date(path: str) -> str | None:
+    """«AAAAMMDD» de cuándo se sacó la foto (EXIF de un JPEG), o None."""
+    got = _read_exif(path, "date")
+    return got if isinstance(got, str) else None
+
+
+def exif_gps(path: str) -> tuple[float, float] | None:
+    """(latitud, longitud) de dónde se sacó la foto (GPS del EXIF), o None."""
+    got = _read_exif(path, "gps")
+    return got if isinstance(got, tuple) else None
+
+
+def photo_date(path: str) -> str | None:
+    """La fecha de una foto: del nombre o, si no, de la foto."""
+    return name_date(path) or exif_date(path)
 
 
 def month_day_text(day: dt.date) -> str:

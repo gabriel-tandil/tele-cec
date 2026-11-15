@@ -588,6 +588,51 @@ async def main() -> int:
     check(out == ["feh:greater", "feh:z", f"ov:toast:{where} › 2017 › 07\nIMG_0001.jpg\nFoto 12 de 49.403"],
           f"rojo gira, amarillo al azar, azul = qué foto es (carpeta, archivo, número): {out}")
 
+    print("Fotos: el mapa de dónde se sacó (verde)")
+    out = await press("F3_GREEN")
+    check(out == ["ov:toast:Esta foto no tiene la ubicación (GPS)"] and not ctl._menu_open,
+          f"una foto sin GPS: lo dice: {out}")
+    from tele_cec.apps import photomap as photomap_mod
+    if photomap_mod.available():
+        from PIL import Image as PILImage
+        gps_jpg = tmp / "fotos-gps" / "2019" / "01" / "IMG_20190120_120000.jpg"
+        gps_jpg.parent.mkdir(parents=True)
+        ex = PILImage.Exif()
+        g = ex.get_ifd(0x8825)
+        g[1], g[2], g[3], g[4] = "S", (41.0, 8.0, 3.6), "W", (71.0, 18.0, 36.0)
+        PILImage.new("RGB", (16, 16)).save(gps_jpg, exif=ex.tobytes())
+        renders: list = []
+
+        def fake_render(self, lat, lon, zoom, out, size=photomap_mod.SIZE):  # sin internet
+            renders.append((lat, lon, zoom))
+            PILImage.new("RGB", (64, 40), "white").save(out)
+            return out
+        real_render, real_info = photomap_mod.MapMaker.render, fotos.photo_info
+
+        async def gps_info():
+            return {"path": str(gps_jpg), "index": 3, "total": 10}
+        photomap_mod.MapMaker.render = fake_render  # type: ignore[method-assign]
+        fotos.photo_info = gps_info  # type: ignore[method-assign]
+        try:
+            out = await press("F1_BLUE")
+            check(out and out[-1].endswith("Verde: dónde se sacó (mapa)"), f"el azul avisa que tiene mapa: {out}")
+            out = await press("F3_GREEN")
+            check(out[:1] == ["feh:h"] and "ov:busy:Buscando el mapa…" in out
+                  and out[-1] == "ov:image:Dónde se sacó · IMG_20190120_120000.jpg"
+                  and renders == [(-41.134333, -71.31, 15)] and ctl._menu_mode == "map" and fotos.paused,
+                  f"verde: pausa las fotos y muestra el mapa en el lugar de la foto: {out} {renders}")
+            await press("UP", "UP", "DOWN")
+            check([r[2] for r in renders] == [15, 16, 17, 16], f"▲ acerca, ▼ aleja: {renders}")
+            out = await press("EXIT")
+            check(out == ["ov:hide", "feh:h"] and not ctl._menu_open and not fotos.paused
+                  and await ctl.context() == "fotos", f"Atrás vuelve a las fotos, que siguen: {out}")
+        finally:
+            photomap_mod.MapMaker.render = real_render  # type: ignore[method-assign]
+            fotos.photo_info = real_info  # type: ignore[method-assign]
+        check(photomap_mod.to_pixels(0, 0, 0) == (128.0, 128.0)
+              and [int(v // 256) for v in photomap_mod.to_pixels(-34.60374, -58.38157, 15)] == [11069, 19744],
+              "de latitud y longitud al mapa: el Obelisco cae en el mosaico 15/11069/19744, como en OpenStreetMap")
+
     print("Fotos: modos (▼)")
     fotos.current_folder = fotos.current_folder or Path("/mnt/fotosRemotas")
     out = await press("DOWN")

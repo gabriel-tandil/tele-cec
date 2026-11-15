@@ -125,7 +125,9 @@ fi
 ((VIDEOS)) && { command -v mpv >/dev/null 2>&1 || add_app mpv; apt_has mpv-mpris && ! dpkg -s mpv-mpris >/dev/null 2>&1 && add_app mpv-mpris
                python3 -c 'import mutagen' 2>/dev/null || add_app python3-mutagen
                command -v ffprobe >/dev/null 2>&1 || add_app ffmpeg; }
-((FOTOS)) && { command -v feh >/dev/null 2>&1 || add_app feh; }
+# python3-pil (Pillow): el mapa de dónde se sacó cada foto (verde en Fotos).
+((FOTOS)) && { command -v feh >/dev/null 2>&1 || add_app feh
+               python3 -c 'import PIL' 2>/dev/null || add_app python3-pil; }
 if ((TIDAL)); then
   command -v flatpak >/dev/null 2>&1 || add_app flatpak
   command -v gdbus >/dev/null 2>&1 || add_app libglib2.0-bin

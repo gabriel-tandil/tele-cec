@@ -134,7 +134,7 @@ GTK solo mueve el foco con flechas dentro de cada bloque (una fila de portadas, 
 | Atrás | Deja de buscar (sin saltar) | — |
 | 🔵 Azul · 🔴 Rojo | Videos: subtítulos · idioma de audio | Qué foto es (carpeta, archivo y número, en letra grande) · girar la foto |
 | 🟡 Amarillo | Videos: proporción (16:9, 4:3…) · Música: aleatorio (mezclar / volver al orden) | Una foto al azar |
-| 🟢 Verde | Música: repetir (toda la lista → este tema → no repetir) | — |
+| 🟢 Verde | Música: repetir (toda la lista → este tema → no repetir) | Dónde se sacó la foto: un mapa (si tiene GPS) |
 
 En Música, la barra dice abajo a la derecha si está en **aleatorio** y si **repite la lista** o **el tema**. Es lo mismo que muestran los botones del reproductor del celular: se puede cambiar desde cualquiera de los dos.
 
@@ -152,6 +152,7 @@ Al salir del zoom (o al pasar a otra foto con ⏮ ⏭) la presentación sigue so
 **Fotos y videos**: la presentación tiene tres modos.
 - **Solo fotos** (el de siempre).
 - **Fotos y videos**: las fotos el mismo tiempo de siempre y los videos de la carpeta en su lugar, ordenados por la fecha que traen los nombres (`IMG_20201130…`, `VID_20201108…`).
+- **Dónde se sacó** (verde): en las fotos que tienen la ubicación (GPS, como las del celular), el verde muestra un **mapa** con una marca en el lugar, la fecha y la carpeta; ▲ u OK acercan, ▼ aleja y Atrás vuelve a la presentación (que se pausa mientras tanto). El azul avisa cuando la foto tiene mapa. Los mosaicos son de [OpenStreetMap](https://www.openstreetmap.org/copyright): la Pi los pide a tile.openstreetmap.org (es lo único que sale de la casa: la zona del mapa, no la foto) y los guarda en `~/.cache/tele-cec/mapas` un mes. Necesita `python3-pil` (lo instala `install.sh`). `[apps.fotos] map = false` lo apaga; `map_tiles` cambia de dónde salen los mosaicos.
 - **Un día como hoy**: en la carpeta de Fotos (Carpetas ▸, o tocando Fotos › Carpetas en el celular), después de los tres modos, «▶ Un día como hoy» muestra las fotos y videos de esta fecha en otros años, de la más vieja a la más nueva («15 de noviembre: 312 fotos y 4 videos de 2009, 2014 y 2017»). Si no hay de ese día exacto, los de esa semana. La fecha sale del nombre (IMG_20170226_…, IMG-20180321-WA…, una carpeta «20-12-2008 …») o, para las de cámara (DSC02815.JPG), de la foto misma (EXIF). Leer todas la primera vez lleva unos minutos, de fondo (mientras tanto el menú dice «buscando fechas»); quedan guardadas en `~/.cache/tele-cec/fotos-fechas.json` y las nuevas se leen al actualizarse la lista. ▼ pasa a la carpeta entera. `on_this_day = false` lo oculta.
 - **Al azar**: si la carpeta tiene subcarpetas con fotos o videos (los años, los viajes…), la presentación va en orden aleatorio, en los tres modos; si no, en orden (por nombre, o intercalados por fecha). Con `shuffle = true`, siempre al azar. El menú lo dice debajo de cada opción («· al azar»). Al cambiar de modo con ▼ sigue desde la foto que se estaba viendo.
 - **Solo videos**: los videos de esa carpeta y sus subcarpetas.
@@ -859,7 +860,8 @@ tele_cec/
 │   ├── library.py         la música local por artista, disco y tema (para el celular)
 │   ├── fileinfo.py        lo que dicen los temas y los videos, para las listas del menú
 │   ├── resume.py          Seguir viendo: dónde quedó cada video (lo guarda mpv)
-│   ├── photodates.py      la fecha de cada foto (nombre o EXIF), para «Un día como hoy»
+│   ├── photodates.py      la fecha y el GPS de cada foto (nombre o EXIF), para «Un día como hoy» y el mapa
+│   ├── photomap.py        el mapa de dónde se sacó una foto (mosaicos de OpenStreetMap)
 │   ├── photos.py, media.py, folders.py   Fotos (mpv, o feh) y las carpetas de contenido
 │   ├── android.py         la pantalla del celular (scrcpy y adb)
 │   └── base.py, webprofile.py                        base de las actividades y perfiles de navegador

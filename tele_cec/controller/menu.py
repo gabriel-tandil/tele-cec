@@ -11,9 +11,10 @@ import time
 from pathlib import Path
 
 from .. import apps as activities_mod
-from ..apps import fileinfo, photodates, resume
+from ..apps import fileinfo, photodates, photomap, resume
 from ..apps.library import fold
 from ..system import audio
+from ..system.procs import LOG_DIR
 from ..ui import help as help_mod
 from .activities import KEEP_PLAYING
 
@@ -29,6 +30,8 @@ SOUND_FIRST = 2        # en Sonido, las salidas empiezan después de las filas �
 BT_SCAN_SECONDS = 25   # cuánto se buscan parlantes y auriculares Bluetooth al abrir «Sonido»
 BT_POLL_SECONDS = 2.0  # cada cuánto se mira qué encontró la búsqueda
 HELP_HINT = "◀ ▶ otra app · ▲ ▼ más filas · Atrás volver"
+MAP_HINT = "▲ u OK acercar · ▼ alejar · Atrás volver a las fotos"
+MAP_SIZE = 30          # el mapa en el panel, en tamaños de letra (30 = 900 px en 1080p)
 GROUP_HINT = "▲ ▼ elegir · OK abrir · ▶ carpetas · Atrás volver"
 KEEP = "\0mismo"   # menu_open(group=KEEP): quedarse en la lista en que estaba
 BACKGROUND_BADGE = {"Playing": "sonando", "Paused": "en pausa"}  # si no, «abierto» (sin nada cargado)
@@ -203,6 +206,7 @@ class MenuMixin:
         self._help_from_menu = False
         # Salida de sonido (entrada «Sonido» del menú): las salidas que se mostraron.
         self._sound_outputs: list[audio.Output] = []
+        self._map: dict = {}  # el mapa de la foto que se está mostrando (verde en Fotos)
         self._sound_volume: tuple[int | None, bool] = (None, False)  # (porcentaje, silencio) de la fila «Volumen»
         self._sound_on = bool(self.cfg.menu.get("sound", True))
         self.phone_qr = None  # la página del celular lo pone (WebRemote.phone_qr): el QR abajo del menú
@@ -332,7 +336,7 @@ class MenuMixin:
         espera a que aparezcan los Bluetooth; al vincular un celular, a que lea el QR o se escriba el código)."""
         if self._menu_mode.startswith("android"):
             return max(self._menu_timeout, 180.0)
-        return max(self._menu_timeout, 60.0) if self._menu_mode in ("help", "sound", "games") else self._menu_timeout
+        return max(self._menu_timeout, 60.0) if self._menu_mode in ("help", "sound", "games", "map") else self._menu_timeout
 
     async def _menu_autoclose(self) -> None:
         wait = self._menu_wait()
@@ -399,6 +403,7 @@ class MenuMixin:
         self._menu_restart_timer()
 
     async def menu_close(self) -> None:
+        resume_photos = self._menu_mode == "map" and self._map.get("resume")  # el mapa había pausado las fotos
         self._sound_scan_stop()
         self._android_stop()
         self._menu_open = False
@@ -411,6 +416,9 @@ class MenuMixin:
         mame = self.activities.get("juegos")
         if isinstance(mame, activities_mod.MameActivity) and mame.frozen:
             await mame.unfreeze()  # se vuelve al juego
+        fotos = self.activities.get("fotos")
+        if resume_photos and isinstance(fotos, activities_mod.PhotosActivity) and fotos.paused:
+            await fotos.toggle_pause()  # sigue la presentación
 
     def _grid(self) -> bool:
         return (self._menu_columns > 1 and self._menu_mode == "activities" and len(self._menu_items) > 1
@@ -577,6 +585,9 @@ class MenuMixin:
             return
         if self._menu_open and self._menu_mode.startswith("android"):
             await self._android_key(sub, rest)
+            return
+        if self._menu_open and self._menu_mode == "map":
+            await self._map_key(sub)
             return
         if sub in ("", "next", "toggle"):
             if self._menu_open:
@@ -1034,6 +1045,57 @@ class MenuMixin:
                 await self.menu_open(self._menu_act_sel)
             else:
                 await self.menu_close()
+        else:
+            self._menu_restart_timer()
+
+    # ---------------------------------------------------------------- mapa de la foto (verde en Fotos)
+    async def map_open(self, fotos: activities_mod.PhotosActivity, path: str, gps: tuple[float, float]) -> None:
+        """Dónde se sacó la foto: el mapa en el panel (la presentación se pausa; Atrás la sigue)."""
+        resume = not fotos.paused
+        if resume:
+            await fotos.toggle_pause()
+        self._map = {"path": path, "lat": gps[0], "lon": gps[1], "zoom": photomap.START_ZOOM, "resume": resume,
+                     "n": 0, "date": await asyncio.to_thread(photodates.photo_date, path),
+                     "where": fotos.describe_photo({"path": path}).split("\n")[0]}
+        self._menu_from_ctx = self._ctx
+        self._menu_mode, self._menu_open = "map", True
+        await self.overlay.busy("Buscando el mapa…")
+        await self._map_render()
+
+    async def _map_render(self) -> None:
+        m = self._map
+        m["n"] += 1
+        out = LOG_DIR / f"mapa-foto-{m['n'] % 2}.png"  # dos nombres: el panel siempre lee la imagen nueva
+        maker = photomap.MapMaker(tiles=str(self.activities["fotos"].cfg.get("map_tiles") or photomap.TILES))
+        try:
+            await asyncio.to_thread(maker.render, m["lat"], m["lon"], m["zoom"], out)
+        except Exception:  # noqa: BLE001
+            log.exception("Mapa: no pude armarlo")
+            await self.menu_close()
+            await self.overlay.toast("No pude armar el mapa", 3000)
+            return
+        if self._menu_mode != "map":  # se cerró mientras se armaba
+            return
+        d = m["date"]
+        lines = [f"Sacada el {int(d[6:8])} de {photodates.MONTHS[int(d[4:6]) - 1]} de {d[:4]}" if d else "",
+                 m["where"], f"{abs(m['lat']):.5f}° {'S' if m['lat'] < 0 else 'N'} · "
+                 f"{abs(m['lon']):.5f}° {'O' if m['lon'] < 0 else 'E'}",
+                 f"Zoom {m['zoom']} de {photomap.MAX_ZOOM}"]
+        status = "Sin conexión: faltan partes del mapa" if maker.failed else ""
+        await self.overlay.image(f"Dónde se sacó · {Path(m['path']).name}", str(out), [x for x in lines if x],
+                                 status=status, hint=MAP_HINT, size=MAP_SIZE)
+        self._menu_restart_timer()
+
+    async def _map_key(self, sub: str) -> None:
+        m = self._map
+        zoom = m["zoom"] + {"up": 1, "ok": 1, "right": 1, "down": -1, "left": -1}.get(sub, 0)
+        if sub in ("back", "close", "", "next", "toggle"):
+            await self.menu_close()
+            return
+        zoom = max(photomap.MIN_ZOOM, min(photomap.MAX_ZOOM, zoom))
+        if zoom != m["zoom"]:
+            m["zoom"] = zoom
+            await self._map_render()
         else:
             self._menu_restart_timer()
 

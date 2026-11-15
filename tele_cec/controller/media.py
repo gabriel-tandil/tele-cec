@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 
 from .. import apps as activities_mod
+from ..apps import photodates, photomap
 from ..system import keyboard
 
 log = logging.getLogger("tele")
@@ -166,9 +168,13 @@ class MediaMixin:
             if info:
                 text = f.describe_photo(info)
                 log.info("Fotos: %s", text.replace("\n", " · "))
+                if f.cfg.get("map", True) and await asyncio.to_thread(photodates.exif_gps, info["path"]):
+                    text += "\nVerde: dónde se sacó (mapa)"
                 await self.toast(text, 6000)
             else:
                 await f.filename()  # sin el título de la ventana: el texto chico del visor
+        elif cmd == "map":
+            await self._fotos_map(f)
         elif cmd == "filename":
             await f.filename()
         elif cmd == "rotate":
@@ -193,6 +199,21 @@ class MediaMixin:
                 log.debug("fotos:scroll:%s sin zoom o dirección inválida (left, right, up, down)", rest)
         else:
             log.warning("fotos:%s desconocida", arg)
+
+    async def _fotos_map(self, f: activities_mod.PhotosActivity) -> None:
+        """Verde en Fotos: el mapa de dónde se sacó la foto que se ve (si tiene GPS)."""
+        if not f.cfg.get("map", True):
+            return
+        if not photomap.available():
+            await self.toast("Para el mapa falta Pillow (sudo apt install python3-pil)", 3500)
+            return
+        info = await f.photo_info()
+        gps = await asyncio.to_thread(photodates.exif_gps, info["path"]) if info else None
+        if not gps:
+            await self.toast("Esta foto no tiene la ubicación (GPS)", 2500)
+            return
+        log.info("Fotos: mapa de %s (%.5f, %.5f)", os.path.basename(info["path"]), *gps)
+        await self.map_open(f, info["path"], gps)
 
     async def _fotos_cycle(self, f: activities_mod.PhotosActivity, want: str = "") -> None:
         """▼ en Fotos: solo fotos → fotos y videos → solo videos → solo fotos, en la misma carpeta y siguiendo

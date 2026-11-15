@@ -399,6 +399,7 @@ AN_RETURN = ""
 F1_BLUE = "fotos:info"        # azul = qué foto es: carpeta, archivo y número (en el panel)
 F2_RED = "fotos:rotate"       # rojo = girar la foto
 F4_YELLOW = "fotos:random"    # amarillo = una foto al azar
+F3_GREEN = "fotos:map"        # verde = dónde se sacó la foto (un mapa, si tiene GPS)
 UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
 DOWN = "fotos:mode"           # ▼ = solo fotos → fotos y videos → solo videos (sigue desde la foto que se veía)
 
@@ -560,6 +561,8 @@ folders = ["/media/*/*", "~/Imágenes", "~/Pictures"]
 delay_s = 8                          # segundos por foto
 shuffle = false
 on_this_day = true                   # «Un día como hoy» en Carpetas: las fotos de esta fecha en otros años
+map = true                           # verde = dónde se sacó la foto (con GPS): un mapa de OpenStreetMap
+map_tiles = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"   # de dónde salen los mosaicos del mapa
 scroll_step = 150                    # píxeles que se mueve la foto con zoom por cada flecha
 zoom_step = 25                       # % que acerca o aleja cada paso de zoom
 command = []                         # otro visor en vez de feh ({carpeta} = la carpeta elegida)
