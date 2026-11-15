@@ -2625,6 +2625,23 @@ echo '</mame>'
         check(ok and ph.mode == "today" and not ph.random_order and [Path(f).name for f in opened_files][:2]
               == ["100_4558.JPG", "DSC02815.JPG"] and len(opened_files) == 5,
               f"abrirlo: esas fotos y videos, año por año (no al azar): {[Path(f).name for f in opened_files]}")
+        check(ph._show_year and any(a.endswith("tele_cec_corner.lua") for a in ph.mpv_args(tmp / "p.lst", 0)),
+              "con el script que escribe el año en la esquina")
+        corner: list = []
+
+        async def corner_cmd(*a, timeout=3.0):
+            corner.append(a)
+            return True, None
+        ph.mpv.command = corner_cmd  # type: ignore[method-assign]
+        await ph._mpv_file(opened_files[0])
+        ago = time_mod.localtime().tm_year - 2009
+        check(("script-message-to", "tele_cec_corner", "show", "2009", f"hace {ago} años") in corner,
+              f"en cada foto, el año (de la foto misma, EXIF) y hace cuánto, en una esquina: {corner}")
+        corner.clear()
+        await ph._mpv_file(str(hoy / "2009" / "11" / "sin_fecha.jpg"))
+        check(("script-message-to", "tele_cec_corner", "clear") in corner, "sin fecha: no muestra nada")
+        ph._show_year = False
+        check(not any("corner" in a for a in ph.mpv_args(tmp / "p.lst", 0)), "en los otros modos, sin el año")
         FakeDate.today = classmethod(lambda cls: cls(2025, 6, 1))  # type: ignore[method-assign]
         _, its = ctl._picker_entries("fotos", hoy)
         row = next(i for i in its if i.get("mode") == "today")

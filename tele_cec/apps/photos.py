@@ -33,13 +33,14 @@ from ..system.procs import LOG_DIR, find_pids, run_cmd
 from . import photodates
 from .folders import IMAGE_EXT, VIDEO_EXT, describe_folder, scan_media
 from .media import MediaActivity
-from .mpv import Mpv, base_args, mpv_pids
+from .mpv import SCRIPTS, Mpv, base_args, mpv_pids
 
 MODES = ("photos", "mixed", "videos")   # los que pasa ▼
 TODAY = "today"                          # «Un día como hoy»: las fotos de esta fecha en otros años
 ALL_MODES = MODES + (TODAY,)
 TODAY_SPREAD = 3        # si no hay de este día exacto: esta semana (± 3 días) en otros años
 REFRESH_EVERY_S = 600   # la lista guardada se vuelve a recorrer (en segundo plano) como mucho cada 10 minutos
+CORNER = "tele_cec_corner"   # el script de mpv que escribe el año en la esquina
 MODE_NAMES = {"photos": "solo fotos", "mixed": "fotos y videos", "videos": "solo videos", TODAY: "un día como hoy"}
 _DATE_RE = re.compile(r"((?:19|20)\d{6})[_-]?(\d{6})?")  # IMG_20201130_185306 · VID-20201108-WA0001
 
@@ -94,6 +95,7 @@ class PhotosActivity(MediaActivity):
         self._mpv_dirty = False
         self.fail_text = ""
         self.random_order = False   # la presentación abierta va al azar (la lista ya se mezcló)
+        self._show_year = False     # «Un día como hoy»: el año de cada foto en una esquina
         self.reset_view()
 
     def use_mpv(self, mode: str) -> bool:
@@ -245,6 +247,7 @@ class PhotosActivity(MediaActivity):
                               TODAY: "No hay fotos de esta fecha en otros años"}[mode]
             return False
         self.random_order = mode != TODAY and self.shuffled_order(files)  # un día como hoy: año por año
+        self._show_year = mode == TODAY
         if self.random_order:
             files, start = self.shuffle_from(files, start)
         ok = await (self._open_mpv(files, start) if self.use_mpv(mode) else self._open_feh(folder, files, start))
@@ -324,6 +327,8 @@ class PhotosActivity(MediaActivity):
             # sin buscar subtítulos, audio ni tapas aparte: en una carpeta grande por la red tardaba 3,6 s cada video
             "--sub-auto=no", "--audio-file-auto=no", "--cover-art-auto=no",
             f"--playlist={playlist}", f"--playlist-start={start}"]  # al azar: la lista ya va mezclada
+        if self._show_year:  # «Un día como hoy»: el año de cada foto en una esquina
+            args.insert(-2, f"--script={SCRIPTS / (CORNER + '.lua')}")
         return args
 
     async def _open_mpv(self, files: list[str], start: str | None) -> bool:
@@ -349,6 +354,18 @@ class PhotosActivity(MediaActivity):
             self.paused = False
         self._zoom_paused = False
         await self._set_video(is_video(path))
+        if self._show_year:
+            await self._year_corner(path)
+
+    async def _year_corner(self, path: str) -> None:
+        """«2014 · hace 11 años», chico, abajo a la derecha (en «Un día como hoy»; ver tele_cec_corner.lua)."""
+        d = await asyncio.to_thread(photodates.dates().date_of, path)
+        if not d:
+            await self.mpv.command("script-message-to", CORNER, "clear")
+            return
+        ago = time.localtime().tm_year - int(d[:4])
+        await self.mpv.command("script-message-to", CORNER, "show", d[:4],
+                               f"hace {ago} año{'s' if ago != 1 else ''}" if ago > 0 else "")
 
     async def _mpv_reset(self) -> None:
         """mpv conserva zoom, corrimiento y giro entre archivos: el siguiente, entero y derecho."""

@@ -264,6 +264,12 @@ class PhotoDates:
                 hits.append((d, os.path.basename(f).lower(), f))
         return [f for _d, _n, f in sorted(hits)]
 
+    def date_of(self, path: str) -> str | None:
+        """La fecha de un archivo: la guardada o, si todavía no se leyó, del nombre o de la foto (lee el archivo)."""
+        with self._lock:
+            got = self._load().get(path)
+        return got or (photo_date(path) if got is None else None)
+
     def years(self, files: list[str]) -> list[int]:
         """Los años de esas fotos (para decir «de 2014, 2017 y 2021»)."""
         with self._lock:

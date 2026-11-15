@@ -89,13 +89,16 @@ class Mpv:
 
     async def command(self, *args: Any, timeout: float = 3.0) -> tuple[bool, Any]:
         """Un comando (p. ej. "playlist-next"); (salió bien, lo que devolvió)."""
+        return await self._send(list(args), timeout)
+
+    async def _send(self, command: list | dict, timeout: float) -> tuple[bool, Any]:
         rid = next(self._ids)
         try:
             reader, writer = await asyncio.wait_for(asyncio.open_unix_connection(str(self.socket_path)), timeout)
         except (OSError, asyncio.TimeoutError):
             return False, None
         try:
-            writer.write(json.dumps({"command": list(args), "request_id": rid}).encode() + b"\n")
+            writer.write(json.dumps({"command": command, "request_id": rid}).encode() + b"\n")
             await writer.drain()
             while True:
                 line = await asyncio.wait_for(reader.readline(), timeout)
