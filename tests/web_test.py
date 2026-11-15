@@ -560,6 +560,19 @@ async def main() -> int:
               "/ devuelve la página")
         st, h, body = await http(port, "GET", "/manifest.webmanifest")
         check(st == 200 and json.loads(body)["display"] == "standalone", "manifiesto para la pantalla de inicio")
+        icons = json.loads(body)["icons"]
+        for ic in icons:
+            st, h, data = await http(port, "GET", ic["src"])
+            check(st == 200 and h["Content-Type"].startswith(ic["type"]) and len(data) > 500,
+                  f"el logo {ic['src']} ({ic['sizes']}, {ic['purpose']}) se sirve")
+        check({"192x192", "512x512"} <= {ic["sizes"] for ic in icons} and any(ic["purpose"] == "maskable" for ic in icons),
+              "en PNG de 192 y 512 (el acceso directo del celular) y uno «maskable» (Android lo recorta en círculo)")
+        for extra in ("/favicon.ico", "/apple-touch-icon.png"):
+            st, h, data = await http(port, "GET", extra)
+            check(st == 200 and h["Content-Type"].startswith("image/") and len(data) > 500, f"{extra} se sirve")
+        st, _, body = await http(port, "GET", "/")
+        check(all(f'href="{x}"' in body.decode() for x in ("/icon.svg", "/favicon.ico", "/apple-touch-icon.png")),
+              "la página los declara (pestaña, favicon, iPhone)")
         st, _, _ = await http(port, "GET", "/../server.py")
         check(st == 404, "no sirve otros archivos")
         st, _, _ = await http(port, "GET", "/api/state", headers={"Host": "evil.example.com:8765"})

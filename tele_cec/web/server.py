@@ -47,6 +47,9 @@ if TYPE_CHECKING:
     from ..controller import Controller
 
 log = logging.getLogger("web")
+# Lo que se sirve tal cual de static/: el manifiesto y el logo (el ícono de la pestaña y del acceso directo).
+STATIC_FILES = {"manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "icon-maskable-512.png",
+                "apple-touch-icon.png", "favicon.ico"}
 STATIC = Path(__file__).with_name("static")
 
 
@@ -248,7 +251,7 @@ class WebRemote:
             if path.startswith("/icons/"):
                 return _icon(path[len("/icons/"):])
             name = path.lstrip("/")
-            if name in ("manifest.webmanifest", "icon.svg"):
+            if name in STATIC_FILES:
                 return _static(name)
             return 404, b"no existe\n", "text/plain", {}
         if method != "POST":
