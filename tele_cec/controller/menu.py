@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from .. import apps as activities_mod
-from ..apps import fileinfo
+from ..apps import fileinfo, resume
 from ..apps.library import fold
 from ..system import audio
 from ..ui import help as help_mod
@@ -89,10 +89,16 @@ def _file_items(folder: Path, act: activities_mod.MediaActivity, files: list[Pat
         subs = [p.stem.lower() for p in folder.iterdir() if p.suffix.lower() in SUB_EXT]
     except OSError:
         subs = []
+    left = resume.positions()  # Seguir viendo: los que quedaron a la mitad
     out = []
     for f in files:
         meta = infos.get(str(f)) or {}
         info = fileinfo.video_text(meta)
+        pos = left.get(str(f))
+        if pos and resume.finished(pos, meta.get("dur")):
+            pos = None
+        if pos:
+            info.insert(0, f"quedó en {fileinfo.duration_text(pos)}")
         try:
             info.append(_size_text(f.stat().st_size))
         except OSError:
@@ -101,7 +107,26 @@ def _file_items(folder: Path, act: activities_mod.MediaActivity, files: list[Pat
         if meta.get("subs") or any(s.startswith(stem) for s in subs):  # adentro, o «peli.srt», «peli.es.srt»…
             info.append("con subtítulos")
         out.append({"kind": "file", "path": str(f), "name": meta.get("title") or f.stem, "icon": "video-x-generic",
-                    "sub": " · ".join(info), "enabled": True, "current": False})
+                    "sub": " · ".join(info), "enabled": True, "current": False, **({"resume": pos} if pos else {})})
+    return out
+
+
+def _continue_items(act: activities_mod.MediaActivity, roots: list[Path]) -> list[dict]:
+    """«Seguir viendo»: los últimos videos que quedaron a la mitad (arriba de todo en la carpeta de Videos)."""
+    found = [(Path(p), s) for p, s in resume.recent(3)
+             if any(Path(p).is_relative_to(r) for r in roots) and Path(p).suffix.lower() in act.exts]
+    if not found:
+        return []
+    infos = fileinfo.video_info().get([str(p) for p, _s in found], budget=0.5)
+    out = []
+    for p, secs in found:
+        meta = infos.get(str(p)) or {}
+        if resume.finished(secs, meta.get("dur")):
+            continue
+        of = f" de {fileinfo.duration_text(meta['dur'])}" if meta.get("dur") else ""
+        out.append({"kind": "file", "path": str(p), "name": f"Seguir viendo: {meta.get('title') or p.stem}",
+                    "icon": "media-playback-start", "sub": f"quedó en {fileinfo.duration_text(secs)}{of}",
+                    "enabled": True, "current": False, "resume": secs, "direct": True})
     return out
 
 
@@ -664,6 +689,8 @@ class MenuMixin:
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})
         if pick:
+            if isinstance(act, activities_mod.VideosActivity) and act.cfg.get("resume", True) and path in act.roots():
+                items[:0] = _continue_items(act, act.roots())
             items += _file_items(path, act, files[:500])
             if not items:
                 items.append({"kind": "empty", "path": str(path), "name": act.empty_in_folder, "icon": "folder",
@@ -729,7 +756,12 @@ class MenuMixin:
             await self.overlay.toast(why or act.unavailable_text(), 2500)
             self._menu_restart_timer()
             return
-        log.info("Menú: %s %s", act.name, ("con " if item.get("kind") == "file" else "en ") + item["path"])
+        if item.get("kind") == "file" and item.get("resume") and not item.get("direct"):
+            await self._resume_ask(index, item)  # quedó a la mitad: ¿seguir o desde el principio?
+            return
+        if item.get("kind") == "restart":
+            await asyncio.to_thread(resume.forget, item["path"])
+        log.info("Menú: %s %s", act.name, ("en " if item.get("kind") == "play" else "con ") + item["path"])
         if self._menu_timer:
             self._menu_timer.cancel()
             self._menu_timer = None
@@ -738,6 +770,19 @@ class MenuMixin:
         self._macro_task = asyncio.create_task(
             self._menu_switch({"id": self._picker_act, "name": act.name, "folder": item["path"],
                                "mode": item.get("mode")}))
+
+    async def _resume_ask(self, index: int, item: dict) -> None:
+        """Un video que quedó a la mitad: «Seguir desde 1:12:30» o «Desde el principio» (◀ vuelve a la carpeta)."""
+        at = fileinfo.duration_text(item["resume"])
+        self._picker_stack.append((self._picker_path, index))
+        items = [{"kind": "resume", "path": item["path"], "name": f"▶ Seguir desde {at}", "icon": "media-playback-start",
+                  "sub": "Donde quedó la última vez", "enabled": True, "current": False},
+                 {"kind": "restart", "path": item["path"], "name": "Desde el principio", "icon": "view-refresh",
+                  "sub": "Empezar de nuevo", "enabled": True, "current": False}]
+        self._menu_items, self._menu_sel = items, 0
+        await self.overlay.show(items, 0, title=item["name"], hint=FOLDER_HINT, numbers=False)
+        log.info("Menú: %s quedó en %s", item["name"], at)
+        self._menu_restart_timer()
 
     # ---------------------------------------------------------------- salida de sonido
     # La lista aparece enseguida con lo que ya se conoce (HDMI, Bluetooth emparejados…) y, mientras tanto, se buscan

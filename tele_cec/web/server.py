@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .. import apps as activities_mod
+from ..apps import resume
 from ..apps.photos import MODES
 from ..keys import parse_key
 from ..system import audio, keyboard
@@ -360,6 +361,8 @@ class WebRemote:
             if path is None:
                 return {"ok": False, "error": "esa carpeta no está entre las configuradas"}
             folder = str(path)
+            if data.get("restart") and isinstance(self.ctl.activities.get(ident), activities_mod.VideosActivity):
+                await asyncio.to_thread(resume.forget, folder)  # Seguir viendo: «Desde el principio»
         elif data.get("rom"):
             if ident != "juegos" or not self.menu.allowed_rom(str(data["rom"])):
                 return {"ok": False, "error": "ese juego no está"}

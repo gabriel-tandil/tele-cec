@@ -434,6 +434,8 @@ async def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="nfx-apps-"))
     from tele_cec.apps import fileinfo as fileinfo_mod
     fileinfo_mod._video_info = fileinfo_mod.VideoInfo(tmp / "videos-info.json")  # no tocar el de verdad
+    from tele_cec.apps import resume as resume_mod
+    resume_mod.WATCH_DIR = tmp / "videos-seguir"  # Seguir viendo: tampoco
     cfg_file = tmp / "config.toml"
     cfg_file.write_text('[browser]\nengine = "firefox"\nlaunch = "on_key"\n[feedback]\nbusy = false\n'
                         '[menu]\nitems = ["netflix", "tidal", "videos", "fotos"]\nsound = false\n')  # YouTube y Sonido, aparte
@@ -872,6 +874,65 @@ async def main() -> int:
         menu_ctl._file_items(vdir, activities_mod.VideosActivity({}))
         check(len(probes) == 1 and json.loads((tmp / "videos-info.json").read_text())["files"],
               f"lo leído se guarda: la segunda vez no se vuelve a leer: {probes}")
+
+        print("Seguir viendo (Videos)")
+        peli = str(vdir / "rip.2019.1080p.mkv")
+        wdir = resume_mod.WATCH_DIR
+        wdir.mkdir(parents=True)
+        (wdir / "AAA").write_text(f"# {peli}\nstart=4000.500000\n")      # como lo escribe mpv al cerrarlo
+        (wdir / "BBB").write_text("# redirect entry\n# /una/carpeta\n")  # lo que deja de las carpetas
+        vargs = activities_mod.VideosActivity({}).extra_args()
+        check("--save-position-on-quit" in vargs and f"--watch-later-dir={wdir}" in vargs
+              and "--write-filename-in-watch-later-config" in vargs
+              and not any("watch-later" in a for a in activities_mod.VideosActivity({"resume": False}).extra_args()),
+              f"mpv guarda dónde quedó al cerrarlo (salvo resume = false): {vargs}")
+        vi_items = menu_ctl._file_items(vdir, activities_mod.VideosActivity({}))
+        check(vi_items[0]["sub"].startswith("quedó en 1:06:40 · 1 h 30 min") and vi_items[0]["resume"] == 4000.5
+              and not (wdir / "BBB").exists(),
+              f"en la lista dice dónde quedó (y se limpian las entradas de carpetas): {vi_items[0]}")
+        real_videos = ctl.activities["videos"]
+        ctl.activities["videos"] = activities_mod.VideosActivity({"folders": [str(vdir)]})
+        switched: list = []
+
+        async def fake_switch(item):
+            switched.append(item)
+            ctl._switching = False
+        orig_switch = ctl._menu_switch
+        ctl._menu_switch = fake_switch  # type: ignore[method-assign]
+        try:
+            _, its = ctl._picker_entries("videos", vdir)
+            check(its[0]["name"] == "Seguir viendo: La película" and its[0]["sub"] == "quedó en 1:06:40 de 1:30:00"
+                  and its[0].get("direct") and its[1]["kind"] == "file",
+                  f"arriba de todo, «Seguir viendo» con el último que quedó a la mitad: {[i['name'] for i in its]}")
+            ctl._menu_open, ctl._menu_mode, ctl._picker_act, ctl._picker_path = True, "folders", "videos", vdir
+            ctl._menu_items, ctl._menu_sel, ctl._picker_stack = its, 1, []
+            await ctl._picker_choose(1)
+            check([i["name"] for i in ctl.overlay.items] == ["▶ Seguir desde 1:06:40", "Desde el principio"]
+                  and not switched, f"elegir el video pregunta: seguir o desde el principio: {ctl.overlay.items}")
+            await ctl._picker_back()
+            check(ctl._menu_items[0]["name"].startswith("Seguir viendo") and ctl._menu_sel == 1,
+                  "◀ vuelve a la carpeta, en el mismo video")
+            await ctl._picker_choose(1)
+            await ctl._picker_choose(1)  # «Desde el principio»
+            await ctl._macro_task
+            check(switched and switched[-1]["folder"] == peli and not (wdir / "AAA").exists(),
+                  f"desde el principio: se borra dónde quedó y se abre (mpv empieza de cero): {switched}")
+            (wdir / "AAA").write_text(f"# {peli}\nstart=4000.5\n")
+            ctl._menu_items, ctl._menu_sel, ctl._picker_stack = its, 0, []
+            await ctl._picker_choose(0)  # la fila «Seguir viendo»: sin preguntar
+            await ctl._macro_task
+            check(switched[-1]["folder"] == peli and (wdir / "AAA").exists() and len(switched) == 2,
+                  "«Seguir viendo» abre directo (mpv sigue desde ahí)")
+            (wdir / "AAA").write_text(f"# {peli}\nstart=5300\n")
+            _, its = ctl._picker_entries("videos", vdir)
+            check(not its[0]["name"].startswith("Seguir") and "quedó" not in its[0]["sub"],
+                  f"si quedó en los créditos, como si se hubiera terminado: {[i['name'] for i in its]}")
+            (wdir / "AAA").write_text(f"# {peli}\nstart=30\n")
+            check(not resume_mod.positions(), "menos de un minuto visto: como si no se hubiera empezado")
+        finally:
+            ctl.activities["videos"] = real_videos
+            ctl._menu_switch = orig_switch  # type: ignore[method-assign]
+            ctl._menu_open, ctl._menu_mode, ctl._picker_stack = False, "activities", []
     finally:
         fileinfo_mod._ffprobe = orig_probe
 

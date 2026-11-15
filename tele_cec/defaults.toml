@@ -540,6 +540,7 @@ open_wait_s = 10                     # el navegador tarda en abrir: el menú mue
 # Se usa la primera carpeta que tenga videos: los pendrives van primero. (sudo apt install mpv mpv-mpris)
 folders = ["/media/*/*", "~/Vídeos", "~/Videos"]
 shuffle = false                      # orden aleatorio
+resume = true                        # Seguir viendo: recordar dónde quedó cada video (y preguntar al abrirlo)
 volume_step = 0.05
 command = []                         # otro programa en vez de mpv; {carpeta} = la carpeta elegida, p. ej.
                                      #   ["vlc", "--fullscreen", "{carpeta}"]

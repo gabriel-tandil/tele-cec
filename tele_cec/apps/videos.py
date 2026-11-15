@@ -1,7 +1,12 @@
-"""Videos locales con mpv: el elegido en el menú, en pantalla completa (ver player.py: controles y barra para la TV)."""
+"""Videos locales con mpv: el elegido en el menú, en pantalla completa (ver player.py: controles y barra para la TV).
+
+Seguir viendo: al cerrarlo a la mitad, mpv guarda dónde quedó y la próxima vez sigue desde ahí (resume.py); el menú
+y el celular preguntan si seguir o empezar desde el principio.
+"""
 
 from __future__ import annotations
 
+from . import resume
 from .folders import VIDEO_EXT
 from .player import MpvMediaActivity
 
@@ -24,6 +29,8 @@ class VideosActivity(MpvMediaActivity):
     def extra_args(self) -> list[str]:
         # Subtítulos: los que estén al lado del video aunque el nombre no sea idéntico; idioma preferido español.
         args = ["--sub-auto=fuzzy", "--slang=spa,es,es-419,eng,en", "--alang=spa,es,es-419"]
+        if self.cfg.get("resume", True):  # Seguir viendo: mpv guarda dónde quedó al cerrarlo (ver resume.py)
+            args += resume.mpv_args()
         if self.cfg.get("hide_title"):
             args.append("--script-opts-append=tele_cec_osd-title=no")
         return args

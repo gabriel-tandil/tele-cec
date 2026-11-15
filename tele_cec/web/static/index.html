@@ -439,6 +439,12 @@ function folderPage(app, path, atDefault) {
         rows.appendChild(row(it, () => {
           if (f.kind === "dir") show(folderPage(app, f.path));
           else if (!f.enabled) toast((f.kind === "empty" ? f.name : f.sub) || "No hay nada para mostrar");
+          else if (f.kind === "file" && f.resume && !f.direct) {  // quedó a la mitad: ¿seguir o desde el principio?
+            optionsSheet(f.name, `Quedó en ${fmt(f.resume)}`, [
+              [`▶ Seguir desde ${fmt(f.resume)}`, () => openApp(app, {folder: f.path})],
+              ["Desde el principio", () => openApp(app, {folder: f.path, restart: true})],
+            ]);
+          }
           else openApp(app, f.mode ? {folder: f.path, mode: f.mode} : {folder: f.path});
         }, {badges: false}));
       });

@@ -815,6 +815,8 @@ async def main() -> int:
         tmp = Path(tempfile.mkdtemp(prefix="tele-web-"))
         from tele_cec.apps import fileinfo as fileinfo_mod
         fileinfo_mod._video_info = fileinfo_mod.VideoInfo(tmp / ".videos-info.json")  # no tocar el de verdad
+        from tele_cec.apps import resume as resume_mod
+        resume_mod.WATCH_DIR = Path(tempfile.mkdtemp(prefix="tele-seguir-"))  # Seguir viendo: tampoco
         (tmp / "Vacaciones" / "2024").mkdir(parents=True)
         (tmp / "Vacaciones" / "peli.mp4").write_bytes(b"x")
         outside = Path(tempfile.mkdtemp(prefix="tele-fuera-"))
@@ -926,6 +928,15 @@ async def main() -> int:
         check(json.loads(body)["ok"]
               and ("switch", "videos", False, str((tmp / "Vacaciones" / "peli.mp4").resolve())) in ctl.log,
               f"elegir un video lo abre: {ctl.log}")
+        peli = str((tmp / "Vacaciones" / "peli.mp4").resolve())
+        (resume_mod.WATCH_DIR / "X1").write_text(f"# {peli}\nstart=754\n")
+        _, _, body = await http(port, "GET", f"/api/folders?app=videos&path={tmp / 'Vacaciones'}")
+        f = next(i for i in json.loads(body)["items"] if i["kind"] == "file")
+        check(f["resume"] == 754 and not f["direct"] and "quedó en 12:34" in f["sub"],
+              f"Seguir viendo: el celular sabe dónde quedó (para preguntar): {f}")
+        _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": peli, "restart": True}, H)
+        check(json.loads(body)["ok"] and not (resume_mod.WATCH_DIR / "X1").exists(),
+              "«Desde el principio» desde el celular: se borra dónde quedó")
         (tmp / "Vacaciones" / "nota.txt").write_text("")
         (outside / "otra.mp4").write_bytes(b"x")
         for bad in (tmp / "Vacaciones" / "nota.txt", outside / "otra.mp4"):
