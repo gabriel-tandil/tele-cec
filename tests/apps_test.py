@@ -2645,26 +2645,111 @@ echo '</mame>'
             ok = await ph.open(hoy, mode="today")
         finally:
             photos_mod.shutil.which = real_which_hoy
-        check(ok and ph.mode == "today" and not ph.random_order and [Path(f).name for f in opened_files][:2]
-              == ["100_4558.JPG", "DSC02815.JPG"] and len(opened_files) == 5,
-              f"abrirlo: esas fotos y videos, año por año (no al azar): {[Path(f).name for f in opened_files]}")
+        check(ok and ph.mode == "today" and ph.random_order and sorted(Path(f).name for f in opened_files)
+              == sorted(["100_4558.JPG", "DSC02815.JPG", "IMG_20141115_100000.jpg", "IMG-20171115-WA0003.jpg",
+                         "VID_20171115_200000.mp4"]),
+              f"abrirlo: esas fotos y videos, al azar: {[Path(f).name for f in opened_files]}")
         check(ph._show_year and any(a.endswith("tele_cec_corner.lua") for a in ph.mpv_args(tmp / "p.lst", 0)),
               "con el script que escribe el año en la esquina")
+        ordered: list = []
+
+        async def fake_open_mpv_ordered(files, start):
+            ordered.extend(files)
+            return True
+        ph._open_mpv = fake_open_mpv_ordered  # type: ignore[method-assign]
+        ph.cfg["today_shuffle"] = False
+        photos_mod.shutil.which = lambda name: "/usr/bin/" + name
+        try:
+            await ph.open(hoy, mode="today")
+        finally:
+            photos_mod.shutil.which = real_which_hoy
+            ph.cfg.pop("today_shuffle")
+        check(not ph.random_order and [Path(f).name for f in ordered][:2] == ["100_4558.JPG", "DSC02815.JPG"],
+              f"con today_shuffle = false: año por año, del más viejo al más nuevo: {[Path(f).name for f in ordered]}")
         corner: list = []
 
         async def corner_cmd(*a, timeout=3.0):
             corner.append(a)
             return True, None
         ph.mpv.command = corner_cmd  # type: ignore[method-assign]
-        await ph._mpv_file(opened_files[0])
-        ago = time_mod.localtime().tm_year - 2009
-        check(("script-message-to", "tele_cec_corner", "show", "2009", f"hace {ago} años") in corner,
+        ph.show_date = False
+        await ph._mpv_file(str(hoy / "2009" / "11" / "DSC02815.JPG"))
+        check(("script-message-to", "tele_cec_corner", "show", "2009", "hace 16 años") in corner,
               f"en cada foto, el año (de la foto misma, EXIF) y hace cuánto, en una esquina: {corner}")
         corner.clear()
-        await ph._mpv_file(str(hoy / "2009" / "11" / "sin_fecha.jpg"))
+        (hoy / "sueltas").mkdir()
+        (hoy / "sueltas" / "sin_fecha.jpg").write_bytes(b"\xff\xd8\xff\xda\0\x02")
+        await ph._mpv_file(str(hoy / "sueltas" / "sin_fecha.jpg"))
         check(("script-message-to", "tele_cec_corner", "clear") in corner, "sin fecha: no muestra nada")
+        corner.clear()
         ph._show_year = False
-        check(not any("corner" in a for a in ph.mpv_args(tmp / "p.lst", 0)), "en los otros modos, sin el año")
+        await ph._mpv_file(str(hoy / "2009" / "11" / "DSC02815.JPG"))
+        check(corner == [("script-message-to", "tele_cec_corner", "clear")]
+              and any("corner" in a for a in ph.mpv_args(tmp / "p.lst", 0)),
+              f"en los otros modos, sin nada en la esquina (pero con el script, para prenderla con 1): {corner}")
+
+        print("Fotos: la fecha en la esquina (1)")
+        ph._show_date_file = lambda: tmp / "cache" / "fotos-fecha-en-pantalla"  # type: ignore[method-assign]
+        ph.mode = "photos"
+
+        async def mpv_path(prop):
+            return str(hoy / "2009" / "11" / "DSC02815.JPG") if prop == "path" else None
+        ph.mpv.get = mpv_path  # type: ignore[method-assign]
+        real_use_mpv = ph.use_mpv
+        ph.use_mpv = lambda mode: True  # type: ignore[method-assign]
+        corner.clear()
+        on = await ph.toggle_date()
+        check(on is True and ("script-message-to", "tele_cec_corner", "show", "domingo 15 de noviembre de 2009",
+                              "hace 16 años") in corner,
+              f"1 la prende: el día exacto (de la foto) y hace cuánto: {corner}")
+        check((tmp / "cache" / "fotos-fecha-en-pantalla").read_text().strip() == "si"
+              and ph._load_show_date() is True, "y se acuerda para la próxima vez")
+        corner.clear()
+        (hoy / "2003" / "Diciembre").mkdir(parents=True)
+        (hoy / "2003" / "Diciembre" / "DSC0001.JPG").write_bytes(b"\xff\xd8\xff\xda\0\x02")
+        await ph._mpv_file(str(hoy / "2003" / "Diciembre" / "DSC0001.JPG"))
+        await ph._mpv_file(str(hoy / "2009" / "11" / "sin_fecha.jpg"))
+        await ph._mpv_file(str(hoy / "2008" / "12" / "20-12-2008 presentacion" / "DSC00001.JPG"))
+        shown = [c[3] for c in corner if c[2] == "show"]
+        check(shown == ["diciembre de 2003", "noviembre de 2009", "sábado 20 de diciembre de 2008"],
+              f"sin el día en el nombre ni en la foto: el mes y el año de las carpetas: {shown}")
+        corner.clear()
+        ph._show_year = True  # en «Un día como hoy», con la fecha prendida: el día entero, no solo el año
+        await ph._mpv_file(str(hoy / "2009" / "11" / "DSC02815.JPG"))
+        check(corner and corner[-1][3] == "domingo 15 de noviembre de 2009", f"un día como hoy + fecha: {corner}")
+        ph._show_year = False
+        corner.clear()
+        off = await ph.toggle_date()
+        check(off is False and corner == [("script-message-to", "tele_cec_corner", "clear")]
+              and (tmp / "cache" / "fotos-fecha-en-pantalla").read_text().strip() == "no",
+              "otra vez 1: la saca (y se acuerda)")
+        ph.use_mpv = lambda mode: False  # type: ignore[method-assign]
+        check(await ph.toggle_date() is None and ph.show_date is False, "con feh no se puede (lo avisa el controlador)")
+        ph.use_mpv = real_use_mpv  # type: ignore[method-assign]
+        check(photodates_mod.date_text((2026, 11, 14), dt_mod.date(2026, 11, 15))[1] == "ayer"
+              and photodates_mod.date_text((2026, 8, 1), dt_mod.date(2026, 11, 15))[1] == "hace 3 meses"
+              and photodates_mod.date_parts("/f/2005/Mar del Plata/a.jpg") == (2005, None, None, None)
+              and photodates_mod.date_parts("/f/2019/Viaje/1/a.jpg") == (2019, None, None, None)
+              and photodates_mod.date_parts("/f/sin fecha/a.jpg") is None,
+              "hace cuánto (ayer, meses); «Mar del Plata» no es marzo; una subcarpeta «1» no es enero")
+        dp = photodates_mod.date_parts
+        check(dp("/f/2007/10/dcao0424.jpg", "20020101") == (2007, 10, None, None)
+              and dp("/f/2008/IMG_20071231_2300.jpg", "20071231") == (2007, 12, 31, None)
+              and dp("/f/2007/bajadas 10-12-07/DCAO0281.JPG", "20071121") == (2007, 11, 21, None)
+              and dp("/f/2007/10/dcao0001.jpg", "20070101") == (2007, 10, None, None)
+              and dp("/f/2018/01/IMG_20180101_0010.jpg", "20180101") == (2018, 1, 1, None),
+              "una fecha que contradice la carpeta (el reloj de la cámara sin poner) no vale: manda la carpeta "
+              "(salvo el 31 de diciembre en la carpeta del año siguiente)")
+        check(dp("/f/1980-2000/IMG-20200113-WA0005.jpg", "20200113") == (1980, None, None, 2000)
+              and photodates_mod.date_text((1980, None, None, 2000)) == ("entre 1980 y 2000", ""),
+              "una carpeta «1980-2000»: entre esos años (no la fecha en que se escaneó o se mandó)")
+        check(dp("/f/Varias/casa/108 (09-08).jpg") == (2008, 9, None, None)
+              and dp("/f/Varias/casa/015 (10-97).jpg") == (1997, 10, None, None),
+              "«108 (09-08).jpg»: septiembre de 2008")
+        hits = photodates_mod.PhotoDates(tmp / "fechas-plaus.json")
+        hits._data = {"/f/2007/10/a.jpg": "20020101", "/f/2002/01/b.jpg": "20020101"}
+        check(hits.on_this_day(list(hits._data), dt_mod.date(2025, 1, 1)) == ["/f/2002/01/b.jpg"],
+              "y en «Un día como hoy» tampoco aparece (si no, cada 1.º de enero se llenaba de esas)")
         FakeDate.today = classmethod(lambda cls: cls(2025, 6, 1))  # type: ignore[method-assign]
         _, its = ctl._picker_entries("fotos", hoy)
         row = next(i for i in its if i.get("mode") == "today")
@@ -3117,6 +3202,123 @@ echo '</mame>'
         check(r[0] and cmds == ["wpctl set-default 77"], f"elegir el parlante no desconecta nada: {cmds}")
     finally:
         audio_mod2.list_outputs, audio_mod2.run_cmd = real
+
+    print("Radio")
+    from tele_cec.apps import radio as radio_mod
+    real_radio_dir = radio_mod.LOG_DIR
+    radio_mod.LOG_DIR = tmp / "cache-radio"   # la última radio y la lista: no tocar las de verdad
+    try:
+        r0 = ctl.activities.get("radio")
+        check(isinstance(r0, activities_mod.RadioActivity)
+              and r0.stations == [{"name": "Pipí Cucú", "url": "https://comodin.uy/radio/8000/320.mp3"}]
+              and r0.context == "radio" and r0.audio_only,
+              f"viene con Pipí Cucú (de defaults.toml): {getattr(r0, 'stations', None)}")
+        check(activities_mod.RadioActivity({}).source() == ("Sin radios: agregalas en [apps.radio] stations", False)
+              and r0.source() == ("Pipí Cucú", True), "en el menú: las radios (o que no hay)")
+        two = {"stations": [{"name": "Pipí Cucú", "url": "https://a.example/320.mp3"},
+                            "https://otra.example:8000/stream", {"name": "sin url"}]}
+        radio = activities_mod.RadioActivity(two)
+        check([s["name"] for s in radio.stations] == ["Pipí Cucú", "otra.example:8000"],
+              f"una dirección sola sirve (el nombre sale de la dirección); sin url, se saltea: {radio.stations}")
+        check(radio.playlist_text() == "#EXTM3U\n#EXTINF:-1,Pipí Cucú\nhttps://a.example/320.mp3\n"
+              "#EXTINF:-1,otra.example:8000\nhttps://otra.example:8000/stream\n", "la lista .m3u con los nombres")
+        spawned: list = []
+
+        async def radio_spawn(args, env=None):
+            spawned.append(args)
+            return True
+
+        async def radio_ready(timeout=10.0):
+            return True
+        radio.spawn = radio_spawn  # type: ignore[method-assign]
+        radio.mpv.ready = radio_ready  # type: ignore[method-assign]
+        check(await radio.open() and "--playlist-start=0" in spawned[-1]
+              and any(a.endswith("tele_cec_radio.lua") for a in spawned[-1])
+              and "--cache-pause-initial=yes" in spawned[-1] and "--loop-playlist=inf" in spawned[-1]
+              and any(a.startswith("--stream-lavf-o=reconnect=1") for a in spawned[-1])
+              and any(a.startswith("--input-ipc-server=") for a in spawned[-1]),
+              f"abre mpv con la lista, la pantalla de la radio, un colchón y reconexión: {spawned[-1]}")
+        rcmds: list = []
+        radio_state = {"pos": 0, "pause": False}
+
+        async def radio_cmd(*a, timeout=3.0):
+            rcmds.append(a)
+            if a[0] == "playlist-play-index":
+                radio_state["pos"] = a[1]
+            return True, None
+
+        async def radio_get(prop):
+            return {"playlist-pos": radio_state["pos"], "pause": radio_state["pause"]}.get(prop)
+
+        async def radio_set(prop, value):
+            rcmds.append(("set", prop, value))
+            if prop == "pause":
+                radio_state["pause"] = value
+            return True
+        radio.mpv.command, radio.mpv.get, radio.mpv.set = radio_cmd, radio_get, radio_set  # type: ignore[method-assign]
+        check(await radio.step(1) == "otra.example:8000" and radio_state["pos"] == 1
+              and await radio.step(1) == "Pipí Cucú" and radio_state["pos"] == 0,
+              "⏭: la radio siguiente (y da la vuelta)")
+        await radio.step(1)
+        check(radio.last_index() == 1, "se acuerda de la última que sonó")
+        await radio.close()
+        check(await radio.open() and "--playlist-start=1" in spawned[-1], "y la próxima vez arranca con esa")
+        rcmds.clear()
+        await radio.play_pause()
+        check(radio_state["pause"] is True and radio._paused_at is not None, "OK: pausa")
+        radio._paused_at -= radio_mod.LIVE_AGAIN_S + 1
+        rcmds.clear()
+        await radio.play_pause()
+        check(("playlist-play-index", 1) in rcmds and radio_state["pause"] is False and radio._paused_at is None,
+              f"después de una pausa larga, OK vuelve a conectar: lo que sale ahora, no lo de hace un rato: {rcmds}")
+        await radio.play_pause()
+        rcmds.clear()
+        await radio.play_pause()
+        check(not any(c[0] == "playlist-play-index" for c in rcmds) and radio_state["pause"] is False,
+              "una pausa corta: sigue donde estaba")
+        check(activities_mod.RadioActivity({"stations": ["https://x.example/a"]}).playlist_text().count("#EXTINF") == 1
+              and await activities_mod.RadioActivity({"stations": ["https://x.example/a"]}).step(1) == "",
+              "con una sola radio, ⏭ no hace nada")
+
+        # en el controlador: teclas, menú, ayuda, de fondo con las fotos
+        real_radio_act = ctl.activities["radio"]
+        ctl.activities["radio"] = radio
+        radio.running = lambda: True  # type: ignore[method-assign]
+        ctl._foreground = "radio"
+        try:
+            act = ctl.cfg.action_for("radio", parse_key("FORWARD"))
+            check(act == ("radio:next", "radio") and ctl.cfg.action_for("radio", parse_key("NUMBER2"))[0]
+                  == "radio:station:2" and ctl.cfg.action_for("radio", parse_key("UP"))[0] == "radio:volume:+",
+                  f"teclas: ⏭ otra radio, 1 – 9 una de la lista, ▲ volumen: {act}")
+            radio_state["pos"] = 0
+            start = len(log)
+            await ctl.a_radio("next")
+            await ctl.a_radio("station:1")
+            check("ov:toast:Radio: otra.example:8000" in log[start:] and "ov:toast:Radio: Pipí Cucú" in log[start:]
+                  and radio_state["pos"] == 0, f"radio:next y radio:station:N, con aviso: {log[start:]}")
+            rows = help_rows(ctl, "radio")
+            check(any(k == "⏭  ⏮" or "⏭" in k for k, _d in rows) and any(d == "Esa radio de la lista" and "1 – 9" in k
+                                                                         for k, d in rows),
+                  f"la ayuda tiene la página de la Radio: {rows}")
+            from tele_cec.ui import help as help_mod2
+            check(("radio", "Radio") in help_mod2.pages(ctl.cfg, {"radio"})
+                  and not any(c == "radio" for c, _t in help_mod2.pages(ctl.cfg, {"netflix"})),
+                  "la página de la ayuda, solo si está la Radio")
+            check(ctl_activities.KEEP_PLAYING["fotos"] >= {"radio"} and ctl._local_background() is radio,
+                  "con las fotos sigue sonando de fondo (como la música)")
+            radio_state["pause"] = False
+            ctl.music.running = lambda: False  # type: ignore[method-assign]
+            await ctl._fotos_video(True)
+            paused_by_video = radio_state["pause"]
+            await ctl._fotos_video(False)
+            check(paused_by_video is True and radio_state["pause"] is False,
+                  "un video de las fotos la pausa, y al terminar sigue")
+        finally:
+            ctl.activities["radio"] = real_radio_act
+            ctl._foreground = None
+            del ctl.music.running
+    finally:
+        radio_mod.LOG_DIR = real_radio_dir
 
     bad = [t for ok, t in results if not ok]
     print(f"\n{len(results) - len(bad)}/{len(results)} verificaciones OK")

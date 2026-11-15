@@ -3,4 +3,4 @@
 - netflix.svg, youtube.svg, tidal.svg, videos.svg: glifos de Simple Icons (https://simpleicons.org), licencia CC0 1.0.
   Netflix, YouTube, TIDAL y VLC son marcas de sus dueños; se usan solo para identificar cada app en el menú.
   (videos.svg, el de VLC, ya no se usa: Videos tiene peliculas.svg.)
-- fotos.svg, juegos.svg, musica.svg, peliculas.svg, ayuda.svg, sonido.svg, android.svg, local.svg, temporizador.svg: glifos de Lucide (https://lucide.dev), licencia ISC.
+- fotos.svg, juegos.svg, musica.svg, peliculas.svg, ayuda.svg, sonido.svg, android.svg, local.svg, temporizador.svg, radio.svg: glifos de Lucide (https://lucide.dev), licencia ISC.

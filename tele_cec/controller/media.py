@@ -1,4 +1,4 @@
-"""Acciones de las apps que no son Netflix: Videos y Música (mpv), YouTube, Fotos, Android (scrcpy) y Tidal."""
+"""Acciones de las apps que no son Netflix: Videos, Música y Radio (mpv), YouTube, Fotos, Android (scrcpy) y Tidal."""
 
 from __future__ import annotations
 
@@ -32,6 +32,36 @@ class MediaMixin:
         """Música local (mpv): las mismas que video: (play_pause, next, previous, seek:+10, volume:+, audio…), y
         shuffle (mezclar / en orden) y loop (repetir: la lista, el tema, nada)."""
         await self._player_action(self.activities.get("musica"), "musica", arg)
+
+    async def a_radio(self, arg: str) -> None:
+        """Radio: radio:play_pause (OK), play, pause, stop, next / previous (otra radio), station:N (la N.ª, desde 1),
+        volume:+ / volume:-."""
+        r = self.activities.get("radio")
+        if not isinstance(r, activities_mod.RadioActivity) or not r.running():
+            log.info("La Radio no está abierta: no ejecuto radio:%s", arg)
+            return
+        cmd, _, rest = arg.strip().lower().partition(":")
+        if cmd in ("play_pause", "ok"):
+            await r.play_pause()
+        elif cmd in ("play", "pause", "stop"):
+            await r.set_pause(cmd != "play")
+        elif cmd in ("next", "previous"):
+            name = await r.step(1 if cmd == "next" else -1)
+            await self.toast(f"Radio: {name}" if name else "Hay una sola radio (agregá más en [apps.radio])", 1800)
+        elif cmd == "station":
+            try:
+                index = int(rest) - 1
+            except ValueError:
+                log.warning("radio:station:%s inválida (el número de la radio, desde 1)", rest)
+                return
+            if await r.play_station(index):
+                await self.toast(f"Radio: {r.stations[index]['name']}", 1800)
+        elif cmd == "volume":
+            vol = await r.volume(rest or "+")
+            if vol is not None:
+                await self.toast(f"Volumen {vol} %", 1200)
+        else:
+            log.warning("radio:%s desconocida", arg)
 
     async def _player_action(self, v, prefix: str, arg: str) -> None:
         if not isinstance(v, activities_mod.MpvMediaActivity) or not v.running():
@@ -130,7 +160,8 @@ class MediaMixin:
 
     async def a_fotos(self, arg: str) -> None:
         """Fotos: fotos:next, previous, pause, rotate, random, info, zoom_in, zoom_out, fit (sin zoom),
-        scroll:left|right|up|down (mover la foto con zoom), mode (solo fotos → fotos y videos → solo videos)."""
+        scroll:left|right|up|down (mover la foto con zoom), mode (solo fotos → fotos y videos → solo videos),
+        date (la fecha de cada foto en una esquina: prender / apagar)."""
         f = self.activities.get("fotos")
         if not isinstance(f, activities_mod.PhotosActivity) or not f.running():
             log.info("Fotos no está abierto: no ejecuto fotos:%s", arg)
@@ -151,9 +182,8 @@ class MediaMixin:
         elif cmd == "media_play_pause":
             if f._video_now:  # suena un video (la música ya está en pausa): ⏯ es del video
                 await f.toggle_pause()
-            elif not self.music.running() and isinstance(self.activities.get("musica"), activities_mod.MpvMediaActivity) \
-                    and self.activities["musica"].running():  # la música local de fondo: ⏯ es de ella
-                await self.activities["musica"].play_pause()
+            elif not self.music.running() and self._local_background() is not None:
+                await self._local_background().play_pause()  # la música local o la Radio de fondo: ⏯ es de ella
             elif self.music.running():  # Tidal de fondo: ⏯ es de la música
                 await self.music.ctl("play-pause")
                 await asyncio.sleep(0.4)
@@ -175,6 +205,12 @@ class MediaMixin:
                 await f.filename()  # sin el título de la ventana: el texto chico del visor
         elif cmd == "map":
             await self._fotos_map(f)
+        elif cmd in ("date", "fecha"):
+            on = await f.toggle_date()
+            if on is None:
+                await self.toast("La fecha en la esquina necesita mpv ([apps.fotos] viewer = \"mpv\")", 3000)
+            else:
+                await self.toast("Fecha en la esquina · 1 la saca" if on else "Sin la fecha · 1 la muestra", 1800)
         elif cmd == "filename":
             await f.filename()
         elif cmd == "rotate":

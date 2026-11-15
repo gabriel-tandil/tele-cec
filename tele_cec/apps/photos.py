@@ -9,6 +9,9 @@ Tres modos (▼ pasa de uno a otro mientras se mira, y se pueden elegir en «Car
 - «solo videos»: los videos de la carpeta.
 Si la carpeta tiene subcarpetas con fotos o videos (los años, los viajes…), la presentación va en orden aleatorio en
 los tres modos (también con [apps.fotos] shuffle = true); al cambiar de modo con ▼ sigue desde la foto que se veía.
+«Un día como hoy» también va al azar (con [apps.fotos] today_shuffle = false, del año más viejo al más nuevo).
+La fecha de cada foto en una esquina (1 en el control, con mpv): el día, o el mes, o el año, según lo que se sepa
+(del nombre, de la foto o de las carpetas). Queda prendida o apagada para las próximas veces.
 Mientras suena un video, la música de Tidal de fondo se pausa (on_video, lo pone el controlador).
 """
 
@@ -40,7 +43,8 @@ TODAY = "today"                          # «Un día como hoy»: las fotos de es
 ALL_MODES = MODES + (TODAY,)
 TODAY_SPREAD = 3        # si no hay de este día exacto: esta semana (± 3 días) en otros años
 REFRESH_EVERY_S = 600   # la lista guardada se vuelve a recorrer (en segundo plano) como mucho cada 10 minutos
-CORNER = "tele_cec_corner"   # el script de mpv que escribe el año en la esquina
+CORNER = "tele_cec_corner"   # el script de mpv que escribe la fecha (o el año) en la esquina
+SHOW_DATE_FILE = "fotos-fecha-en-pantalla"   # en ~/.cache/tele-cec: «si» o «no» (lo último elegido con 1)
 MODE_NAMES = {"photos": "solo fotos", "mixed": "fotos y videos", "videos": "solo videos", TODAY: "un día como hoy"}
 _DATE_RE = re.compile(r"((?:19|20)\d{6})[_-]?(\d{6})?")  # IMG_20201130_185306 · VID-20201108-WA0001
 
@@ -96,7 +100,43 @@ class PhotosActivity(MediaActivity):
         self.fail_text = ""
         self.random_order = False   # la presentación abierta va al azar (la lista ya se mezcló)
         self._show_year = False     # «Un día como hoy»: el año de cada foto en una esquina
+        self.show_date = self._load_show_date()   # la fecha de cada foto en una esquina (1 en el control)
+        self._corner_path = ""      # de qué foto es lo que dice la esquina
         self.reset_view()
+
+    # ------------------------------------------------------------ la fecha en la esquina
+    def _show_date_file(self) -> Path:
+        return LOG_DIR / SHOW_DATE_FILE
+
+    def _load_show_date(self) -> bool:
+        """Lo último que se eligió con 1 (o, si nunca se tocó, [apps.fotos] show_date)."""
+        try:
+            return self._show_date_file().read_text("utf-8").strip() == "si"
+        except OSError:
+            return bool(self.cfg.get("show_date", False))
+
+    def _save_show_date(self) -> None:
+        f = self._show_date_file()
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("si\n" if self.show_date else "no\n", "utf-8")
+        except OSError as exc:
+            log.warning("Fotos: no pude guardar si va la fecha en la esquina (%s)", exc)
+
+    def _corner_on(self) -> bool:
+        return self.show_date or self._show_year
+
+    async def toggle_date(self) -> bool | None:
+        """1 en el control: prende o apaga la fecha en la esquina (y lo recuerda). None: con feh no se puede."""
+        if self.backend != "mpv":
+            return None
+        self.show_date = not self.show_date
+        self._save_show_date()
+        path = await self.mpv.get("path")
+        if path:
+            await self._update_corner(str(path))
+        log.info("Fotos: fecha en la esquina %s", "sí" if self.show_date else "no")
+        return self.show_date
 
     def use_mpv(self, mode: str) -> bool:
         """mpv para todo (la placa de video achica, hace zoom y mueve la foto); feh solo para «solo fotos» si se
@@ -248,7 +288,10 @@ class PhotosActivity(MediaActivity):
                               "mixed": "No hay fotos ni videos en esta carpeta",
                               TODAY: "No hay fotos de esta fecha en otros años"}[mode]
             return False
-        self.random_order = mode != TODAY and self.shuffled_order(files)  # un día como hoy: año por año
+        if mode == TODAY:  # un día como hoy: al azar (o año por año, con today_shuffle = false)
+            self.random_order = bool(self.cfg.get("today_shuffle", True)) and len(files) > 1
+        else:
+            self.random_order = self.shuffled_order(files)
         self._show_year = mode == TODAY
         if self.random_order:
             files, start = self.shuffle_from(files, start)
@@ -329,8 +372,8 @@ class PhotosActivity(MediaActivity):
             # sin buscar subtítulos, audio ni tapas aparte: en una carpeta grande por la red tardaba 3,6 s cada video
             "--sub-auto=no", "--audio-file-auto=no", "--cover-art-auto=no",
             f"--playlist={playlist}", f"--playlist-start={start}"]  # al azar: la lista ya va mezclada
-        if self._show_year:  # «Un día como hoy»: el año de cada foto en una esquina
-            args.insert(-2, f"--script={SCRIPTS / (CORNER + '.lua')}")
+        # La esquina siempre (es liviana): así la fecha se puede prender con 1 sin volver a abrir la presentación.
+        args.insert(-2, f"--script={SCRIPTS / (CORNER + '.lua')}")
         return args
 
     async def _open_mpv(self, files: list[str], start: str | None) -> bool:
@@ -356,18 +399,27 @@ class PhotosActivity(MediaActivity):
             self.paused = False
         self._zoom_paused = False
         await self._set_video(is_video(path))
-        if self._show_year:
-            await self._year_corner(path)
+        await self._update_corner(path)
 
-    async def _year_corner(self, path: str) -> None:
-        """«2014 · hace 11 años», chico, abajo a la derecha (en «Un día como hoy»; ver tele_cec_corner.lua)."""
-        d = await asyncio.to_thread(photodates.dates().date_of, path)
-        if not d:
+    async def _update_corner(self, path: str) -> None:
+        """La esquina de abajo a la derecha (tele_cec_corner.lua): con la fecha prendida, la de la foto con lo que se
+        sepa («sábado 20 de diciembre de 2008 · hace 17 años», «diciembre de 2008», «2008»); en «Un día como hoy»,
+        el año («2014 · hace 11 años»)."""
+        self._corner_path = path
+        if not self._corner_on():
             await self.mpv.command("script-message-to", CORNER, "clear")
             return
-        ago = time.localtime().tm_year - int(d[:4])
-        await self.mpv.command("script-message-to", CORNER, "show", d[:4],
-                               f"hace {ago} año{'s' if ago != 1 else ''}" if ago > 0 else "")
+        full = await asyncio.to_thread(photodates.dates().date_of, path)
+        if self._corner_path != path:
+            return  # ya pasó a otra foto mientras se leía la fecha
+        parts = photodates.date_parts(path, full)
+        if not parts:
+            await self.mpv.command("script-message-to", CORNER, "clear")
+            return
+        if not self.show_date:  # solo «Un día como hoy»: el año
+            parts = (parts[0], None, None, parts[3])
+        big, ago = photodates.date_text(parts)
+        await self.mpv.command("script-message-to", CORNER, "show", big, ago)
 
     async def _mpv_reset(self) -> None:
         """mpv conserva zoom, corrimiento y giro entre archivos: el siguiente, entero y derecho."""

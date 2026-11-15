@@ -16,7 +16,7 @@ from ..system import audio as audio_mod
 log = logging.getLogger("tele")
 
 # Apps que pueden quedar sonando de fondo al abrir otra: con Fotos, la música de Tidal (o la local) sigue.
-KEEP_PLAYING = {"fotos": {"tidal", "musica"}}
+KEEP_PLAYING = {"fotos": {"tidal", "musica", "radio"}}   # siguen sonando de fondo con las fotos
 WATCH_EVERY_S = 1.5    # cada cuánto se mira si la app en pantalla se cerró sola
 FOTOS_REMINDER_S = 3.0  # cuánto se ve el aviso del modo de Fotos antes de que arranque la presentación
 CLOSED_TEXT = {"android": "Se desconectó el celular", "videos": "Terminó el video", "juegos": "Terminó el juego"}
@@ -175,8 +175,7 @@ class ActivitiesMixin:
     async def _fotos_video(self, playing: bool) -> None:
         """Mientras suena un video de Fotos, la música de fondo (Tidal o la local) se pausa; al terminar, sigue."""
         m = self.music
-        local = self.activities.get("musica")
-        local = local if isinstance(local, activities_mod.MpvMediaActivity) and local.running() else None
+        local = self._local_background()
         if playing:
             if m.running() and (await m.status()).get("status") == "Playing":
                 log.info("Fotos: suena un video, pauso la música")
@@ -193,6 +192,15 @@ class ActivitiesMixin:
                 await m.ctl("play")
             elif local is not None:
                 await local.set_pause(False)
+
+    def _local_background(self):
+        """La música local o la Radio abierta (las que pueden sonar de fondo con las fotos, además de Tidal)."""
+        for ident in ("musica", "radio"):
+            act = self.activities.get(ident)
+            if isinstance(act, (activities_mod.MpvMediaActivity, activities_mod.RadioActivity)) and not getattr(
+                    act, "command", None) and act.running():
+                return act
+        return None
 
     # ---------------------------------------------------------------- app que se cierra sola
     def _left_alone(self) -> str | None:

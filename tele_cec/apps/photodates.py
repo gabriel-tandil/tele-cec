@@ -11,6 +11,7 @@ queda en ~/.cache/tele-cec/fotos-fechas.json (las que se agregan después se lee
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import json
 import logging
 import os
@@ -182,6 +183,133 @@ def month_day_text(day: dt.date) -> str:
     return f"{day.day} de {MONTHS[day.month - 1]}"
 
 
+# ---------------------------------------------------------------- fechas incompletas (la fecha en la esquina)
+# Cuando ni el nombre ni la foto dicen el día, a veces las carpetas dicen el mes o el año: «2003/Diciembre/…»,
+# «2008-12 Navidad/…», «Vacaciones enero 2010/…», «Fotos 1998/…».
+WEEKDAYS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+_MONTH_WORDS = {name: i + 1 for i, name in enumerate(MONTHS)} | {
+    "setiembre": 9, "ene": 1, "feb": 2, "abr": 4, "jun": 6, "jul": 7, "ago": 8, "sep": 9, "sept": 9, "oct": 10,
+    "nov": 11, "dic": 12}   # sin «mar» (Mar del Plata), «may» ni «set»: son palabras comunes
+_YEAR = r"((?:19|20)\d{2})"
+_YM = re.compile(r"(?<!\d)" + _YEAR + r"[-_. ](0?[1-9]|1[0-2])(?![\d])")          # 2008-12 · 2008_3
+_MY = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])[-_. ]" + _YEAR + r"(?!\d)")           # 12-2008 · 3.2008
+_WORD = re.compile(r"[a-záéíóúñ]+")
+_YEAR_ALONE = re.compile(r"(?<!\d)" + _YEAR + r"(?!\d)")
+_RANGE = re.compile(r"(?<!\d)" + _YEAR + r"\s*(?:-|–|\s+a\s+|\s+al\s+)\s*" + _YEAR + r"(?!\d)")   # 1980-2000
+_PAREN_MY = re.compile(r"\((0[1-9]|1[0-2])-(\d{2})\)")   # «108 (09-08).jpg»: septiembre de 2008
+
+
+def _year_ok(y: int) -> bool:
+    return 1900 <= y <= dt.date.today().year + 1
+
+
+def _month_word(text: str) -> int | None:
+    """El mes escrito con letras en un nombre de carpeta («Diciembre», «vacaciones dic 2008»), o None."""
+    for w in _WORD.findall(text.lower()):
+        if w in _MONTH_WORDS:
+            return _MONTH_WORDS[w]
+    return None
+
+
+_MONTH_NUM = re.compile(r"^(0?[1-9]|1[0-2])(?!\d)")   # «11», «03 Marzo», «11 - cumple»
+
+
+@functools.lru_cache(maxsize=8192)
+def _folder_info(parent: str) -> tuple[int, int | None, int | None] | None:
+    """(año, mes o None, hasta qué año o None) según las carpetas (la más cercana primero); None si no dicen el año.
+    «1980-2000» es un rango: (1980, None, 2000). Un número de mes solo («2009/11») cuenta si arriba está el año."""
+    parts = Path(parent).parts[-4:]
+    month: int | None = None
+    for i in range(len(parts) - 1, -1, -1):
+        part = parts[i]
+        r = _RANGE.search(part)
+        if r and _year_ok(int(r.group(1))) and int(r.group(1)) < int(r.group(2)) <= dt.date.today().year + 1:
+            return int(r.group(1)), None, int(r.group(2))
+        for rx, yi, mi in ((_YM, 1, 2), (_MY, 2, 1)):
+            m = rx.search(part)
+            if m and _year_ok(int(m.group(yi))):
+                return int(m.group(yi)), month or int(m.group(mi)), None
+        y = next((int(g) for g in _YEAR_ALONE.findall(part) if _year_ok(int(g))), None)
+        if y is not None:
+            return y, month or _month_word(part), None  # el año más cercano manda
+        if month is None:
+            month = _month_word(part)
+            num = _MONTH_NUM.match(part)
+            if month is None and num and i > 0 and _YEAR_ALONE.fullmatch(parts[i - 1].strip()):
+                month = int(num.group(1))
+    return None
+
+
+def folder_parts(path: str) -> tuple[int, int | None, int | None] | None:
+    """(año, mes, hasta qué año) que dicen las carpetas de esa foto (ver _folder_info)."""
+    return _folder_info(os.path.dirname(path))
+
+
+def plausible(full: str, path: str) -> bool:
+    """¿La fecha del nombre o de la foto («AAAAMMDD») cuadra con el año de su carpeta? Las cámaras con el reloj sin
+    poner dicen «1 de enero de 2002» en una foto guardada en «2007/10»: ahí manda la carpeta. Se admite el año de al
+    lado en diciembre y enero (las del 31 de diciembre que quedaron en la carpeta del año siguiente). Y un «1 de enero»
+    en la carpeta de otro mes («2007/10») tampoco: es el reloj reiniciado al principio de ese año."""
+    info = folder_parts(path)
+    if info is None:
+        return True
+    y, m = int(full[:4]), int(full[4:6])
+    fy, fm, until = info
+    if until:
+        return fy <= y <= until
+    if full[4:] == "0101" and fm is not None and fm not in (12, 1, 2):
+        return False  # «1 de enero» en la carpeta de octubre: el reloj se reinició (al 1.º de enero de ese año)
+    return y == fy or (y == fy - 1 and m == 12) or (y == fy + 1 and m == 1)
+
+
+def date_parts(path: str, full: str | None = None) -> tuple[int, int | None, int | None, int | None] | None:
+    """(año, mes, día, hasta qué año) de la foto con lo que se sepa:
+    - el día exacto si el nombre o la foto dicen la fecha (`full`, «AAAAMMDD») y cuadra con su carpeta;
+    - si no, el mes y el año de las carpetas («2003/Diciembre», «2009/11»), o del nombre («108 (09-08).jpg»);
+    - o el año, o un rango de años («1980-2000/»: (1980, None, None, 2000)). None si no hay nada."""
+    info = folder_parts(path)
+    if full and len(full) == 8 and plausible(full, path):
+        return int(full[:4]), int(full[4:6]), int(full[6:]), None
+    m = _PAREN_MY.search(os.path.basename(path))
+    if m:
+        yy = int(m.group(2))
+        y = 2000 + yy if 2000 + yy <= dt.date.today().year else 1900 + yy
+        if info is None or (info[2] is None and info[0] == y) or (info[2] and info[0] <= y <= info[2]):
+            return y, int(m.group(1)), None, None
+    if info is None:
+        return None
+    return info[0], info[1], None, info[2]
+
+
+def date_text(parts: tuple[int, int | None, int | None, int | None], today: dt.date | None = None) -> tuple[str, str]:
+    """(la fecha, hace cuánto): («sábado 20 de diciembre de 2008», «hace 17 años»), («diciembre de 2008», …),
+    («2008», …) o («entre 1980 y 2000», ""), según lo que se sepa."""
+    today = today or dt.date.today()
+    y, m, d, until = (tuple(parts) + (None,))[:4]
+    if until:
+        return f"entre {y} y {until}", ""
+    if m and d:
+        day = dt.date(y, m, d)
+        big = f"{WEEKDAYS[day.weekday()]} {d} de {MONTHS[m - 1]} de {y}"
+        years = today.year - y - ((today.month, today.day) < (m, d))
+        days = (today - day).days
+    elif m:
+        big = f"{MONTHS[m - 1]} de {y}"
+        years = today.year - y - (today.month < m)
+        days = None
+    else:
+        big, years, days = str(y), today.year - y, None
+    if years >= 1:
+        ago = f"hace {years} año{'s' if years != 1 else ''}"
+    elif days is not None and days >= 0:
+        months = days // 30
+        ago = ("hoy" if days == 0 else "ayer" if days == 1 else f"hace {days} días" if days < 60
+               else f"hace {months} meses")
+    else:
+        ago = ""
+    return big, ago
+
+
 class PhotoDates:
     """{ruta: «AAAAMMDD» o ""} guardado entre usos; se completa en segundo plano."""
 
@@ -273,7 +401,7 @@ class PhotoDates:
             d = data.get(f)
             if d is None:
                 d = name_date(f) or ""
-            if d and (int(d[4:6]), int(d[6:8])) in days and int(d[:4]) < today.year:
+            if d and (int(d[4:6]), int(d[6:8])) in days and int(d[:4]) < today.year and plausible(d, f):
                 hits.append((d, os.path.basename(f).lower(), f))
         return [f for _d, _n, f in sorted(hits)]
 

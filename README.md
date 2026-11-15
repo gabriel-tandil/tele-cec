@@ -1,13 +1,13 @@
 # tele-cec
 
-Maneja **Netflix**, **YouTube**, **Tidal**, **videos** y **música** locales (mpv), **fotos** (mpv) y la **pantalla de un celular Android** (scrcpy) con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS (Bookworm o Trixie) conectada a la TV. Netflix y YouTube se ven en **Firefox** (o en Chromium, como alternativa).
+Maneja **Netflix**, **YouTube**, **Tidal**, **videos** y **música** locales (mpv), **radios por internet** (mpv), **fotos** (mpv) y la **pantalla de un celular Android** (scrcpy) con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS (Bookworm o Trixie) conectada a la TV. Netflix y YouTube se ven en **Firefox** (o en Chromium, como alternativa).
 
 > Antes se llamaba **netflix-cec**. `./install.sh` migra solo una instalación anterior: tu configuración, el servicio y la regla de apagado (ver [Instalación](#instalación)).
 
 No convierte el control en un teclado, como hace [cec-mini-kb](https://github.com/spleen1981/cec-mini-kb): entiende qué hay en pantalla y hace lo que corresponde.
 
 - **Navegación espacial** con las flechas por perfiles, filas de títulos, fichas y menús, con un **resaltado bien visible** del elemento enfocado. OK = clic, Atrás = volver.
-- **Menú de actividades**: el botón **Menú** abre un menú en el centro de la pantalla, encima de lo que esté abierto, para elegir **Netflix, YouTube, Tidal, Videos y música, Fotos, Juegos (MAME), Android** u otros programas. Elegir una cierra la que estaba abierta. Ver [Menú de actividades](#menú-de-actividades).
+- **Menú de actividades**: el botón **Menú** abre un menú en el centro de la pantalla, encima de lo que esté abierto, para elegir **Netflix, YouTube, Tidal, Videos y música, Radio, Fotos, Juegos (MAME), Android** u otros programas. Elegir una cierra la que estaba abierta. Ver [Menú de actividades](#menú-de-actividades).
 - **YouTube para TV**: la versión de YouTube de los Smart TV, hecha para manejarse con flechas, OK y Atrás (ver [YouTube](#youtube)).
 - **Control desde el celular**: una página en `http://raspberrypi.local:8765/` con el mismo menú de actividades de la TV, buscar en Netflix y YouTube, tu Tidal y tu música local (biblioteca, búsqueda y cola), lo que está sonando y la salida de sonido (ver [Control desde el celular](#control-desde-el-celular)).
 - **Android**: la pantalla del celular en la TV, por USB o Wi‑Fi, con su sonido, y manejable con el control (ver [Android](#android)).
@@ -153,7 +153,8 @@ Al salir del zoom (o al pasar a otra foto con ⏮ ⏭) la presentación sigue so
 - **Solo fotos** (el de siempre).
 - **Fotos y videos**: las fotos el mismo tiempo de siempre y los videos de la carpeta en su lugar, ordenados por la fecha que traen los nombres (`IMG_20201130…`, `VID_20201108…`).
 - **Dónde se sacó** (verde): en las fotos que tienen la ubicación (GPS, como las del celular), el verde muestra un **mapa** con una marca en el lugar, la fecha y la carpeta; ▲ u OK acercan, ▼ aleja y Atrás vuelve a la presentación (que se pausa mientras tanto). El azul avisa cuando la foto tiene mapa. Los mosaicos son de [OpenStreetMap](https://www.openstreetmap.org/copyright): la Pi los pide a tile.openstreetmap.org (es lo único que sale de la casa: la zona del mapa, no la foto) y los guarda en `~/.cache/tele-cec/mapas` un mes. Necesita `python3-pil` (lo instala `install.sh`). `[apps.fotos] map = false` lo apaga; `map_tiles` cambia de dónde salen los mosaicos.
-- **Un día como hoy**: en la carpeta de Fotos (Carpetas ▸, o tocando Fotos › Carpetas en el celular), después de los tres modos, «▶ Un día como hoy» muestra las fotos y videos de esta fecha en otros años, de la más vieja a la más nueva («15 de noviembre: 312 fotos y 4 videos de 2009, 2014 y 2017»), con el año de cada una chico abajo a la derecha («2014 · hace 12 años»). Si no hay de ese día exacto, los de esa semana. La fecha sale del nombre (IMG_20170226_…, IMG-20180321-WA…, una carpeta «20-12-2008 …») o, para las de cámara (DSC02815.JPG), de la foto misma (EXIF). Leer todas la primera vez lleva un rato: va de a poco (unas 4 fotos por segundo, para no trabar la red de la Pi) y se pausa mientras se están mirando las fotos; mientras tanto el menú dice «buscando fechas (…%)»; quedan guardadas en `~/.cache/tele-cec/fotos-fechas.json` y las nuevas se leen al actualizarse la lista. ▼ pasa a la carpeta entera. `on_this_day = false` lo oculta.
+- **Un día como hoy**: en la carpeta de Fotos (Carpetas ▸, o tocando Fotos › Carpetas en el celular), después de los tres modos, «▶ Un día como hoy» muestra las fotos y videos de esta fecha en otros años, al azar («15 de noviembre: 312 fotos y 4 videos de 2009, 2014 y 2017»), con el año de cada una chico abajo a la derecha («2014 · hace 12 años»). Si no hay de ese día exacto, los de esa semana. La fecha sale del nombre (IMG_20170226_…, IMG-20180321-WA…, una carpeta «20-12-2008 …») o, para las de cámara (DSC02815.JPG), de la foto misma (EXIF). Leer todas la primera vez lleva un rato: va de a poco (unas 4 fotos por segundo, para no trabar la red de la Pi) y se pausa mientras se están mirando las fotos; mientras tanto el menú dice «buscando fechas (…%)»; quedan guardadas en `~/.cache/tele-cec/fotos-fechas.json` y las nuevas se leen al actualizarse la lista. ▼ pasa a la carpeta entera. `on_this_day = false` lo oculta; `today_shuffle = false` las muestra de la más vieja a la más nueva.
+- **La fecha en la esquina** (**1** en el control, o la tecla Info si la TV la manda): prende o apaga la fecha de cada foto, chica abajo a la derecha, con lo que se sepa: el día («sábado 20 de diciembre de 2008 · hace 17 años») si lo dice el nombre o la foto (EXIF); si no, el mes o el año según las carpetas («2003/Diciembre», «2009/11», «2008-12 Navidad», «Vacaciones enero 2010» → «diciembre de 2003», «noviembre de 2009»…; «Fotos 1998» → «1998»). Sin nada, la esquina queda vacía. Queda como la dejaste para la próxima vez (`show_date` es cómo arranca la primera vez). En «Un día como hoy», con la fecha prendida se ve el día entero en vez de solo el año. Solo con mpv (no con `viewer = "feh"`).
 - **Al azar**: si la carpeta tiene subcarpetas con fotos o videos (los años, los viajes…), la presentación va en orden aleatorio, en los tres modos; si no, en orden (por nombre, o intercalados por fecha). Con `shuffle = true`, siempre al azar. El menú lo dice debajo de cada opción («· al azar»). Al cambiar de modo con ▼ sigue desde la foto que se estaba viendo.
 - **Solo videos**: los videos de esa carpeta y sus subcarpetas.
 
@@ -332,6 +333,7 @@ resume_apps = false           # al volver: el menú (false) o lo que estaba abie
 - **Música** abre **mpv** con los temas de la carpeta (y subcarpetas, en orden natural: «2 - …» antes que «10 - …») y muestra la **tapa del disco**: la que trae el archivo o una imagen al lado (`cover.jpg`, `folder.jpg`…). La barra queda siempre a la vista con el tema, el artista y el tiempo. Puede quedar sonando mientras pasan las fotos.
 - **En la Raspberry Pi**, los videos H.264 y HEVC se decodifican por hardware y se muestran con la salida `dmabuf-wayland` de mpv (1080p a 60 cuadros sin trabarse); las fotos, las tapas y los videos en otros formatos, con OpenGL. El cambio lo hace solo un script de mpv (`tele_cec/apps/mpv_scripts/tele_cec_vo.lua`) en cada archivo. Con Vulkan (lo que mpv elige solo) la tele se veía azul: las fotos salen en colores de 10 bits que el escritorio manda directo al HDMI, y los cuadros del decodificador por hardware Vulkan no los sabe leer. Las fotos de más de 4096 píxeles de lado (p. ej. 4160 × 3120, de 13 MP) se achican a 4096 antes de dibujarlas: la placa de video de la Pi no acepta imágenes más grandes (salían negras).
 - Videos y Música se manejan por el canal de control de mpv; con **mpv-mpris** (lo instala `install.sh`) lo que suena aparece en la página del celular. Cada uno usa su propio mpv, sin la configuración personal de mpv (`~/.config/mpv`).
+- **Radio** abre **mpv** con las radios de `[apps.radio] stations` (viene con [Pipí Cucú](https://fediverse.blog/~/RadioPip%C3%ADCuc%C3%BA), de Montevideo) y una pantalla para la TV: la emisora, «● En vivo» y el tema que está sonando, si la emisora lo manda («Artista - Tema»). OK pausa y sigue (después de una pausa de más de 20 s vuelve a conectar, para escuchar lo que sale en vivo y no lo de hace un rato); ▲ ▼ el volumen; ⏮ ⏭, Canal ± o ◀ ▶ cambian de radio, y 1 – 9 eligen una de la lista. Se acuerda de la última que sonó. Arranca con 3 s de colchón y, si se corta la conexión, vuelve a conectarse sola. Como la Música, puede quedar sonando mientras pasan las fotos (un video de la presentación la pausa) y, con un parlante Bluetooth, abrirla desde el celular no prende la TV.
 - **Fotos** abre una presentación con **mpv** en pantalla completa: avanza sola cada 8 s y con ◀ ▶ pasás a mano. La placa de video achica las fotos, hace el zoom y las mueve (antes, con feh, todo lo hacía el procesador), y la foto siguiente se lee mientras se ve la actual: pasar de foto tarda 0,2 s aunque sean de 12 MP y estén en otra máquina. Las fotos sacadas con el celular girado salen derechas. OK la pausa. ▲ hace zoom y las flechas recorren la foto (ver [Teclas](#teclas-por-defecto)).
 - **De dónde**: la primera carpeta de `folders` que tenga videos o fotos. Por defecto, primero los **pendrives** (`/media/<usuario>/<disco>`, donde los monta el escritorio) y después `~/Vídeos` o `~/Imágenes`. El menú muestra cuál va a usar («Pendrive KINGSTON», «~/Vídeos»).
 
@@ -347,10 +349,18 @@ command = []      # otro programa en vez de mpv; {carpeta} = la carpeta elegida,
 folders = ["/media/*/*", "~/Música", "~/Music"]
 shuffle = false
 
+[apps.radio]
+stations = [   # nombre y dirección de la transmisión (mp3, aac, m3u…)
+  { name = "Pipí Cucú", url = "https://comodin.uy/radio/8000/320.mp3" },
+  { name = "Otra radio", url = "https://…" },
+]
+
 [apps.fotos]
 folders = ["/media/*/*", "~/Imágenes", "~/Pictures"]
 delay_s = 8
 shuffle = false
+today_shuffle = true  # «Un día como hoy» al azar
+show_date = false     # la fecha en la esquina al principio (después, lo último elegido con 1)
 scroll_step = 150 # píxeles que se mueve la foto con zoom por cada flecha
 zoom_step = 25    # % de cada paso de zoom
 viewer = "mpv"    # "feh" = el visor de antes para «solo fotos» (todo con el procesador)

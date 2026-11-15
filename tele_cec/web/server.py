@@ -404,7 +404,7 @@ class WebRemote:
             return {"ok": False, "error": f"{act.name} no está instalado"}
         if time.monotonic() - self._outputs_at > OUTPUTS_TTL_S and audio.available():
             await self._refresh_outputs()
-        quiet = ident in ("tidal", "musica") and self._output_kind() == "bluetooth"  # solo música: sin prender la TV
+        quiet = ident in ("tidal", "musica", "radio") and self._output_kind() == "bluetooth"  # solo sonido: sin prender la TV
         if ctl.power.asleep:
             log.info("Celular: despierto la Pi para abrir %s", act.name)
             ctl.power.wake(by_key=not quiet)

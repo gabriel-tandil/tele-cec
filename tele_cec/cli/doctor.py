@@ -209,6 +209,7 @@ def _check_activities(cfg: config_mod.Config) -> None:
         if not act.installed():
             hint = {"videos": " (./install.sh o sudo apt install mpv mpv-mpris)",
                     "musica": " (./install.sh o sudo apt install mpv mpv-mpris)",
+                    "radio": " (./install.sh o sudo apt install mpv)",
                     "fotos": " (./install.sh o sudo apt install feh)",
                     "android": " (./install.sh: instala adb y compila scrcpy)"}.get(ident, "")
             _check(None, f"{act.name}: no está instalado{hint}: no aparece en el menú")
@@ -227,6 +228,10 @@ def _check_activities(cfg: config_mod.Config) -> None:
                 from ..apps.mpv import mpris_plugin  # noqa: PLC0415
                 _check(bool(mpris_plugin()) or None, f"{act.name}: lo que suena en la página del celular (mpv-mpris)" +
                        ("" if mpris_plugin() else ": falta (sudo apt install mpv-mpris)"))
+        elif isinstance(act, activities_mod.RadioActivity):
+            names = ", ".join(st["name"] for st in act.stations)
+            _check(bool(act.stations) or None, f"{act.name}: {names}" if names else
+                   f"{act.name}: sin radios ([apps.radio] stations): aparece en gris")
         elif isinstance(act, activities_mod.AndroidActivity):
             devs = act.devices()
             dev = act._pick(devs)

@@ -1,4 +1,5 @@
--- Un texto chico en la esquina de abajo a la derecha: en Fotos, el año de cada foto en «Un día como hoy».
+-- Un texto chico en la esquina de abajo a la derecha: en Fotos, la fecha de cada foto (1 en el control) o el año
+-- en «Un día como hoy».
 -- tele-cec lo pide por el canal de control con  script-message-to tele_cec_corner show <grande> [<chico>]
 -- (y clear para sacarlo). La capa la guarda este script: una capa pedida por el canal de control se borra sola
 -- apenas se cierra esa conexión.

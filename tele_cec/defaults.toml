@@ -88,6 +88,7 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #    tidal_nav   -> tidal -> global    Tidal con las flechas recorriendo su interfaz (0 lo alterna)
 #    videos      -> global             Videos (mpv) abierto
 #    musica      -> global             Música local (mpv) abierta
+#    radio       -> global             Radio por internet (mpv) abierta
 #    fotos       -> global             Fotos (feh) abierto
 #    fotos_zoom  -> fotos -> global    Fotos con zoom (▲ lo activa): las flechas recorren la foto
 #    android     -> global             Android (la pantalla del celular, con scrcpy) abierto
@@ -110,7 +111,9 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #    music:page:inicio|explorar|coleccion  music:back  music:key:<Tecla>
 #  Videos: video:play_pause|play|pause|next|previous|stop  video:seek:+10|-10  video:volume:+|-
 #    video:subtitles  video:audio
+#  Radio: radio:ok|play|pause|next|previous (otra radio)  radio:station:N  radio:volume:+|-
 #  Fotos: fotos:next  fotos:previous  fotos:pause  fotos:rotate  fotos:random  fotos:info  fotos:filename  fotos:mode
+#    fotos:date (la fecha en una esquina)
 #    fotos:zoom_in  fotos:zoom_out  fotos:fit (sin zoom)  fotos:scroll:left|right|up|down
 #  Netflix: my_list (Mi lista)   Tidal: music:lyrics (letras)   Videos: video:aspect (proporción)
 #  YouTube: yt:key:<Tecla> (Up, Down, Left, Right, Return, Escape)  yt:play_pause|play|pause  yt:seek:+10|-10
@@ -381,6 +384,35 @@ F3_GREEN = "musica:loop"      # verde = repetir: toda la lista → este tema →
 EXIT = "musica:back"
 AN_RETURN = "musica:back"
 
+[keys.radio]                  # Radio por internet (mpv)
+SELECT = "radio:ok"           # OK = pausa / seguir (después de una pausa larga, vuelve a lo que sale en vivo)
+ENTER = "radio:ok"
+PLAY = "radio:play"
+PAUSE = "radio:pause"
+PAUSE_PLAY_FUNCTION = "radio:ok"
+STOP = "radio:pause"
+UP = "radio:volume:+"
+DOWN = "radio:volume:-"
+VOLUME_UP = "radio:volume:+"
+VOLUME_DOWN = "radio:volume:-"
+FORWARD = "radio:next"        # ⏭ ⏮ · Canal ± · ◀ ▶: otra radio
+BACKWARD = "radio:previous"
+CHANNEL_UP = "radio:next"
+CHANNEL_DOWN = "radio:previous"
+RIGHT = "radio:next"
+LEFT = "radio:previous"
+NUMBER1 = "radio:station:1"   # 1 – 9: esa radio de la lista
+NUMBER2 = "radio:station:2"
+NUMBER3 = "radio:station:3"
+NUMBER4 = "radio:station:4"
+NUMBER5 = "radio:station:5"
+NUMBER6 = "radio:station:6"
+NUMBER7 = "radio:station:7"
+NUMBER8 = "radio:station:8"
+NUMBER9 = "radio:station:9"
+EXIT = ""
+AN_RETURN = ""
+
 [keys.fotos]                  # Fotos (mpv; o feh con viewer = "feh")
 LEFT = "fotos:previous"
 RIGHT = "fotos:next"
@@ -402,6 +434,8 @@ F4_YELLOW = "fotos:random"    # amarillo = una foto al azar
 F3_GREEN = "fotos:map"        # verde = dónde se sacó la foto (un mapa, si tiene GPS)
 UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
 DOWN = "fotos:mode"           # ▼ = solo fotos → fotos y videos → solo videos (sigue desde la foto que se veía)
+NUMBER1 = "fotos:date"        # 1 = la fecha de cada foto en una esquina (el día, el mes o el año: lo que se sepa)
+DISPLAY_INFORMATION = "fotos:date"   # la tecla Info, si la TV la manda
 
 [keys.fotos_zoom]             # Fotos con zoom: las flechas mueven la foto, OK acerca y Atrás aleja
 UP = "fotos:scroll:up"
@@ -488,7 +522,7 @@ RS_RIGHT = ""
 
 # Menú de actividades.
 [menu]
-items = ["netflix", "youtube", "tidal", "local", "fotos", "juegos", "android"]   # orden; las no instaladas no aparecen. Las de
+items = ["netflix", "youtube", "tidal", "local", "radio", "fotos", "juegos", "android"]   # orden; las no instaladas no aparecen. Las de
                                                   # [activities.<id>] se agregan al final si no están acá.
                                                   # Un nombre de [menu.groups] es una «carpeta» con otras adentro.
 columns = 2                   # en dos columnas (sin desplazar): ◀ ▶ cambian de columna. OK abre de una; Videos,
@@ -554,6 +588,12 @@ shuffle = false
 volume_step = 0.05
 command = []
 
+[apps.radio]                         # Radio por internet con mpv. ⏮ ⏭ cambian de radio; 1 – 9 eligen una
+volume_step = 0.05
+stations = [
+  { name = "Pipí Cucú", url = "https://comodin.uy/radio/8000/320.mp3" },   # Montevideo: canción de autor, sin
+]                                    # publicidad (128 kbps: https://comodin.uy/radio/8000/128.mp3)
+
 [apps.fotos]                         # Fotos: presentación en pantalla completa con mpv (sudo apt install mpv)
 viewer = "mpv"                       # "mpv" = la placa de video achica las fotos, hace el zoom y las mueve;
                                      #   "feh" = el visor de antes para «solo fotos» (todo con el procesador)
@@ -561,6 +601,9 @@ folders = ["/media/*/*", "~/Imágenes", "~/Pictures"]
 delay_s = 8                          # segundos por foto
 shuffle = false
 on_this_day = true                   # «Un día como hoy» en Carpetas: las fotos de esta fecha en otros años
+today_shuffle = true                 # «Un día como hoy» al azar (false = del año más viejo al más nuevo)
+show_date = false                    # la fecha de cada foto en una esquina, hasta que se toque 1 (después se
+                                     # recuerda lo último elegido)
 map = true                           # verde = dónde se sacó la foto (con GPS): un mapa de OpenStreetMap
 map_tiles = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"   # de dónde salen los mosaicos del mapa
 scroll_step = 150                    # píxeles que se mueve la foto con zoom por cada flecha

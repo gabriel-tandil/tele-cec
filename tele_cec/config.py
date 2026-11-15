@@ -23,7 +23,7 @@ DEFAULTS_FILE = PKG_DIR / "defaults.toml"
 USER_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser() / "tele-cec" / "config.toml"
 
 CONTEXTS = ("global", "profiles", "browse", "player", "player_menu", "text", "offline", "tidal", "tidal_nav",
-            "menu", "youtube", "videos", "musica", "fotos", "fotos_zoom", "android", "juegos", "app")
+            "menu", "youtube", "videos", "musica", "radio", "fotos", "fotos_zoom", "android", "juegos", "app")
 
 # Orden de búsqueda de una tecla según el contexto actual.
 CHAINS: dict[str, tuple[str, ...]] = {
@@ -44,6 +44,7 @@ CHAINS: dict[str, tuple[str, ...]] = {
     "juegos": ("juegos", "global"),    # Juegos (MAME)
     "videos": ("videos", "global"),
     "musica": ("musica", "global"),    # Música local
+    "radio": ("radio", "global"),      # Radio por internet
     "fotos": ("fotos", "global"),
     "fotos_zoom": ("fotos_zoom", "fotos", "global"),  # Fotos con zoom: las flechas mueven la foto
     "app": ("app", "global"),

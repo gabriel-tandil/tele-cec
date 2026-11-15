@@ -14,7 +14,7 @@ from ..keys import key_label
 log = logging.getLogger("tele")
 
 # Acciones que tiene sentido repetir si se mantiene apretado el botón.
-REPEATABLE = {"nav", "seek", "volume", "key", "type", "music", "video", "musica", "fotos", "yt", "android"}
+REPEATABLE = {"nav", "seek", "volume", "key", "type", "music", "video", "musica", "radio", "fotos", "yt", "android"}
 # Una repetición (botón mantenido) que esperó más que esto en la cola ya no se ejecuta.
 STALE_REPEAT_S = 0.35
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
@@ -40,7 +40,7 @@ BUSY_TEXT = {
 BUSY_DEFAULT = "Un momento…"
 QUIET = REPEATABLE | {"none", "toast", "wait", "nav_mode", "mute", "subtitles", "audio", "pause", "app", "menu", "help"}
 # Acciones que no necesitan el navegador.
-OFFLINE_OK = {"launch", "wait", "none", "macro", "app", "music", "menu", "video", "musica", "fotos", "toast", "help", "yt", "android", "juegos"}
+OFFLINE_OK = {"launch", "wait", "none", "macro", "app", "music", "menu", "video", "musica", "radio", "fotos", "toast", "help", "yt", "android", "juegos"}
 
 
 class CoreMixin:
