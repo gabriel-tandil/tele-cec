@@ -147,6 +147,7 @@
   .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--text); transition: left .2s; }
   .lockopt.on .switch { background: var(--sel-bg); }
   .lockopt.on .switch::after { left: 21px; background: var(--sel-text); }
+  .timeropt.on .name { color: var(--msg); }
   .toast { position: fixed; left: 50%; bottom: calc(var(--mini-h) + 22px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: var(--sel-bg); color: var(--sel-text); padding: 10px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; z-index: 10;
     opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); }
@@ -610,7 +611,7 @@ const SOUND = {
   render(body) {
     const outs = el("div", "rows");
     outs.id = "outs";
-    body.replaceChildren(volumeBox("big"), el("div", "sect", "Sale por"), outs);
+    body.replaceChildren(volumeBox("big"), timerOption(), el("div", "sect", "Sale por"), outs);
     SOUND.key = null;
     renderSound();
   },
@@ -1082,7 +1083,7 @@ function openPlayer() {
     loop.appendChild(one);
     const pp = btn("play", "main", () => media("play-pause"), "Play o pausa");
     tr.append(shuf, btn("prev", "", () => media("previous"), "Anterior"), pp, btn("next", "", () => media("next"), "Siguiente"), loop);
-    sh.append(art, head, seek, times, tr, volumeBox("big"));
+    sh.append(art, head, seek, times, tr, volumeBox("big"), timerOption());
     if (lockSupported()) sh.append(lockOption());
 
     let dragging = false, frac = 0;
@@ -1151,6 +1152,7 @@ async function poll() {
   renderSound();
   renderLock();
   lockStatus();
+  renderTimer();
   const top = stack[stack.length - 1];
   if (top === ACTIVITIES && Date.now() - (poll.menuAt || 0) > 4000) { poll.menuAt = Date.now(); refreshMenu(); }
   if (top === TIDAL && tView.kind === "queue" && state && state.now && state.now.title !== lastQueueTitle) tidalQueue(true);
@@ -1174,6 +1176,42 @@ function renderStatus() {
   else st.textContent = s.app && s.app.name ? "En la TV: " + s.app.name : (s.menu ? "Menú en la TV" : "Nada abierto");
 }
 function schedule(ms) { clearTimeout(pollTimer); pollTimer = setTimeout(poll, ms); }
+
+// ---------------------------------------------------------------- temporizador para apagar
+// En 15, 30… minutos o al terminar el tema: baja el volumen, pausa y la Pi entra en reposo (y apaga la TV).
+const TIMER_CHOICES = [[15, "En 15 minutos"], [30, "En 30 minutos"], [45, "En 45 minutos"], [60, "En 1 hora"],
+                       [90, "En 1 hora y media"], ["track", "Al terminar este tema o video"]];
+function timerText() {
+  const t = state && state.sleep;
+  if (!t) return "Baja el volumen, pausa y apaga la tele";
+  if (t.mode === "track") return "Se apaga al terminar este tema";
+  const left = Math.max(0, t.left - (Date.now() - stateAt) / 1000), m = Math.round(left / 60);
+  return left < 60 ? "Se apaga en menos de un minuto"
+    : m >= 60 ? `Se apaga en ${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `Se apaga en ${m} min`;
+}
+function timerOption() {
+  const b = el("button", "lockopt timeropt");
+  const tx = el("div", "tx");
+  tx.append(el("div", "name", "Temporizador para apagar"), el("div", "sub", timerText()));
+  b.append(tx, el("span", "chip", "Elegir ▸"));
+  b.addEventListener("click", () => {
+    const opts = TIMER_CHOICES.map(([c, label]) => [label, () => setTimer(c)]);
+    if (state && state.sleep) opts.push(["Sacar el temporizador", () => setTimer(0)]);
+    optionsSheet("Temporizador para apagar", timerText(), opts);
+  });
+  b.classList.toggle("on", !!(state && state.sleep));
+  return b;
+}
+async function setTimer(choice) {
+  const r = await post("/api/sleep", {choice}, true);
+  if (r.ok) toast(r.message);
+}
+function renderTimer() {
+  document.querySelectorAll(".timeropt").forEach((b) => {
+    b.querySelector(".sub").textContent = timerText();
+    b.classList.toggle("on", !!(state && state.sleep));
+  });
+}
 
 // ---------------------------------------------------------------- pantalla bloqueada y notificación
 // Los controles de música del sistema (en la notificación y con la pantalla bloqueada: tapa, tema, ⏮ ⏯ ⏭ y la

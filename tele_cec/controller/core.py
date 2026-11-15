@@ -52,6 +52,8 @@ class CoreMixin:
         self._last_key: tuple[int | None, float] = (None, 0.0)
         self._released = True
         self._macro_task: asyncio.Task | None = None
+        from .sleeptimer import SleepTimer  # noqa: PLC0415
+        self.sleep_timer = SleepTimer(self)  # temporizador para apagar (Sonido en el menú, o el celular)
 
     # ================================================================ entrada
     def on_key(self, code: int) -> None:

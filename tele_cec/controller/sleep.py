@@ -42,6 +42,7 @@ class SleepMixin:
         """Al entrar en reposo: pausar lo que suena y cerrar todo (se restaura al volver)."""
         if self._menu_open:
             await self.menu_close()
+        self.sleep_timer.cancel()  # el reposo vino por otro lado: el temporizador ya no hace falta
         await self._pause_if_playing(everything=True)
         for ident, act in self.activities.items():
             if await act.active():

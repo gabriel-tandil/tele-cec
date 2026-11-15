@@ -770,13 +770,14 @@ def _capture(path: str, page: str) -> int:
     elif page in ("sonido", "silencio"):
         mute = page == "silencio"
         panel.handle({"op": "show", "title": "Sonido", "numbers": False, "selected": 0,
-                      "hint": "▲ ▼ elegir · Volumen: ◀ ▶ bajar o subir, OK silencio · OK usar esa salida",
+                      "hint": "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida",
                       "items": [{"name": "Volumen", "icon": "audio-volume-muted" if mute else "audio-volume-high",
                                  "level": 40, "muted": mute, "badge": "en silencio" if mute else ""},
+                                {"name": "Temporizador para apagar", "icon": "temporizador.svg",
+                                 "sub": "Se apaga en 28 min · ◀ ▶ cambiarlo", "badge": "prendido"},
                                 {"name": "TV (HDMI)", "icon": "video-display", "sub": "HDMI"},
                                 {"name": "KN320", "icon": "bluetooth", "sub": "Bluetooth", "current": True}]})
-        if mute:
-            panel.handle({"op": "select", "index": 2})
+        panel.handle({"op": "select", "index": 3 if mute else 1})
     else:
         panel.handle({"op": "show", "items": DEMO_ITEMS, "selected": 2})
     panel.win.show_all()

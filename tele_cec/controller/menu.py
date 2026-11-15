@@ -22,9 +22,9 @@ log = logging.getLogger("tele")
 MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Juegos, Android) · Atrás cerrar"
 GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar"
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
-SOUND_HINT = "▲ ▼ elegir · Volumen: ◀ ▶ bajar o subir, OK silencio · OK usar esa salida · Atrás volver"
+SOUND_HINT = "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida · Atrás volver"
 VOLUME_STEP = 5        # % por cada ◀ ▶ en la fila «Volumen»
-SOUND_FIRST = 1        # en Sonido, las salidas empiezan después de la fila «Volumen»
+SOUND_FIRST = 2        # en Sonido, las salidas empiezan después de las filas «Volumen» y «Temporizador»
 BT_SCAN_SECONDS = 25   # cuánto se buscan parlantes y auriculares Bluetooth al abrir «Sonido»
 BT_POLL_SECONDS = 2.0  # cada cuánto se mira qué encontró la búsqueda
 HELP_HINT = "◀ ▶ otra app · ▲ ▼ más filas · Atrás volver"
@@ -268,8 +268,9 @@ class MenuMixin:
             except Exception:  # noqa: BLE001
                 level, muted = None, False
             vol = "en silencio" if muted else f"volumen {level} %" if level is not None else ""
+            timer = self.sleep_timer.text().lower() if self.sleep_timer.active() else ""
             out.append({"id": "_sound", "name": "Sonido", "icon": "sonido.svg",
-                        "sub": " · ".join(x for x in (current, vol) if x) or "Elegir por dónde sale el sonido",
+                        "sub": " · ".join(x for x in (current, vol, timer) if x) or "Elegir por dónde sale el sonido",
                         "output": current, "enabled": True, "current": False})
         out.append({"id": "_help", "name": "Ayuda", "icon": "ayuda.svg", "sub": "Qué hace cada tecla del control",
                     "enabled": True, "current": False})
@@ -561,8 +562,10 @@ class MenuMixin:
             # Amarillo: las opciones de la fila resaltada (carpetas, conectar el celular, juegos, salidas).
             if not (self._menu_mode == "activities" and await self._menu_options(self._menu_sel)):
                 self._menu_restart_timer()
-        elif sub in ("left", "right") and self._menu_mode == "sound" and self._menu_sel < SOUND_FIRST:
+        elif sub in ("left", "right") and self._menu_mode == "sound" and self._menu_sel == 0:
             await self._volume_change("+" if sub == "right" else "-")
+        elif sub in ("left", "right") and self._menu_mode == "sound" and self._menu_sel == 1:
+            await self._timer_step(1 if sub == "right" else -1)
         elif sub == "right":
             if self._menu_mode == "folders":
                 await self._picker_enter(self._menu_sel)
@@ -819,9 +822,25 @@ class MenuMixin:
             await self.overlay.level(0, self._menu_items[0])
         self._menu_restart_timer()
 
+    def _timer_item(self) -> dict:
+        """La fila «Temporizador» (la segunda de Sonido): ◀ ▶ u OK pasan por 15, 30, 45 min, 1 h, 1 h y media,
+        al terminar este tema, ninguno."""
+        t = self.sleep_timer
+        return {"id": "_timer", "name": "Temporizador para apagar", "icon": "temporizador.svg",
+                "sub": t.text() + (" · ◀ ▶ cambiarlo" if t.active() else " · ◀ ▶ elegir"), "enabled": True,
+                "current": False, **({"badge": "prendido"} if t.active() else {})}
+
+    async def _timer_step(self, delta: int) -> None:
+        ok, msg = await self.sleep_timer.step(delta)
+        if self._in_sound():
+            await self._sound_render(1)
+        if not ok:
+            await self.overlay.toast(msg, 2000)
+        self._menu_restart_timer()
+
     def _sound_items(self) -> list[dict]:
         icons = {"bluetooth": "bluetooth", "hdmi": "video-display"}
-        items = [self._volume_item()]
+        items = [self._volume_item(), self._timer_item()]
         items += [{"id": f"_out{i}", "name": o.name, "icon": icons.get(o.kind, "audio-speakers"), "sub": o.detail,
                   "enabled": True, "current": o.default} for i, o in enumerate(self._sound_outputs)]
         if self._bt_scan.available():
@@ -885,8 +904,11 @@ class MenuMixin:
         if index != self._menu_sel:
             self._menu_sel = index
             await self.overlay.select(index)
-        if index < SOUND_FIRST:  # la fila «Volumen»: OK = silencio
+        if index == 0:  # la fila «Volumen»: OK = silencio
             await self._volume_change("mute")
+            return
+        if index == 1:  # «Temporizador»: OK = la opción siguiente
+            await self._timer_step(1)
             return
         index -= SOUND_FIRST
         if index >= len(self._sound_outputs):  # la fila de búsqueda

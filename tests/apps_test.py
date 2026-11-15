@@ -848,6 +848,92 @@ async def main() -> int:
         ctl._foreground = None
         await ctl.menu_close()
 
+    print("Temporizador para apagar")
+    import time as time_mod
+    from types import SimpleNamespace
+    from tele_cec.controller import sleeptimer as st_mod
+    from tele_cec.system import audio as audio_st
+    from tele_cec.web import nowplaying as np_st
+    st_log: list = []
+    vol_st = {"level": 40}
+
+    async def st_get_volume():
+        return vol_st["level"], False
+
+    async def st_change(what, step=5):
+        vol_st["level"] = int(what[1:])
+        st_log.append(f"vol{what}")
+        return True
+
+    async def st_pause(everything=False):
+        st_log.append("pausa")
+
+    async def st_sleep(why):
+        st_log.append(f"reposo:{why}")
+
+    async def st_toast(text, ms=2000):
+        st_log.append(f"aviso:{text}")
+    playing = [np_st.Track("mpv", "Playing", "Tema uno", length=200.0, position=100.0)]
+
+    async def st_players():
+        return [np_st.Track(**vars(t)) for t in playing]
+    fake_ctl = SimpleNamespace(overlay=SimpleNamespace(toast=st_toast), _pause_if_playing=st_pause,
+                               power=SimpleNamespace(asleep=False, enabled=True, mode="reposo", sleep=st_sleep))
+    saved_st = (audio_st.available, audio_st.get_volume, audio_st.change_volume, np_st.players, st_mod.FADE_S,
+                st_mod.TRACK_POLL_S)
+    audio_st.available, audio_st.get_volume, audio_st.change_volume = (lambda: True), st_get_volume, st_change
+    np_st.players, st_mod.FADE_S, st_mod.TRACK_POLL_S = st_players, 0.15, 0.02
+    try:
+        tm = st_mod.SleepTimer(fake_ctl)  # type: ignore[arg-type]
+        ok, msg = await tm.set(30)
+        check(ok and msg == "Se apaga en 30 min" and tm.status()["mode"] == "time" and 1790 < tm.status()["left"] <= 1800
+              and tm.text() == "Se apaga en 30 min", f"en 30 minutos: {msg} {tm.status()}")
+        tm.until = time_mod.monotonic() + 0.05  # que se cumpla ya
+        tm._task.cancel()
+        tm._task = asyncio.get_running_loop().create_task(tm._run_time())
+        await asyncio.wait_for(tm._task, 3)
+        vols = [x for x in st_log if x.startswith("vol")]
+        check(vols[0] == "vol=37" and "vol=0" in vols and st_log.index("pausa") > st_log.index("vol=0")
+              and st_log[-2:] == ["vol=40", "reposo:temporizador (temporizador)"] and not tm.active(),
+              f"al cumplirse: baja el volumen de a poco, pausa, lo deja como estaba y entra en reposo: {st_log}")
+        st_log.clear()
+        ok, msg = await tm.set("track")
+        check(ok and tm.status() == {"mode": "track", "text": "al terminar este tema"}, f"al terminar este tema: {msg}")
+        await asyncio.sleep(0.1)
+        check(not st_log, "mientras suena, espera")
+        playing[0] = np_st.Track("mpv", "Playing", "Tema dos", length=200.0, position=0.5)
+        await asyncio.wait_for(tm._task, 3)
+        check(st_log == ["pausa", "reposo:temporizador (terminó «Tema uno»)"],
+              f"cuando pasa al siguiente: pausa enseguida, sin bajar el volumen, y reposo: {st_log}")
+        st_log.clear()
+        playing[0] = np_st.Track("mpv", "Playing", "Tema tres", length=200.0, position=199.6)
+        await tm.set("track")
+        await asyncio.wait_for(tm._task, 3)
+        check(st_log[:1] == ["pausa"], f"a punto de terminar: pausa justo antes del siguiente: {st_log}")
+        playing.clear()
+        ok, msg = await tm.set("track")
+        check(not ok and msg == "No suena nada" and not tm.active(), f"sin nada sonando, no: {msg}")
+        await tm.set(15)
+        ok, msg = await tm.step(1)
+        check(tm.choice == 30, f"▶: la opción siguiente: {tm.choice}")
+        await tm.step(1)
+        await tm.step(1)
+        await tm.step(1)
+        ok, _ = await tm.step(1)  # «al terminar este tema» sin nada sonando: la saltea
+        check(ok and tm.choice == 0 and not tm.active(), f"sin nada sonando, saltea «al terminar» y vuelve a ninguno: "
+                                                        f"{tm.choice}")
+        await tm.set(60)
+        await tm.set(0)
+        check(not tm.active() and tm.status() is None and tm.text() == "Sin temporizador", "sacarlo")
+        check([st_mod.choice_text(c) for c in st_mod.CHOICES]
+              == ["Sin temporizador", "En 15 minutos", "En 30 minutos", "En 45 minutos", "En 1 h", "En 1 h y media",
+                  "Al terminar este tema o video"]
+              and st_mod.left_text(3900) == "en 1 h 05 min" and st_mod.left_text(20) == "en menos de un minuto",
+              "los textos")
+    finally:
+        (audio_st.available, audio_st.get_volume, audio_st.change_volume, np_st.players, st_mod.FADE_S,
+         st_mod.TRACK_POLL_S) = saved_st
+
     print("Datos de los archivos (Música y Videos)")
     from tele_cec.controller import menu as menu_ctl
     check([menu_ctl._contents_text(*a, ("tema", "temas")) for a in ((12, 0), (1, 3), (0, 2), (0, 1))]
@@ -2244,14 +2330,15 @@ echo '</mame>'
         await press(f"NUMBER{snd}")
         await asyncio.sleep(0.01)  # que arranque la búsqueda (va en segundo plano)
         check(ctl._menu_mode == "sound"
-              and menu_names() == ["Volumen", "TV (HDMI)", "Parlante JBL", "Buscando parlantes y auriculares…"]
-              and ctl.overlay.sel == 1 and scan.starts == 1,
+              and menu_names() == ["Volumen", "Temporizador para apagar", "TV (HDMI)", "Parlante JBL",
+                                   "Buscando parlantes y auriculares…"]
+              and ctl.overlay.sel == 2 and scan.starts == 1,
               f"OK abre el volumen y las salidas al instante, con la actual elegida, y busca Bluetooth: {menu_names()}")
         check(ctl.overlay.items[0]["level"] == 40 and not ctl.overlay.items[0]["muted"],
               f"la fila «Volumen» con su barra: {ctl.overlay.items[0]}")
-        check("desconectado" in ctl.overlay.items[2]["sub"], f"el Bluetooth desconectado lo dice: {ctl.overlay.items[2]['sub']}")
+        check("desconectado" in ctl.overlay.items[3]["sub"], f"el Bluetooth desconectado lo dice: {ctl.overlay.items[3]['sub']}")
         start = len(log)
-        await press("UP", "LEFT", "LEFT", "RIGHT")
+        await press("UP", "UP", "LEFT", "LEFT", "RIGHT")
         check(vol_calls == ["-", "-", "+"] and vol["level"] == 35 and ctl.overlay.items[0]["level"] == 35
               and ctl._menu_mode == "sound" and "ov:level:0:35" in log[start:],
               f"en «Volumen», ◀ ▶ bajan y suben (la barra se actualiza sin rearmar la lista): {vol_calls} {log[start:]}")
@@ -2260,7 +2347,23 @@ echo '</mame>'
               f"OK pone el silencio: {ctl.overlay.items[0]}")
         await press("RIGHT")
         check(not vol["muted"] and vol["level"] == 40, f"subir el volumen saca el silencio: {vol}")
-        await press("DOWN")
+        await press("DOWN", "RIGHT")
+        check(ctl.sleep_timer.active() and ctl.overlay.items[1]["sub"].startswith("Se apaga en 15 min")
+              and ctl._menu_mode == "sound" and ctl.overlay.sel == 1,
+              f"«Temporizador»: ▶ lo pone en 15 min: {ctl.overlay.items[1]}")
+        await press("RIGHT", "SELECT")
+        check(ctl.sleep_timer.choice == 45, f"▶ u OK: la opción siguiente (30, 45…): {ctl.sleep_timer.choice}")
+        await press("LEFT", "LEFT", "LEFT")
+        check(not ctl.sleep_timer.active() and ctl.overlay.items[1]["sub"].startswith("Sin temporizador"),
+              f"◀ vuelve hasta «sin temporizador»: {ctl.overlay.items[1]['sub']}")
+        await press("RIGHT", "EXIT")
+        check(ctl._menu_mode == "activities" and ctl.overlay.items[snd - 1]["sub"].endswith("se apaga en 15 min"),
+              f"el menú dice que está el temporizador: {ctl.overlay.items[snd - 1]['sub']}")
+        ctl.sleep_timer.cancel()
+        nearby.clear()
+        await press(f"NUMBER{snd}")
+        await asyncio.sleep(0.01)
+        check(ctl._menu_mode == "sound" and ctl.overlay.sel == 2, f"y se vuelve a Sonido: {ctl.overlay.sel}")
         vol_calls.clear()
         start = len(log)
         await press("DOWN", "SELECT")
@@ -2276,12 +2379,13 @@ echo '</mame>'
         check(ctl._menu_mode == "sound", "▶ sobre Sonido también abre las salidas")
         await press("DOWN")  # de JBL (la actual) a la fila de búsqueda
         await ctl._sound_scan_task
-        check(menu_names() == ["Volumen", "TV (HDMI)", "Parlante JBL", "Auriculares Sony", "Buscar Bluetooth otra vez"]
-              and "nuevo" in ctl.overlay.items[3]["sub"] and ctl.overlay.sel == 4,
+        check(menu_names() == ["Volumen", "Temporizador para apagar", "TV (HDMI)", "Parlante JBL", "Auriculares Sony",
+                               "Buscar Bluetooth otra vez"]
+              and "nuevo" in ctl.overlay.items[4]["sub"] and ctl.overlay.sel == 5,
               f"los auriculares que aparecen cerca se agregan al final (la selección no salta): {menu_names()} sel={ctl.overlay.sel}")
         await press("SELECT")
         await asyncio.sleep(0.01)
-        check(scan.starts == 3 and menu_names()[-1] == "Buscando parlantes y auriculares…",
+        check(scan.starts == 4 and menu_names()[-1] == "Buscando parlantes y auriculares…",
               f"«Buscar Bluetooth otra vez» vuelve a buscar: {menu_names()[-1]}")
         start = len(log)
         await press("UP", "SELECT")

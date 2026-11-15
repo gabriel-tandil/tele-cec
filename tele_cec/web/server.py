@@ -286,6 +286,14 @@ class WebRemote:
             return _json(await self.music.enqueue(data))
         if path == "/api/music/jump":
             return _json(await self.music.jump(data))
+        if path == "/api/sleep":  # temporizador para apagar: {"choice": 30} (minutos), "track" o 0 (sacarlo)
+            choice = data.get("choice")
+            if not (choice == "track" or (isinstance(choice, int) and not isinstance(choice, bool)
+                                          and 0 <= choice <= 600)):
+                return _json({"ok": False, "error": "pedido inválido"})
+            ok, msg = await self.ctl.sleep_timer.set(choice)
+            self._state = None
+            return _json({"ok": ok, "message": msg} if ok else {"ok": False, "error": msg})
         if path == "/api/client-log":
             # Lo que pasa en el celular con los controles de la pantalla bloqueada (para ver por qué no aparecen).
             msg = re.sub(r"[^\w\s:·.,;()/+%-]", "", str(data.get("msg") or ""))[:200].strip()
@@ -613,6 +621,7 @@ class WebRemote:
             "app": {"id": cur, "name": ctl.activities[cur].name if cur else ""},
             "menu": bool(ctl._menu_open),
             "asleep": bool(ctl.power.asleep),
+            "sleep": ctl.sleep_timer.status(),  # temporizador para apagar (None = no hay)
             "now": now,
             "volume": {"level": vol, "muted": muted},
             "outputs": [{"id": _out_id(o), "name": o.name, "detail": _detail(o), "kind": o.kind,

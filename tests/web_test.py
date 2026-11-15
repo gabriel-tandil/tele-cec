@@ -82,6 +82,22 @@ class FakeMusic:
         return {"error": "?"}
 
 
+class FakeTimer:
+    """El temporizador para apagar (controller/sleeptimer.py), simulado."""
+
+    def __init__(self) -> None:
+        self.choice: int | str = 0
+
+    def status(self):
+        return None if not self.choice else ({"mode": "track", "text": "al terminar este tema"}
+                                             if self.choice == "track" else {"mode": "time", "left": self.choice * 60,
+                                                                             "text": f"en {self.choice} min"})
+
+    async def set(self, choice):
+        self.choice = choice
+        return True, f"Se apaga en {choice} min" if choice else "Sin temporizador"
+
+
 class FakeCtl:
     def __init__(self) -> None:
         self.keys: list = []
@@ -97,6 +113,7 @@ class FakeCtl:
         self.browser = SimpleNamespace(engine="firefox")
         self.power = SimpleNamespace(asleep=False, last_activity=0.0, note_key=lambda: False, wake=self._wake,
                                      _wake_task=None)
+        self.sleep_timer = FakeTimer()
         self._menu_open = False
         self._switching = False
         self._no_activate = False
@@ -597,6 +614,19 @@ async def main() -> int:
         check(json.loads(body)["ok"] and calls[-1] == ("vol", "=73", 5), f"la barra: fijar el volumen en 73 %: {calls[-1]}")
         await http(port, "POST", "/api/volume", {"level": 250}, {"X-Tele-CEC": "1"})
         check(calls[-1] == ("vol", "=100", 5), f"como mucho 100 %: {calls[-1]}")
+        _, _, body = await http(port, "POST", "/api/sleep", {"choice": 30}, {"X-Tele-CEC": "1"})
+        r = json.loads(body)
+        web._state = None
+        _, _, sbody = await http(port, "GET", "/api/state")
+        check(r["ok"] and r["message"] == "Se apaga en 30 min" and json.loads(sbody)["sleep"]["left"] == 1800,
+              f"temporizador desde el celular, y el estado dice cuánto falta: {r}")
+        for bad in ("30", True, -5, 1000, "mañana"):
+            _, _, body = await http(port, "POST", "/api/sleep", {"choice": bad}, {"X-Tele-CEC": "1"})
+            check(not json.loads(body)["ok"], f"temporizador: {bad!r} no")
+        await http(port, "POST", "/api/sleep", {"choice": 0}, {"X-Tele-CEC": "1"})
+        web._state = None
+        _, _, sbody = await http(port, "GET", "/api/state")
+        check(json.loads(sbody)["sleep"] is None, "sacarlo")
         st, _, body = await http(port, "POST", "/api/client-log", {"msg": "pantalla bloqueada: sonando <b>"},
                                  {"X-Tele-CEC": "1"})
         check(st == 200 and json.loads(body)["ok"], "el celular puede dejar una línea en el registro de la Pi")
