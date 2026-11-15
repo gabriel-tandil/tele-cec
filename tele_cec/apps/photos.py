@@ -167,7 +167,9 @@ class PhotosActivity(MediaActivity):
         log.info("Fotos: lista de %s actualizada (%d fotos, %d videos, %.1f s)", describe_folder(folder),
                  len(files) - videos, videos, time.monotonic() - t0)
         if self.cfg.get("on_this_day", True):
-            photodates.dates().start(files)  # las fechas que falten, para «Un día como hoy» (de fondo)
+            dates = photodates.dates()
+            dates.hold = self.running  # mientras se miran las fotos, no compite con ellas por la red
+            dates.start(files)  # las fechas que falten, para «Un día como hoy» (de fondo y de a poco)
         return len(files)
 
     def today_files(self, folder: Path, today: Any = None) -> tuple[list[str], int]:

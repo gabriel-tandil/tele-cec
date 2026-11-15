@@ -438,6 +438,7 @@ async def main() -> int:
     resume_mod.WATCH_DIR = tmp / "videos-seguir"  # Seguir viendo: tampoco
     from tele_cec.apps import photodates as photodates_mod
     photodates_mod._dates = photodates_mod.PhotoDates(tmp / "fotos-fechas.json")  # las fechas de las fotos: tampoco
+    photodates_mod._dates.pause_s = 0.0  # sin la pausa entre fotos (en la Pi va de a poco)
     cfg_file = tmp / "config.toml"
     cfg_file.write_text('[browser]\nengine = "firefox"\nlaunch = "on_key"\n[feedback]\nbusy = false\n'
                         '[menu]\nitems = ["netflix", "tidal", "videos", "fotos"]\nsound = false\n')  # YouTube y Sonido, aparte
@@ -2573,6 +2574,10 @@ echo '</mame>'
           "la fecha de la foto (EXIF), en los dos órdenes de bytes de las cámaras")
     ph = activities_mod.PhotosActivity({"folders": [str(hoy)]})
     ph.list_file = lambda folder: tmp / "cache" / "hoy.lst"  # type: ignore[method-assign]
+    ph.running = lambda: False  # type: ignore[method-assign]
+    # Un índice propio: el de otras pruebas puede tener su hilo esperando (sus Fotos «parecen abiertas»).
+    photodates_mod._dates = photodates_mod.PhotoDates(tmp / "fotos-fechas.json")
+    photodates_mod._dates.pause_s = 0.0
     ph.write_list(hoy)
     d = photodates_mod.dates()
     if d._thread is not None:
@@ -2582,6 +2587,17 @@ echo '</mame>'
           [str(hoy / "2009/11/DSC02815.JPG")] == "20091115",
           "al actualizar la lista, las fechas se leen de fondo y se guardan")
     check(d.update(files_hoy) == 0, "la segunda vez no se vuelve a leer nada")
+    held = photodates_mod.PhotoDates(tmp / "fechas-pausa.json")
+    held.pause_s, waits = 0.0, []
+    real_hold_s = photodates_mod.HOLD_CHECK_S
+    photodates_mod.HOLD_CHECK_S = 0.01
+    held.hold = lambda: (waits.append(1) or len(waits) < 3)  # «Fotos abierta» las dos primeras veces
+    try:
+        held.update([str(hoy / "2009/11/DSC02815.JPG")])
+    finally:
+        photodates_mod.HOLD_CHECK_S = real_hold_s
+    check(len(waits) == 3 and not held.missing([str(hoy / "2009/11/DSC02815.JPG")]),
+          "mientras se miran las fotos, espera; después sigue leyendo")
     got, spread = ph.today_files(hoy, dt_mod.date(2025, 11, 15))
     check([Path(f).name for f in got] == ["100_4558.JPG", "DSC02815.JPG", "IMG_20141115_100000.jpg",
                                           "IMG-20171115-WA0003.jpg", "VID_20171115_200000.mp4"] and spread == 0,

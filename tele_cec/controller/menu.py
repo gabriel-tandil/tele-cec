@@ -133,7 +133,8 @@ def _today_item(act: activities_mod.PhotosActivity, path: Path) -> dict | None:
     except OSError:
         return None  # la carpeta todavía no se recorrió: se ve la próxima vez
     dates = photodates.dates()
-    dates.start(listed)  # las fechas que falten (de fondo)
+    dates.hold = act.running  # mientras se miran las fotos, no compite con ellas por la red
+    dates.start(listed)  # las fechas que falten (de fondo y de a poco)
     hits, spread = act.today_files(path)
     today = datetime.date.today()
     if spread:

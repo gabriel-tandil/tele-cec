@@ -17,6 +17,7 @@ import os
 import re
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from ..system.procs import LOG_DIR
@@ -25,6 +26,10 @@ log = logging.getLogger("actividades")
 
 CACHE_VERSION = 1
 SAVE_EVERY = 400       # guardar lo leído cada tantas fotos (si se corta, sigue desde ahí)
+# De a poco: leer miles de fotos de otra máquina de un tirón trabó la red de la Pi (Wi‑Fi y Bluetooth comparten el
+# chip en la Pi 400). Unas 4 por segundo (64 KB/s) y en pausa mientras se miran las fotos.
+READ_PAUSE_S = 0.25
+HOLD_CHECK_S = 5.0
 FIRST_BYTES = 16384    # lo que se lee primero de cada foto
 EXIF_BYTES = 131072    # el EXIF va al principio del JPEG (con la miniatura, hasta 64 KB)
 MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
@@ -186,6 +191,8 @@ class PhotoDates:
         self._data: dict[str, str] | None = None
         self._thread: threading.Thread | None = None
         self.progress: tuple[int, int] = (0, 0)   # (leídas, por leer) mientras trabaja
+        self.hold: Callable[[], bool] | None = None   # mientras devuelva True, no se lee (Fotos abierta)
+        self.pause_s = READ_PAUSE_S
 
     def _load(self) -> dict[str, str]:
         if self._data is None:
@@ -220,14 +227,20 @@ class PhotoDates:
         todo = self.missing(files)
         if not todo:
             return 0
-        t0, read = time.monotonic(), 0
+        t0, read, checked = time.monotonic(), 0, 0.0
         self.progress = (0, len(todo))
         for n, f in enumerate(todo, 1):
             got = name_date(f)
             from_photo = got is None
             if from_photo:
+                if self.hold is not None and time.monotonic() - checked >= HOLD_CHECK_S:
+                    while self.hold():  # Fotos abierta: esperar (se pregunta cada tanto, no en cada foto)
+                        time.sleep(HOLD_CHECK_S)
+                    checked = time.monotonic()
                 got = exif_date(f) or ""
                 read += 1
+                if self.pause_s:
+                    time.sleep(self.pause_s)
             with self._lock:
                 self._load()[f] = got
                 if from_photo and read % SAVE_EVERY == 0:
