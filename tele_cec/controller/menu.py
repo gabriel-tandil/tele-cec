@@ -25,6 +25,7 @@ MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Jue
 GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar · • (punto) ayuda, en cualquier app"
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
 SOUND_HINT = "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida · Atrás volver"
+RADIO_HINT = "▲ ▼ o 1 – 9 elegir · OK escuchar · Atrás volver"
 VOLUME_STEP = 5        # % por cada ◀ ▶ en la fila «Volumen»
 SOUND_FIRST = 2        # en Sonido, las salidas empiezan después de las filas «Volumen» y «Temporizador»
 BT_SCAN_SECONDS = 25   # cuánto se buscan parlantes y auriculares Bluetooth al abrir «Sonido»
@@ -337,7 +338,7 @@ class MenuMixin:
         espera a que aparezcan los Bluetooth; al vincular un celular, a que lea el QR o se escriba el código)."""
         if self._menu_mode.startswith("android"):
             return max(self._menu_timeout, 180.0)
-        return max(self._menu_timeout, 60.0) if self._menu_mode in ("help", "sound", "games", "map") else self._menu_timeout
+        return max(self._menu_timeout, 60.0) if self._menu_mode in ("help", "sound", "radio", "games", "map") else self._menu_timeout
 
     async def _menu_autoclose(self) -> None:
         wait = self._menu_wait()
@@ -470,6 +471,8 @@ class MenuMixin:
             await self.games_open()
         elif item["id"] == "_sound":
             await self._sound_open()
+        elif isinstance(act, activities_mod.RadioActivity) and act.stations:
+            await self._radio_open()
         else:
             return False
         return True
@@ -493,6 +496,9 @@ class MenuMixin:
             return
         if self._menu_mode == "sound":
             await self._sound_choose(index)
+            return
+        if self._menu_mode == "radio":
+            await self._radio_choose(index)
             return
         if self._menu_mode == "games":
             await self._games_choose(index)
@@ -531,6 +537,10 @@ class MenuMixin:
         if not item["enabled"]:
             await self.overlay.toast(self.activities[item["id"]].unavailable_text(), 2500)
             self._menu_restart_timer()
+            return
+        if isinstance(act, activities_mod.RadioActivity):
+            self._menu_act_sel = index
+            await self._radio_open()  # Radio: la lista de emisoras, para elegir cuál (abierta o no)
             return
         if item["id"] == self.current_app() and isinstance(act, activities_mod.AndroidActivity):
             # Compartiendo la pantalla del celular: «Seguir viendo», «Dejar de compartir» u otro celular.
@@ -637,6 +647,8 @@ class MenuMixin:
             elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] == "juegos":
                 self._menu_act_sel = self._menu_sel
                 await self.games_open()
+            elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] == "radio":
+                await self._menu_options(self._menu_sel)
             else:
                 self._menu_restart_timer()
         elif sub in ("left", "back") and self._menu_mode == "games":
@@ -647,7 +659,7 @@ class MenuMixin:
         elif sub == "left":
             if self._menu_mode == "folders":
                 await self._picker_back()
-            elif self._menu_mode == "sound":
+            elif self._menu_mode in ("sound", "radio"):
                 await self.menu_open(self._menu_act_sel)
             elif self._menu_mode == "activities" and self._menu_group:
                 await self.menu_open(group=None, select_id="_group:" + self._menu_group)
@@ -656,7 +668,7 @@ class MenuMixin:
         elif sub == "back":
             if self._menu_mode == "folders":
                 await self._picker_back()
-            elif self._menu_mode == "sound":
+            elif self._menu_mode in ("sound", "radio"):
                 await self.menu_open(self._menu_act_sel)
             elif self._menu_mode == "activities" and self._menu_group:
                 await self.menu_open(group=None, select_id="_group:" + self._menu_group)  # al menú principal
@@ -845,6 +857,54 @@ class MenuMixin:
         await self.overlay.show(items, 0, title=item["name"], hint=FOLDER_HINT, numbers=False)
         log.info("Menú: %s quedó en %s", item["name"], at)
         self._menu_restart_timer()
+
+    # ---------------------------------------------------------------- Radio: elegir la emisora
+    async def _radio_open(self) -> None:
+        """La lista de [apps.radio] stations: resaltada la que suena (o la última que sonó). OK la pone."""
+        r = self.activities["radio"]
+        assert isinstance(r, activities_mod.RadioActivity)
+        playing, state = -1, ""
+        if r.running():
+            playing, state = await r.current(), await r.playback()
+        last = r.last_index()
+        items = []
+        for i, st in enumerate(r.stations):
+            item = {"id": f"_radio{i}", "name": st["name"], "icon": r.icon, "enabled": True,
+                    "current": i == playing, "sub": "la última que sonó" if playing < 0 and i == last else ""}
+            if i == playing:
+                item["badge"] = BACKGROUND_BADGE.get(state, "sonando")
+            items.append(item)
+        sel = playing if playing >= 0 else last
+        self._menu_mode, self._menu_items, self._menu_sel = "radio", items, max(0, min(sel, len(items) - 1))
+        await self.overlay.show(items, self._menu_sel, title=r.name, hint=RADIO_HINT, numbers=True)
+        log.info("Menú: radios: %s", " · ".join(s["name"] for s in r.stations))
+        self._menu_restart_timer()
+
+    async def _radio_choose(self, index: int) -> None:
+        if index != self._menu_sel:
+            self._menu_sel = index
+            await self.overlay.select(index)
+        r = self.activities["radio"]
+        assert isinstance(r, activities_mod.RadioActivity)
+        st = r.stations[index]
+        if r.running():
+            if await r.current() != index:
+                await r.play_station(index)
+            elif await r.playback() == "Paused":
+                await r.set_pause(False)
+            if self.current_app() == "radio":
+                log.info("Menú: Radio: %s", st["name"])
+                await self.menu_close()
+                return
+        else:
+            r.want_station = index
+        log.info("Menú: elijo la Radio: %s", st["name"])
+        if self._menu_timer:
+            self._menu_timer.cancel()
+            self._menu_timer = None
+        self._switching = True
+        await self.overlay.busy(f"Abriendo {st['name']}…")
+        self._macro_task = asyncio.create_task(self._menu_switch({"id": "radio", "name": r.name}))
 
     # ---------------------------------------------------------------- salida de sonido
     # La lista aparece enseguida con lo que ya se conoce (HDMI, Bluetooth emparejados…) y, mientras tanto, se buscan

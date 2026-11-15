@@ -61,7 +61,7 @@ class RadioActivity(ProcActivity):
         self.mpv = Mpv(LOG_DIR / "radio-mpv.sock")
         self.mpris = Mpris(str(cfg.get("mpris_player") or "mpv"), float(cfg.get("volume_step", 0.05)))
         self._paused_at: float | None = None
-        self.want_station: int | None = None   # la próxima vez que se abra, esta (desde el celular)
+        self.want_station: int | None = None   # la próxima vez que se abra, esta (la elegida en el menú)
 
     # ------------------------------------------------------------ menú
     def installed(self) -> bool:

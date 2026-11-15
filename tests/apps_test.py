@@ -3295,12 +3295,12 @@ echo '</mame>'
     radio_mod.LOG_DIR = tmp / "cache-radio"   # la última radio y la lista: no tocar las de verdad
     try:
         r0 = ctl.activities.get("radio")
-        check(isinstance(r0, activities_mod.RadioActivity)
-              and r0.stations == [{"name": "Pipí Cucú", "url": "https://comodin.uy/radio/8000/320.mp3"}]
+        check(isinstance(r0, activities_mod.RadioActivity) and r0.stations == []
               and r0.context == "radio" and r0.audio_only,
-              f"viene con Pipí Cucú (de defaults.toml): {getattr(r0, 'stations', None)}")
-        check(activities_mod.RadioActivity({}).source() == ("Sin radios: agregalas en [apps.radio] stations", False)
-              and r0.source() == ("Pipí Cucú", True), "en el menú: las radios (o que no hay)")
+              f"no viene con ninguna radio (se ponen en config.toml): {getattr(r0, 'stations', None)}")
+        check(r0.source() == ("Sin radios: agregalas en [apps.radio] stations", False)
+              and activities_mod.RadioActivity({"stations": [{"name": "Pipí Cucú", "url": "https://a.example/x"}]})
+              .source() == ("Pipí Cucú", True), "en el menú: las radios (o que no hay)")
         two = {"stations": [{"name": "Pipí Cucú", "url": "https://a.example/320.mp3"},
                             "https://otra.example:8000/stream", {"name": "sin url"}]}
         radio = activities_mod.RadioActivity(two)
@@ -3399,6 +3399,38 @@ echo '</mame>'
             await ctl._fotos_video(False)
             check(paused_by_video is True and radio_state["pause"] is False,
                   "un video de las fotos la pausa, y al terminar sigue")
+
+            # el menú: elegir Radio muestra la lista de emisoras
+            radio_state["pos"] = 1
+            ctl._menu_open = True
+            await ctl._radio_open()
+            items = ctl.overlay.items
+            check(ctl._menu_mode == "radio" and [i["name"] for i in items] == ["Pipí Cucú", "otra.example:8000"]
+                  and ctl._menu_sel == 1 and items[1]["current"] and items[1].get("badge") == "sonando",
+                  f"Radio en el menú: la lista, con la que suena resaltada: {[(i['name'], i.get('badge')) for i in items]}")
+            await ctl.a_menu("pick:1")
+            check(radio_state["pos"] == 0 and not ctl._menu_open, "elegir otra emisora la cambia y cierra el menú")
+            switched: list = []
+
+            async def fake_switch(item):
+                switched.append(item)
+            real_menu_switch = ctl._menu_switch
+            ctl._menu_switch = fake_switch  # type: ignore[method-assign]
+            radio.running = lambda: False  # type: ignore[method-assign]
+            ctl._foreground = None
+            try:
+                ctl._menu_open = True
+                await ctl._radio_open()
+                check(ctl.overlay.items[radio.last_index()].get("sub") == "la última que sonó"
+                      and not any(i["current"] for i in ctl.overlay.items), "cerrada: resalta la última que sonó")
+                await ctl.a_menu("pick:2")
+                await ctl._macro_task
+                check(radio.want_station == 1 and switched and switched[0]["id"] == "radio",
+                      f"cerrada: elegir una la abre con esa: {radio.want_station} {switched}")
+            finally:
+                ctl._menu_switch = real_menu_switch  # type: ignore[method-assign]
+                ctl._switching = False
+                radio.want_station = None
         finally:
             ctl.activities["radio"] = real_radio_act
             ctl._foreground = None
