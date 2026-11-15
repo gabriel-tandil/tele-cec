@@ -987,6 +987,11 @@ async def main() -> int:
         _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": str(tmp / "Vacaciones"),
                                                            "mode": "mixed"}, H)
         check(not json.loads(body)["ok"], "el modo (fotos y videos…) es solo de Fotos")
+        _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": str(tmp / "Vacaciones"),
+                                                           "mode": "today"}, H)
+        check(not json.loads(body)["ok"], "«Un día como hoy» también es solo de Fotos")
+        from tele_cec.apps.photos import ALL_MODES
+        check("today" in ALL_MODES, "pero el celular puede pedirlo para Fotos")
         _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "mode": "cualquiera"}, H)
         check(not json.loads(body)["ok"], "un modo desconocido: no")
 

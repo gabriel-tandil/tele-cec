@@ -436,6 +436,8 @@ async def main() -> int:
     fileinfo_mod._video_info = fileinfo_mod.VideoInfo(tmp / "videos-info.json")  # no tocar el de verdad
     from tele_cec.apps import resume as resume_mod
     resume_mod.WATCH_DIR = tmp / "videos-seguir"  # Seguir viendo: tampoco
+    from tele_cec.apps import photodates as photodates_mod
+    photodates_mod._dates = photodates_mod.PhotoDates(tmp / "fotos-fechas.json")  # las fechas de las fotos: tampoco
     cfg_file = tmp / "config.toml"
     cfg_file.write_text('[browser]\nengine = "firefox"\nlaunch = "on_key"\n[feedback]\nbusy = false\n'
                         '[menu]\nitems = ["netflix", "tidal", "videos", "fotos"]\nsound = false\n')  # YouTube y Sonido, aparte
@@ -2483,6 +2485,108 @@ echo '</mame>'
     fargs = ph.default_args(tmp / "fotos", tmp / "cache" / "fotos.feh.lst")
     check(fargs[-2:] == ["--filelist", str(tmp / "cache" / "fotos.feh.lst")] and "--recursive" not in fargs,
           f"feh arranca con la lista (--filelist), sin recorrer la carpeta: {fargs[-2:]}")
+    print("Un día como hoy (Fotos)")
+    import datetime as dt_mod
+    from tele_cec.apps import photos as photos_mod
+    import struct
+
+    def jpeg_exif(when: str, bo: str = "MM") -> bytes:
+        """Un JPEG mínimo con la fecha en que se sacó (DateTimeOriginal), como los de una cámara."""
+        e = ">" if bo == "MM" else "<"
+        val = (when + "\0").encode()
+        exif_off, data_off = 8 + 18, 8 + 18 + 18
+        tiff = (bo.encode() + struct.pack(e + "HI", 42, 8)
+                + struct.pack(e + "H", 1) + struct.pack(e + "HHII", 0x8769, 4, 1, exif_off) + struct.pack(e + "I", 0)
+                + struct.pack(e + "H", 1) + struct.pack(e + "HHII", 0x9003, 2, len(val), data_off)
+                + struct.pack(e + "I", 0) + val)
+        app1 = b"Exif\0\0" + tiff
+        return (b"\xff\xd8\xff\xe0" + struct.pack(">H", 16) + b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"
+                + b"\xff\xe1" + struct.pack(">H", len(app1) + 2) + app1 + b"\xff\xda\0\x08" + b"\0" * 6)
+    hoy = tmp / "hoy"
+    for rel in ("2014/11/IMG_20141115_100000.jpg", "2017/11/IMG-20171115-WA0003.jpg", "2017/11/VID_20171115_200000.mp4",
+                "2020/11/IMG_20201113_090000.jpg", "2025/11/IMG_20251115_080000.jpg", "2018/03/IMG_20180321_120000.jpg",
+                "2008/12/20-12-2008 presentacion/DSC00001.JPG"):
+        (hoy / rel).parent.mkdir(parents=True, exist_ok=True)
+        (hoy / rel).write_bytes(b"")
+    (hoy / "2009" / "11").mkdir(parents=True)
+    (hoy / "2009" / "11" / "DSC02815.JPG").write_bytes(jpeg_exif("2009:11:15 18:30:00", "MM"))
+    (hoy / "2009" / "11" / "100_4558.JPG").write_bytes(jpeg_exif("2009:11:15 10:00:00", "II"))
+    (hoy / "2009" / "11" / "sin_fecha.jpg").write_bytes(b"\xff\xd8\xff\xda\0\x02")
+    check([photodates_mod.name_date(str(hoy / r)) for r in ("2014/11/IMG_20141115_100000.jpg", "x/IMG-20171115-WA0003.jpg",
+                                                            "x/2017-11-15 10.00.00.jpg", "2009/11/DSC02815.JPG",
+                                                            "2008/12/20-12-2008 presentacion/DSC00001.JPG",
+                                                            "x/IMG_20211345_000000.jpg")]
+          == ["20141115", "20171115", "20171115", None, "20081220", None],
+          "la fecha del nombre (o de una carpeta «20-12-2008 …»); un número que no es fecha, no")
+    check(photodates_mod.exif_date(str(hoy / "2009/11/DSC02815.JPG")) == "20091115"
+          and photodates_mod.exif_date(str(hoy / "2009/11/100_4558.JPG")) == "20091115"
+          and photodates_mod.exif_date(str(hoy / "2009/11/sin_fecha.jpg")) is None,
+          "la fecha de la foto (EXIF), en los dos órdenes de bytes de las cámaras")
+    ph = activities_mod.PhotosActivity({"folders": [str(hoy)]})
+    ph.list_file = lambda folder: tmp / "cache" / "hoy.lst"  # type: ignore[method-assign]
+    ph.write_list(hoy)
+    d = photodates_mod.dates()
+    if d._thread is not None:
+        d._thread.join(5)
+    files_hoy = ph.mode_files(hoy, "mixed")
+    check(not d.missing(files_hoy) and json.loads((tmp / "fotos-fechas.json").read_text())["files"]
+          [str(hoy / "2009/11/DSC02815.JPG")] == "20091115",
+          "al actualizar la lista, las fechas se leen de fondo y se guardan")
+    check(d.update(files_hoy) == 0, "la segunda vez no se vuelve a leer nada")
+    got, spread = ph.today_files(hoy, dt_mod.date(2025, 11, 15))
+    check([Path(f).name for f in got] == ["100_4558.JPG", "DSC02815.JPG", "IMG_20141115_100000.jpg",
+                                          "IMG-20171115-WA0003.jpg", "VID_20171115_200000.mp4"] and spread == 0,
+          f"un día como hoy: las de un 15 de noviembre de otros años (no las de este año), de la más vieja a la más "
+          f"nueva, con los videos: {[Path(f).name for f in got]}")
+    got, spread = ph.today_files(hoy, dt_mod.date(2025, 11, 11))
+    check(spread == 3 and [Path(f).name for f in got] == ["IMG_20201113_090000.jpg"],
+          f"si no hay de ese día: las de esa semana (± 3 días): {[Path(f).name for f in got]}")
+    check(ph.today_files(hoy, dt_mod.date(2025, 6, 1)) == ([], 0), "sin nada cerca: nada")
+
+    class FakeDate(dt_mod.date):
+        @classmethod
+        def today(cls):
+            return cls(2025, 11, 15)
+    real_dt_menu, real_dt_pd = menu_ctl.datetime, photodates_mod.dt
+    menu_ctl.datetime = SimpleNamespace(date=FakeDate, timedelta=dt_mod.timedelta)  # type: ignore[assignment]
+    photodates_mod.dt = SimpleNamespace(date=FakeDate, timedelta=dt_mod.timedelta)  # type: ignore[assignment]
+    real_fotos = ctl.activities["fotos"]
+    ctl.activities["fotos"] = ph
+    try:
+        _, its = ctl._picker_entries("fotos", hoy)
+        row = next((i for i in its if i.get("mode") == "today"), None)
+        check(row is not None and row["name"] == "▶ Un día como hoy" and row["enabled"]
+              and row["sub"] == "15 de noviembre: 4 fotos y 1 video de 2009, 2014 y 2017"
+              and its.index(row) == 3 and its[4]["kind"] == "dir",
+              f"en la carpeta de Fotos, después de los modos: «Un día como hoy» con cuántas y de qué años: {row}")
+        _, its = ctl._picker_entries("fotos", hoy / "2014")
+        check(not any(i.get("mode") == "today" for i in its), "en las subcarpetas no aparece")
+        opened_files: list = []
+
+        async def fake_open_mpv(files, start):
+            opened_files.extend(files)
+            return True
+        ph._open_mpv = fake_open_mpv  # type: ignore[method-assign]
+        real_which_hoy = photos_mod.shutil.which
+        photos_mod.shutil.which = lambda name: "/usr/bin/" + name
+        try:
+            ok = await ph.open(hoy, mode="today")
+        finally:
+            photos_mod.shutil.which = real_which_hoy
+        check(ok and ph.mode == "today" and not ph.random_order and [Path(f).name for f in opened_files][:2]
+              == ["100_4558.JPG", "DSC02815.JPG"] and len(opened_files) == 5,
+              f"abrirlo: esas fotos y videos, año por año (no al azar): {[Path(f).name for f in opened_files]}")
+        FakeDate.today = classmethod(lambda cls: cls(2025, 6, 1))  # type: ignore[method-assign]
+        _, its = ctl._picker_entries("fotos", hoy)
+        row = next(i for i in its if i.get("mode") == "today")
+        check(not row["enabled"] and row["sub"] == "No hay fotos de un 1 de junio en otros años",
+              f"sin fotos de esa fecha: lo dice: {row['sub']}")
+        check(menu_ctl._years_text([2009, 2010, 2012, 2014, 2023]) == "de 5 años, entre 2009 y 2023"
+              and menu_ctl._years_text([2014]) == "de 2014", "los años")
+    finally:
+        ctl.activities["fotos"] = real_fotos
+        menu_ctl.datetime, photodates_mod.dt = real_dt_menu, real_dt_pd
+
     print("Fotos y videos (mpv)")
     from tele_cec.apps import photos as photos_mod
     mix = tmp / "mix" / "2020" / "11"

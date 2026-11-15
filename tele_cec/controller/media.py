@@ -202,7 +202,10 @@ class MediaMixin:
             await self.toast("Con un visor propio ([apps.fotos] command) no hay otros modos", 3000)
             return
         old = f.mode
-        new = want if want in MODES else MODES[(MODES.index(old) + 1) % len(MODES)]
+        if old not in MODES:  # desde «Un día como hoy»: a la carpeta entera, siguiendo desde la foto que se veía
+            new = want if want in MODES else "photos"
+        else:
+            new = want if want in MODES else MODES[(MODES.index(old) + 1) % len(MODES)]
         if new == old:
             return
         info = await f.photo_info()

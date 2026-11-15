@@ -152,6 +152,7 @@ Al salir del zoom (o al pasar a otra foto con ⏮ ⏭) la presentación sigue so
 **Fotos y videos**: la presentación tiene tres modos.
 - **Solo fotos** (el de siempre).
 - **Fotos y videos**: las fotos el mismo tiempo de siempre y los videos de la carpeta en su lugar, ordenados por la fecha que traen los nombres (`IMG_20201130…`, `VID_20201108…`).
+- **Un día como hoy**: en la carpeta de Fotos (Carpetas ▸, o tocando Fotos › Carpetas en el celular), después de los tres modos, «▶ Un día como hoy» muestra las fotos y videos de esta fecha en otros años, de la más vieja a la más nueva («15 de noviembre: 312 fotos y 4 videos de 2009, 2014 y 2017»). Si no hay de ese día exacto, los de esa semana. La fecha sale del nombre (IMG_20170226_…, IMG-20180321-WA…, una carpeta «20-12-2008 …») o, para las de cámara (DSC02815.JPG), de la foto misma (EXIF). Leer todas la primera vez lleva unos minutos, de fondo (mientras tanto el menú dice «buscando fechas»); quedan guardadas en `~/.cache/tele-cec/fotos-fechas.json` y las nuevas se leen al actualizarse la lista. ▼ pasa a la carpeta entera. `on_this_day = false` lo oculta.
 - **Al azar**: si la carpeta tiene subcarpetas con fotos o videos (los años, los viajes…), la presentación va en orden aleatorio, en los tres modos; si no, en orden (por nombre, o intercalados por fecha). Con `shuffle = true`, siempre al azar. El menú lo dice debajo de cada opción («· al azar»). Al cambiar de modo con ▼ sigue desde la foto que se estaba viendo.
 - **Solo videos**: los videos de esa carpeta y sus subcarpetas.
 
@@ -858,6 +859,7 @@ tele_cec/
 │   ├── library.py         la música local por artista, disco y tema (para el celular)
 │   ├── fileinfo.py        lo que dicen los temas y los videos, para las listas del menú
 │   ├── resume.py          Seguir viendo: dónde quedó cada video (lo guarda mpv)
+│   ├── photodates.py      la fecha de cada foto (nombre o EXIF), para «Un día como hoy»
 │   ├── photos.py, media.py, folders.py   Fotos (mpv, o feh) y las carpetas de contenido
 │   ├── android.py         la pantalla del celular (scrcpy y adb)
 │   └── base.py, webprofile.py                        base de las actividades y perfiles de navegador

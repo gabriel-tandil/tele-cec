@@ -557,6 +557,7 @@ viewer = "mpv"                       # "mpv" = la placa de video achica las foto
 folders = ["/media/*/*", "~/Imágenes", "~/Pictures"]
 delay_s = 8                          # segundos por foto
 shuffle = false
+on_this_day = true                   # «Un día como hoy» en Carpetas: las fotos de esta fecha en otros años
 scroll_step = 150                    # píxeles que se mueve la foto con zoom por cada flecha
 zoom_step = 25                       # % que acerca o aleja cada paso de zoom
 command = []                         # otro visor en vez de feh ({carpeta} = la carpeta elegida)

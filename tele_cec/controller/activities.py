@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import time
 from pathlib import Path
 
 from .. import apps as activities_mod
-from ..apps.photos import MODE_NAMES, MODES
+from ..apps import photodates
+from ..apps.photos import MODE_NAMES, MODES, TODAY
 from ..system import audio as audio_mod
 
 log = logging.getLogger("tele")
@@ -163,7 +165,11 @@ class ActivitiesMixin:
         """Antes de la presentación, unos segundos: en qué modo arranca y que ▼ lo cambia."""
         others = " o ".join(MODE_NAMES[m] for m in MODES if m != mode)
         await self.overlay.hide()  # el panel no muestra avisos encima de «Abriendo…»
-        await self.overlay.toast(f"Fotos: {MODE_NAMES[mode]}\n▼ cambia a {others}", int(FOTOS_REMINDER_S * 1000) + 1500)
+        if mode == TODAY:
+            text = f"Un día como hoy: {photodates.month_day_text(datetime.date.today())}\n▼ toda la carpeta"
+        else:
+            text = f"Fotos: {MODE_NAMES[mode]}\n▼ cambia a {others}"
+        await self.overlay.toast(text, int(FOTOS_REMINDER_S * 1000) + 1500)
         await asyncio.sleep(FOTOS_REMINDER_S)
 
     async def _fotos_video(self, playing: bool) -> None:

@@ -30,13 +30,17 @@ from typing import Any
 
 from ..system.keyboard import xdotool_key
 from ..system.procs import LOG_DIR, find_pids, run_cmd
+from . import photodates
 from .folders import IMAGE_EXT, VIDEO_EXT, describe_folder, scan_media
 from .media import MediaActivity
 from .mpv import Mpv, base_args, mpv_pids
 
-MODES = ("photos", "mixed", "videos")
+MODES = ("photos", "mixed", "videos")   # los que pasa ▼
+TODAY = "today"                          # «Un día como hoy»: las fotos de esta fecha en otros años
+ALL_MODES = MODES + (TODAY,)
+TODAY_SPREAD = 3        # si no hay de este día exacto: esta semana (± 3 días) en otros años
 REFRESH_EVERY_S = 600   # la lista guardada se vuelve a recorrer (en segundo plano) como mucho cada 10 minutos
-MODE_NAMES = {"photos": "solo fotos", "mixed": "fotos y videos", "videos": "solo videos"}
+MODE_NAMES = {"photos": "solo fotos", "mixed": "fotos y videos", "videos": "solo videos", TODAY: "un día como hoy"}
 _DATE_RE = re.compile(r"((?:19|20)\d{6})[_-]?(\d{6})?")  # IMG_20201130_185306 · VID-20201108-WA0001
 
 
@@ -95,6 +99,8 @@ class PhotosActivity(MediaActivity):
     def use_mpv(self, mode: str) -> bool:
         """mpv para todo (la placa de video achica, hace zoom y mueve la foto); feh solo para «solo fotos» si se
         eligió ([apps.fotos] viewer = "feh") o si no está mpv."""
+        if mode == TODAY:  # con los videos de ese día, si hay mpv
+            return bool(shutil.which("mpv"))
         if mode != "photos":
             return True
         return self.viewer != "feh" and bool(shutil.which("mpv"))
@@ -158,7 +164,25 @@ class PhotosActivity(MediaActivity):
         videos = sum(1 for f in files if is_video(f))
         log.info("Fotos: lista de %s actualizada (%d fotos, %d videos, %.1f s)", describe_folder(folder),
                  len(files) - videos, videos, time.monotonic() - t0)
+        if self.cfg.get("on_this_day", True):
+            photodates.dates().start(files)  # las fechas que falten, para «Un día como hoy» (de fondo)
         return len(files)
+
+    def today_files(self, folder: Path, today: Any = None) -> tuple[list[str], int]:
+        """«Un día como hoy»: (las fotos y videos de esta fecha en otros años, de la más vieja a la más nueva; ±días).
+        Si no hay de este día exacto, los de esta semana (± TODAY_SPREAD días). Sin mpv, solo las fotos."""
+        try:
+            files = [ln for ln in self.list_file(folder).read_text(encoding="utf-8").splitlines() if ln]
+        except OSError:
+            return [], 0
+        if not self.use_mpv(TODAY):
+            files = [f for f in files if os.path.splitext(f)[1].lower() in self.exts]
+        d = photodates.dates()
+        for spread in (0, TODAY_SPREAD):
+            hits = d.on_this_day(files, today, spread)
+            if hits:
+                return hits, spread
+        return [], 0
 
     def mode_files(self, folder: Path, mode: str) -> list[str]:
         """Los archivos de la lista guardada para ese modo, en el orden en que se muestran."""
@@ -192,7 +216,7 @@ class PhotosActivity(MediaActivity):
         por el que empezar (al cambiar de modo, la foto que se estaba viendo: se sigue desde ahí)."""
         self.reset_view()
         self.fail_text = ""
-        mode = mode if mode in MODES else "photos"
+        mode = mode if mode in ALL_MODES else "photos"
         if self.command:
             return await super().open(folder)
         if folder is None:
@@ -200,7 +224,7 @@ class PhotosActivity(MediaActivity):
         if folder is None:
             log.warning("%s: no hay contenido en %s", self.name, ", ".join(map(str, self.folders)) or "(sin carpetas)")
             return False
-        if mode != "photos" and not shutil.which("mpv"):
+        if mode not in ("photos", TODAY) and not shutil.which("mpv"):
             self.fail_text = "Para ver videos falta mpv (sudo apt install mpv)"
             log.warning("Fotos: falta mpv para «%s»", MODE_NAMES[mode])
             return False
@@ -210,13 +234,17 @@ class PhotosActivity(MediaActivity):
             log.info("Fotos: armo la lista de %s (solo la primera vez tarda)", describe_folder(folder))
             if not await asyncio.to_thread(self.write_list, folder):
                 return False
-        files = await asyncio.to_thread(self.mode_files, folder, mode)
+        if mode == TODAY:
+            files, _spread = await asyncio.to_thread(self.today_files, folder)
+        else:
+            files = await asyncio.to_thread(self.mode_files, folder, mode)
         if not files:
             log.warning("Fotos: no hay archivos para «%s» en %s", MODE_NAMES[mode], describe_folder(folder))
             self.fail_text = {"photos": "No hay fotos en esta carpeta", "videos": "No hay videos en esta carpeta",
-                              "mixed": "No hay fotos ni videos en esta carpeta"}[mode]
+                              "mixed": "No hay fotos ni videos en esta carpeta",
+                              TODAY: "No hay fotos de esta fecha en otros años"}[mode]
             return False
-        self.random_order = self.shuffled_order(files)
+        self.random_order = mode != TODAY and self.shuffled_order(files)  # un día como hoy: año por año
         if self.random_order:
             files, start = self.shuffle_from(files, start)
         ok = await (self._open_mpv(files, start) if self.use_mpv(mode) else self._open_feh(folder, files, start))

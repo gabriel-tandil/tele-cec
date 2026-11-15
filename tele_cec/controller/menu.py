@@ -4,13 +4,14 @@ sonido y la ayuda."""
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import shutil
 import time
 from pathlib import Path
 
 from .. import apps as activities_mod
-from ..apps import fileinfo, resume
+from ..apps import fileinfo, photodates, resume
 from ..apps.library import fold
 from ..system import audio
 from ..ui import help as help_mod
@@ -109,6 +110,48 @@ def _file_items(folder: Path, act: activities_mod.MediaActivity, files: list[Pat
         out.append({"kind": "file", "path": str(f), "name": meta.get("title") or f.stem, "icon": "video-x-generic",
                     "sub": " · ".join(info), "enabled": True, "current": False, **({"resume": pos} if pos else {})})
     return out
+
+
+def _years_text(years: list[int]) -> str:
+    """«de 2014», «de 2014, 2017 y 2021», «de 9 años, entre 2009 y 2023»."""
+    if not years:
+        return ""
+    if len(years) > 4:
+        return f"de {len(years)} años, entre {years[0]} y {years[-1]}"
+    return "de " + (", ".join(map(str, years[:-1])) + " y " if len(years) > 1 else "") + str(years[-1])
+
+
+def _today_item(act: activities_mod.PhotosActivity, path: Path) -> dict | None:
+    """«Un día como hoy»: las fotos de esta fecha en otros años (si no hay, las de esta semana)."""
+    if act.command or not act.cfg.get("on_this_day", True):
+        return None
+    try:
+        listed = [ln for ln in act.list_file(path).read_text(encoding="utf-8").splitlines() if ln]
+    except OSError:
+        return None  # la carpeta todavía no se recorrió: se ve la próxima vez
+    dates = photodates.dates()
+    dates.start(listed)  # las fechas que falten (de fondo)
+    hits, spread = act.today_files(path)
+    today = datetime.date.today()
+    if spread:
+        a, b = today - datetime.timedelta(days=spread), today + datetime.timedelta(days=spread)
+        when = (f"del {a.day} al {photodates.month_day_text(b)}" if a.month == b.month
+                else f"del {photodates.month_day_text(a)} al {photodates.month_day_text(b)}")
+    else:
+        when = photodates.month_day_text(today)
+    item = {"kind": "play", "mode": activities_mod.photos.TODAY, "path": str(path), "icon": "media-playback-start",
+            "name": "▶ Esta semana, otros años" if spread else "▶ Un día como hoy", "enabled": bool(hits),
+            "current": False}
+    if hits:
+        videos = sum(1 for f in hits if activities_mod.photos.is_video(f))
+        what = _plural(len(hits) - videos, act.unit) + (f" y {_plural(videos, ('video', 'videos'))}" if videos else "")
+        item["sub"] = f"{when}: {what} {_years_text(dates.years(hits))}"
+    else:
+        item["sub"] = f"No hay fotos de un {photodates.month_day_text(today)} en otros años"
+    if dates.busy():
+        done, total = dates.progress
+        item["sub"] += f" · buscando fechas ({100 * done // max(1, total)} %)"
+    return item
 
 
 def _continue_items(act: activities_mod.MediaActivity, roots: list[Path]) -> list[dict]:
@@ -688,6 +731,10 @@ class MenuMixin:
                           else " · ".join(x for x in (_plural(videos, vunit) if videos
                                                       else _contents_text(videos_here, len(subfolders), vunit)
                                                       or "con sus subcarpetas", order) if x)})
+        if isinstance(act, activities_mod.PhotosActivity) and path in act.roots():
+            today_item = _today_item(act, path)
+            if today_item is not None:
+                items.append(today_item)
         for d in subfolders:
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})

@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 
 from .. import apps as activities_mod
 from ..apps import resume
-from ..apps.photos import MODES
+from ..apps.photos import ALL_MODES
 from ..keys import parse_key
 from ..system import audio, keyboard
 from ..system.procs import LOG_DIR
@@ -361,7 +361,7 @@ class WebRemote:
         ident = str(data.get("id") or "")
         folder: str | None = None
         mode = str(data.get("mode") or "") or None
-        if mode is not None and (mode not in MODES or not isinstance(self.ctl.activities.get(ident),
+        if mode is not None and (mode not in ALL_MODES or not isinstance(self.ctl.activities.get(ident),
                                                                        activities_mod.PhotosActivity)):
             return {"ok": False, "error": "pedido inválido"}
         if data.get("folder"):
