@@ -16,7 +16,7 @@ from typing import Any
 from ...system.mpris import Mpris
 from ...system.procs import find_pids, graphical_env
 from ..base import ProcActivity
-from ..webprofile import FIREFOX_PREFS, NAMES, find_binary, mark_clean_exit, write_user_js
+from ..webprofile import FIREFOX_PERF_PREFS, FIREFOX_PREFS, NAMES, find_binary, mark_clean_exit, write_user_js
 
 log = logging.getLogger("actividades")
 
@@ -62,6 +62,7 @@ class YouTubeActivity(ProcActivity):
             log.warning("YouTube: navegador %r inválido (firefox/chromium); uso firefox", engine)
             engine = "firefox"
         self.engine = engine
+        self.reduce_effects = bool(browser_cfg.get("reduce_effects", True))  # como en Netflix
         # El binario: el de [apps.youtube] o, si no, el mismo que usa Netflix para ese navegador.
         fx = browser_cfg.get("firefox") or {}
         self.binary_cfg = str(cfg.get("binary") or (fx.get("binary") if self.firefox else browser_cfg.get("binary"))
@@ -102,6 +103,8 @@ class YouTubeActivity(ProcActivity):
     def prefs(self) -> dict[str, Any]:
         """Preferencias del perfil de Firefox (user.js)."""
         prefs = dict(FIREFOX_PREFS)
+        if self.reduce_effects:
+            prefs.update(FIREFOX_PERF_PREFS)
         prefs["general.useragent.override"] = self.user_agent
         if self.cfg.get("force_h264", True):
             # Como la extensión h264ify: la Pi decodifica H.264 por hardware; VP9 y AV1 van por CPU.
@@ -133,6 +136,8 @@ class YouTubeActivity(ProcActivity):
             args.append("--ozone-platform=wayland")
         if self.cfg.get("force_h264", True) and (H264_EXTENSION / "manifest.json").is_file():
             args.append(f"--load-extension={H264_EXTENSION}")
+        if self.reduce_effects:
+            args += ["--force-prefers-reduced-motion", "--disable-smooth-scrolling"]
         args.append("--kiosk" if self.cfg.get("kiosk", True) else "--start-fullscreen")
         extra = self.cfg.get("extra_args") or []
         args += extra.split() if isinstance(extra, str) else [str(a) for a in extra]

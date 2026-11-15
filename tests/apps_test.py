@@ -1253,6 +1253,13 @@ async def main() -> int:
     check(activities_mod.YouTubeActivity({}, {"engine": "firefox"}).engine == "firefox"
           and activities_mod.YouTubeActivity({"engine": "firefox"}, {"engine": "chromium"}).engine == "firefox",
           "Firefox por defecto, y [apps.youtube] engine manda")
+    yfx_prefs = activities_mod.YouTubeActivity({}, {}).prefs()
+    check(yfx_prefs.get("ui.prefersReducedMotion") == 1 and yfx_prefs.get("accessibility.force_disabled") == 1
+          and "--force-prefers-reduced-motion" in yargs,
+          "YouTube también va sin animaciones (browser.reduce_effects, como Netflix)")
+    yfx_plain = activities_mod.YouTubeActivity({}, {"reduce_effects": False}).prefs()
+    check("ui.prefersReducedMotion" not in yfx_plain and yfx_plain.get("browser.newtab.preload") is False,
+          "con reduce_effects = false vuelven las animaciones, pero sigue sin el trabajo en segundo plano")
     fake_argv = {101: ["/usr/lib/chromium/chromium", f"--user-data-dir={ych.profile}", "https://www.youtube.com/tv"],
                  102: ["/usr/lib/chromium/chromium", "--type=renderer", f"--user-data-dir={ych.profile}"],
                  # Chromium reescribe su línea de comandos en /proc como un solo texto:

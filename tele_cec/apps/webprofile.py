@@ -51,10 +51,31 @@ FIREFOX_PREFS: dict[str, Any] = {
     # El joystick lo traduce tele-cec a teclas del control: si la página también lo leyera (YouTube para TV
     # entiende joysticks), cada botón haría dos cosas.
     "dom.gamepad.enabled": False,
+    # Trabajo en segundo plano que en la Pi le roba CPU y escrituras a la tarjeta SD, y que en la TV no sirve
+    # (la telemetría ya viene apagada en el Firefox de Raspberry Pi OS): estudios y experimentos remotos, la
+    # portada de "nueva pestaña" (se precarga aunque nunca se abra), las funciones de IA, y guardar la sesión
+    # cada 15 s (Netflix cambia de dirección a cada rato y tele-cec no restaura sesiones).
+    "app.normandy.enabled": False,
+    "app.shield.optoutstudies.enabled": False,
+    "nimbus.rollouts.enabled": False,
+    "toolkit.telemetry.archive.enabled": False,
+    "browser.newtabpage.enabled": False,
+    "browser.newtab.preload": False,
+    "browser.newtabpage.activity-stream.feeds.telemetry": False,
+    "browser.newtabpage.activity-stream.telemetry": False,
+    "browser.ml.chat.enabled": False,
+    "browser.ml.linkPreview.enabled": False,
+    "browser.tabs.groups.smart.enabled": False,
+    "browser.sessionstore.interval": 120000,
 }
+# Con browser.reduce_effects (por defecto sí): sin animaciones ni scroll suave, ni en las páginas ni en Firefox.
 FIREFOX_PERF_PREFS: dict[str, Any] = {
-    "ui.prefersReducedMotion": 1,
+    "ui.prefersReducedMotion": 1,           # las páginas ven prefers-reduced-motion: reduce
     "general.smoothScroll": False,
+    "toolkit.cosmeticAnimations.enabled": False,  # las de la interfaz de Firefox
+    # Si algo activa la accesibilidad (AT-SPI: tele-cec la usa con Tidal), Firefox arma el árbol de
+    # accesibilidad de cada página y se vuelve bastante más lento. Netflix y YouTube no la necesitan.
+    "accessibility.force_disabled": 1,
 }
 
 
