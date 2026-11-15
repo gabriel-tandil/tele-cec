@@ -76,7 +76,7 @@ class CoreMixin:
             return
         if button.upper() in self._gamepad_exit_buttons:
             # Mantener Back: salir del juego (y la lista de juegos) o, en otro programa, el menú.
-            if self.power.note_key():
+            if self.used():
                 return
             if self.activities[cur].context == "juegos":
                 log.info("Joystick: %s mantenido, salgo del juego", button.partition(":")[0])
@@ -118,6 +118,7 @@ class CoreMixin:
         warm = asyncio.create_task(self.startup_menu())  # y el menú abierto, si no hay nada en pantalla
         power = asyncio.create_task(self.power.run())
         watch = asyncio.create_task(self.watch_apps())  # si la app en pantalla se cierra sola, vuelve el menú
+        dates = asyncio.create_task(self.resume_photo_dates())  # las fechas de las fotos que falten, de fondo
         pads = asyncio.create_task(self.gamepads.run())  # joysticks: se detectan solos al conectarlos
         try:
             await asyncio.gather(self.browser_loop(), self.key_loop())
@@ -125,6 +126,7 @@ class CoreMixin:
             warm.cancel()
             power.cancel()
             watch.cancel()
+            dates.cancel()
             pads.cancel()
 
     async def key_loop(self) -> None:
@@ -168,10 +170,17 @@ class CoreMixin:
             log.debug("No pude leer el contexto: %s", exc)
             return "browse"
 
+    def used(self) -> bool:
+        """Alguien tocó el control. True si esa tecla solo sirvió para despertar la Pi, cancelar la cuenta regresiva del
+        reposo o retrasar el temporizador para apagar (entonces no le llega a la app: un OK no pausa la película)."""
+        if self.power.note_key():
+            return True
+        return self.sleep_timer.note_key()
+
     async def handle_key(self, code: int, ts: float | None = None) -> None:
-        if self.power.note_key():  # cualquier tecla: alguien usa la TV (cancela un reposo en curso)
-            log.info("Tecla %s: vuelvo del reposo", key_label(code))
-            return  # esa tecla solo despierta
+        if self.used():  # cualquier tecla: alguien usa la TV (despierta, cancela o retrasa el reposo)
+            log.info("Tecla %s: solo para despertar o seguir (no le llega a la app)", key_label(code))
+            return
         label = key_label(code)
         if ts is not None and time.monotonic() - ts > 0.15:
             log.debug("Tecla %s: %.0f ms en cola", label, (time.monotonic() - ts) * 1000)

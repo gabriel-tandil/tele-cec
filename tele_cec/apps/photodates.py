@@ -27,6 +27,7 @@ log = logging.getLogger("actividades")
 
 CACHE_VERSION = 1
 SAVE_EVERY = 400       # guardar lo leído cada tantas fotos (si se corta, sigue desde ahí)
+SAVE_SEEN_EVERY = 20   # las que se leen al mirarlas (la fecha en la esquina): guardar cada tantas nuevas
 # De a poco: leer miles de fotos de otra máquina de un tirón trabó la red de la Pi (Wi‑Fi y Bluetooth comparten el
 # chip en la Pi 400). Unas 4 por segundo (64 KB/s) y en pausa mientras se miran las fotos.
 READ_PAUSE_S = 0.25
@@ -321,6 +322,7 @@ class PhotoDates:
         self.progress: tuple[int, int] = (0, 0)   # (leídas, por leer) mientras trabaja
         self.hold: Callable[[], bool] | None = None   # mientras devuelva True, no se lee (Fotos abierta)
         self.pause_s = READ_PAUSE_S
+        self._unsaved = 0   # leídas al mirarlas (date_of) que todavía no están en el archivo
 
     def _load(self) -> dict[str, str]:
         if self._data is None:
@@ -351,31 +353,49 @@ class PhotoDates:
             return [f for f in files if f not in data]
 
     def update(self, files: list[str]) -> int:
-        """Lee las fechas que faltan (bloquea: llamarla en un hilo). Devuelve cuántas leyó."""
+        """Lee las fechas que faltan (bloquea: llamarla en un hilo). Devuelve cuántas leyó.
+
+        Primero las que dice el nombre (al instante: se guardan enseguida, así un reinicio no las pierde) y después,
+        de a poco, las que hay que leer de la foto (EXIF)."""
         todo = self.missing(files)
         if not todo:
             return 0
         t0, read, checked = time.monotonic(), 0, 0.0
         self.progress = (0, len(todo))
-        for n, f in enumerate(todo, 1):
-            got = name_date(f)
-            from_photo = got is None
-            if from_photo:
-                if self.hold is not None and time.monotonic() - checked >= HOLD_CHECK_S:
-                    while self.hold():  # Fotos abierta: esperar (se pregunta cada tanto, no en cada foto)
-                        time.sleep(HOLD_CHECK_S)
-                    checked = time.monotonic()
-                got = exif_date(f) or ""
-                read += 1
-                if self.pause_s:
-                    time.sleep(self.pause_s)
+        from_name = {f: d for f in todo if (d := name_date(f))}
+        with self._lock:
+            data = self._load()
+            for f, d in from_name.items():
+                data.setdefault(f, d)
+            if from_name:
+                self._save()
+        done = len(from_name)
+        self.progress = (done, len(todo))
+        for f in todo:
+            if f in from_name:
+                continue
+            with self._lock:
+                if f in self._load():  # ya la leyó date_of (se estaba mirando)
+                    done += 1
+                    continue
+            if self.hold is not None and time.monotonic() - checked >= HOLD_CHECK_S:
+                while self.hold():  # Fotos abierta: esperar (se pregunta cada tanto, no en cada foto)
+                    time.sleep(HOLD_CHECK_S)
+                checked = time.monotonic()
+            got = exif_date(f) or ""
+            read += 1
+            if self.pause_s:
+                time.sleep(self.pause_s)
             with self._lock:
                 self._load()[f] = got
-                if from_photo and read % SAVE_EVERY == 0:
+                if read % SAVE_EVERY == 0:
                     self._save()
-            self.progress = (n, len(todo))
+                    self._unsaved = 0
+            done += 1
+            self.progress = (done, len(todo))
         with self._lock:
             self._save()
+            self._unsaved = 0
         log.info("Fotos: fechas de %d archivos (%d leídas de la foto, %.0f s)", len(todo), read, time.monotonic() - t0)
         return len(todo)
 
@@ -406,10 +426,27 @@ class PhotoDates:
         return [f for _d, _n, f in sorted(hits)]
 
     def date_of(self, path: str) -> str | None:
-        """La fecha de un archivo: la guardada o, si todavía no se leyó, del nombre o de la foto (lee el archivo)."""
+        """La fecha de un archivo: la guardada o, si todavía no se leyó, del nombre o de la foto (lee el archivo, y
+        lo leído queda guardado: se escribe cada SAVE_SEEN_EVERY nuevas y al cerrar Fotos, con flush)."""
         with self._lock:
             got = self._load().get(path)
-        return got or (photo_date(path) if got is None else None)
+        if got is not None:
+            return got or None
+        got = photo_date(path) or ""
+        with self._lock:
+            self._load()[path] = got
+            self._unsaved += 1
+            if self._unsaved >= SAVE_SEEN_EVERY and not self.busy():  # si está trabajando, guarda él
+                self._save()
+                self._unsaved = 0
+        return got or None
+
+    def flush(self) -> None:
+        """Guarda las leídas al mirarlas que falten (al cerrar Fotos)."""
+        with self._lock:
+            if self._unsaved and self._data is not None:
+                self._save()
+                self._unsaved = 0
 
     def years(self, files: list[str]) -> list[int]:
         """Los años de esas fotos (para decir «de 2014, 2017 y 2021»)."""

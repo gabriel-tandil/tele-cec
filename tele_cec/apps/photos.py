@@ -441,6 +441,29 @@ class PhotosActivity(MediaActivity):
         self.mpv.stop_watch()
         await super().close()
         await self._set_video(False)  # si un video había pausado la música, que vuelva
+        await asyncio.to_thread(photodates.dates().flush)  # las fechas leídas mientras se miraba
+
+    def resume_dates(self) -> bool:
+        """Al arrancar el servicio: sigue leyendo de fondo las fechas que falten de las listas ya guardadas (si no,
+        esperaba a la próxima vez que se abriera Fotos, y cada reinicio la cortaba). True si quedó trabajando."""
+        if self.command or not self.cfg.get("on_this_day", True):
+            return False
+        files: list[str] = []
+        for lst in sorted(LOG_DIR.glob("fotos-*.lst")):
+            if lst.name.endswith(".feh.lst") or lst.name == "fotos-mpv.lst":
+                continue
+            try:
+                files += [ln for ln in lst.read_text(encoding="utf-8").splitlines() if ln]
+            except OSError:
+                continue
+        if not files:
+            return False
+        dates = photodates.dates()
+        dates.hold = self.running  # mientras se miran las fotos, no compite con ellas por la red
+        working = dates.start(list(dict.fromkeys(files)))
+        if working:
+            log.info("Fotos: sigo leyendo las fechas que faltan (de fondo)")
+        return working
 
     async def photo_info(self) -> dict[str, Any] | None:
         """Qué foto se ve: {"path", "index", "total"}, leído del título de la ventana de feh (o preguntado a mpv)."""

@@ -973,6 +973,37 @@ async def main() -> int:
         await tm.set(60)
         await tm.set(0)
         check(not tm.active() and tm.status() is None and tm.text() == "Sin temporizador", "sacarlo")
+
+        # el último minuto: cuenta regresiva, y una tecla lo retrasa
+        st_log.clear()
+        await tm.set(30)
+        check(tm.note_key() is False and tm.until - time_mod.monotonic() > 1700,
+              "antes del último minuto, las teclas son de la app (no lo retrasan)")
+        tm.until = time_mod.monotonic() + 1.2
+        tm._task.cancel()
+        tm._task = asyncio.get_running_loop().create_task(tm._run_time())
+        await asyncio.sleep(0.3)
+        check(tm.warning and any(x.startswith("aviso:Se apaga en 1 s\nCualquier tecla: 15 minutos más") for x in st_log),
+              f"cuenta regresiva en la TV, diciendo cómo retrasarlo: {st_log}")
+        old_task = tm._task
+        check(tm.note_key() is True and not tm.warning and 890 < tm.left() <= 900, "una tecla: 15 minutos más")
+        await asyncio.sleep(0.05)
+        check(old_task.done() and tm.active() and "aviso:15 minutos más · se apaga en 15 min" in st_log
+              and not any(x.startswith("reposo") or x == "pausa" for x in st_log),
+              f"y lo dice; no pausa ni entra en reposo: {st_log}")
+        st_log.clear()
+        vol_st["level"] = 40
+        tm.until = time_mod.monotonic() + 0.05
+        tm._task.cancel()
+        tm._task = asyncio.get_running_loop().create_task(tm._run_time())
+        await asyncio.sleep(0.08)  # ya bajando el volumen
+        check(tm.warning and any(x.startswith("aviso:Bajando el volumen") for x in st_log) and vol_st["level"] < 40,
+              f"bajando el volumen, también se puede retrasar: {st_log}")
+        tm.note_key()
+        await asyncio.sleep(0.05)
+        check(vol_st["level"] == 40 and "pausa" not in st_log and tm.active() and 890 < tm.left() <= 900,
+              f"retrasado mientras bajaba: el volumen vuelve a como estaba: {vol_st} {st_log}")
+        await tm.set(0)
         check([st_mod.choice_text(c) for c in st_mod.CHOICES]
               == ["Sin temporizador", "En 15 minutos", "En 30 minutos", "En 45 minutos", "En 1 h", "En 1 h y media",
                   "Al terminar este tema o video"]
@@ -981,6 +1012,59 @@ async def main() -> int:
     finally:
         (audio_st.available, audio_st.get_volume, audio_st.change_volume, np_st.players, st_mod.FADE_S,
          st_mod.TRACK_POLL_S) = saved_st
+
+    print("Fechas de las fotos: guardadas")
+    pdc = photodates_mod.PhotoDates(tmp / "fechas-vistas.json")
+    pdc.pause_s = 0.0
+    seen = tmp / "vistas"
+    seen.mkdir()
+    for i in range(photodates_mod.SAVE_SEEN_EVERY + 1):
+        (seen / f"DSC{i:05d}.JPG").write_bytes(b"\xff\xd8\xff\xda\0\x02")
+    pdc.date_of(str(seen / "DSC00000.JPG"))
+    check(not (tmp / "fechas-vistas.json").exists() and pdc._data[str(seen / "DSC00000.JPG")] == "",
+          "la fecha leída al mirar una foto queda en memoria…")
+    for i in range(1, photodates_mod.SAVE_SEEN_EVERY):
+        pdc.date_of(str(seen / f"DSC{i:05d}.JPG"))
+    saved = json.loads((tmp / "fechas-vistas.json").read_text())["files"]
+    check(len(saved) == photodates_mod.SAVE_SEEN_EVERY, f"…y se guarda cada {photodates_mod.SAVE_SEEN_EVERY}: {len(saved)}")
+    pdc.date_of(str(seen / f"DSC{photodates_mod.SAVE_SEEN_EVERY:05d}.JPG"))
+    pdc.flush()
+    check(len(json.loads((tmp / "fechas-vistas.json").read_text())["files"]) == photodates_mod.SAVE_SEEN_EVERY + 1,
+          "y al cerrar Fotos, las que falten (flush)")
+    order: list = []
+    real_exif = photodates_mod.exif_date
+
+    def spy_exif(path):
+        order.append(("exif", json.loads((tmp / "fechas-orden.json").read_text())["files"]
+                      if (tmp / "fechas-orden.json").exists() else {}))
+        return None
+    photodates_mod.exif_date = spy_exif
+    try:
+        po = photodates_mod.PhotoDates(tmp / "fechas-orden.json")
+        po.pause_s = 0.0
+        po.update(["/x/DSC1.JPG", "/x/IMG_20170226_141339.jpg", "/x/IMG-20180321-WA0001.jpg"])
+    finally:
+        photodates_mod.exif_date = real_exif
+    check(order and order[0][1].get("/x/IMG_20170226_141339.jpg") == "20170226"
+          and order[0][1].get("/x/IMG-20180321-WA0001.jpg") == "20180321",
+          "las del nombre se guardan primero (al instante); después, de a poco, las que hay que abrir")
+    from tele_cec.apps import photos as photos_rd
+    real_pd_dir = photos_rd.LOG_DIR
+    photos_rd.LOG_DIR = tmp / "cache-rd"
+    photos_rd.LOG_DIR.mkdir()
+    (photos_rd.LOG_DIR / "fotos-abc.lst").write_text("/y/IMG_20100101_000000.jpg\n/y/b.jpg\n")
+    (photos_rd.LOG_DIR / "fotos-abc.feh.lst").write_text("/y/no-esta.jpg\n")
+    started: list = []
+    real_dates = photodates_mod._dates
+    photodates_mod._dates = SimpleNamespace(hold=None, start=lambda files: started.append(files) or True)
+    try:
+        prd = activities_mod.PhotosActivity({"folders": [str(tmp)]})
+        ok = prd.resume_dates()
+    finally:
+        photos_rd.LOG_DIR = real_pd_dir
+        photodates_mod._dates = real_dates
+    check(ok and started == [["/y/IMG_20100101_000000.jpg", "/y/b.jpg"]],
+          f"al arrancar el servicio, sigue con las fechas que falten de las listas guardadas: {started}")
 
     print("Datos de los archivos (Música y Videos)")
     from tele_cec.controller import menu as menu_ctl
@@ -1670,7 +1754,9 @@ async def main() -> int:
     await press("EXIT")
     await asyncio.sleep(0.1)
     check(task.cancelled() or task.done(), "una tecla durante la cuenta regresiva cancela el apagado")
-    check("ov:toast:Cancelado" in log[start:], f"y avisa: {log[start:]}")
+    check("ov:toast:Cancelado: sigue andando" in log[start:]
+          and all(x.startswith("ov:toast") for x in log[start:]),
+          f"y avisa; esa tecla no le llega a la app (un OK no pausa la película): {log[start:]}")
     check(sent == [], f"sin apagar la TV: {sent}")
     pw.tv_standby = True
     real_sleep = asyncio.sleep

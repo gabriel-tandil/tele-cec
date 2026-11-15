@@ -3,6 +3,9 @@
 Al cumplirse baja el volumen de a poco (unos segundos), pausa todo, deja el volumen como estaba y pone la Pi en
 reposo ([power]; apaga también la TV). Con «al terminar este tema» no baja el volumen: pausa apenas termina. Se elige
 desde Sonido en el menú de la TV o desde el celular; el menú y el celular muestran cuánto falta.
+
+El último minuto la TV muestra una cuenta regresiva: cualquier tecla del control lo retrasa 15 minutos (también
+mientras baja el volumen, que vuelve a como estaba). Esa tecla no le llega a la app.
 """
 
 from __future__ import annotations
@@ -21,7 +24,8 @@ log = logging.getLogger("tele")
 
 CHOICES: list[int | str] = [0, 15, 30, 45, 60, 90, "track"]   # 0 = sin temporizador; "track" = al terminar el tema
 FADE_S = 15.0           # cuánto tarda en bajar el volumen antes de pausar
-WARN_S = 60             # aviso en la TV un minuto antes
+WARN_S = 60             # cuenta regresiva en la TV el último minuto
+POSTPONE_MIN = 15       # cuánto lo retrasa una tecla durante la cuenta regresiva ([power] timer_postpone_minutes)
 TRACK_POLL_S = 1.0
 
 
@@ -49,6 +53,30 @@ class SleepTimer:
         self.until: float | None = None    # monotonic (en minutos)
         self.track: tuple[str, str] | None = None   # (reproductor, título) del tema que hay que dejar terminar
         self._task: asyncio.Task | None = None
+        self.warning = False   # cuenta regresiva (o bajando el volumen): una tecla lo retrasa
+        self._volume: int | None = None   # el volumen de antes de empezar a bajarlo (para devolverlo)
+        try:
+            power = ctl.cfg.raw.get("power") or {}
+        except AttributeError:
+            power = {}
+        self.postpone_min = max(1, int(power.get("timer_postpone_minutes", POSTPONE_MIN) or POSTPONE_MIN))
+
+    def note_key(self) -> bool:
+        """Se tocó el control. Durante la cuenta regresiva: lo retrasa (POSTPONE_MIN) y devuelve True (la tecla no
+        tiene que llegarle a la app)."""
+        if not (self.warning and self.active() and self.choice != "track"):
+            return False
+        minutes = self.postpone_min
+        log.info("Temporizador: retrasado %d min (tecla)", minutes)
+        loop = asyncio.get_running_loop()
+        old = self._task
+        self.warning = False
+        self.until = time.monotonic() + minutes * 60
+        self._task = loop.create_task(self._run_time())  # el nuevo, antes de cancelar el viejo (sigue «activo»)
+        if old is not None and not old.done():
+            old.cancel()
+        loop.create_task(self.ctl.overlay.toast(f"{minutes} minutos más · se apaga {left_text(minutes * 60)}", 3000))
+        return True
 
     # ------------------------------------------------------------ estado
     def active(self) -> bool:
@@ -106,6 +134,7 @@ class SleepTimer:
         if self._task and not self._task.done() and self._task is not asyncio.current_task():
             self._task.cancel()
         self._task, self.until, self.track = None, None, None
+        self.warning = False
 
     # ------------------------------------------------------------ esperar
     async def _playing(self):
@@ -119,11 +148,16 @@ class SleepTimer:
             warn_at = self.until - WARN_S
             if time.monotonic() < warn_at:
                 await asyncio.sleep(warn_at - time.monotonic())
-                await self.ctl.overlay.toast("Se apaga en 1 minuto", 4000)
-            await asyncio.sleep(max(0.0, self.until - time.monotonic()))
+            self.warning = True
+            hint = f"Cualquier tecla: {self.postpone_min} minutos más"
+            while (left := self.until - time.monotonic()) > 0.05:
+                step = min(5.0, left) if left > 10 else min(1.0, left)
+                # El aviso dura hasta la próxima actualización (así no parpadea).
+                await self.ctl.overlay.toast(f"Se apaga en {max(1, round(left))} s\n{hint}", int(step * 1000) + 700)
+                await asyncio.sleep(step)
             await self._finish("temporizador", fade=True)
         except asyncio.CancelledError:
-            pass
+            await self._restore_volume()  # retrasado mientras bajaba el volumen: vuelve a como estaba
 
     async def _run_track(self) -> None:
         """Hasta que termine ese tema: cambia el título, se detiene, o el tiempo llega al final."""
@@ -145,20 +179,33 @@ class SleepTimer:
         except asyncio.CancelledError:
             pass
 
+    async def _restore_volume(self) -> None:
+        if self._volume is not None:
+            level, self._volume = self._volume, None
+            try:
+                await audio.change_volume(f"={level}")
+            except Exception:  # noqa: BLE001
+                log.exception("Temporizador: no pude devolver el volumen")
+
     # ------------------------------------------------------------ apagar
     async def _finish(self, why: str, fade: bool) -> None:
         ctl = self.ctl
         log.info("Temporizador: %s, apago", why)
         level, muted = await audio.get_volume() if audio.available() else (None, False)
         if fade and level and not muted:
+            await ctl.overlay.toast(f"Bajando el volumen…\nCualquier tecla: {self.postpone_min} minutos más",
+                                    int(FADE_S * 1000) + 500)
+            self._volume = level
             steps = 15
-            for i in range(1, steps + 1):  # bajar de a poco hasta casi nada
+            for i in range(1, steps + 1):  # bajar de a poco hasta casi nada (una tecla todavía lo retrasa)
                 await audio.change_volume(f"={round(level * (1 - i / steps))}")
                 await asyncio.sleep(FADE_S / steps)
+        self.warning = False  # desde acá ya no se retrasa: pausa y reposo
         await ctl._pause_if_playing(everything=True)
         if fade and level and not muted:
             await asyncio.sleep(0.5)
             await audio.change_volume(f"={level}")  # la próxima vez, con el volumen de siempre
+            self._volume = None
         self._task, self.until, self.track, self.choice = None, None, None, 0
         pw = ctl.power
         if pw.asleep:

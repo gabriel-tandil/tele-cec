@@ -473,7 +473,8 @@ mode = "reposo"
 idle_minutes = 180            # sin sonido ni teclas del control (una presentación de fotos sin música no cuenta)
 tv_off_minutes = 15           # si la TV avisó por CEC que se apagó (standby): alcanza con menos
 menu_idle_minutes = 10        # sin ninguna actividad abierta (solo el menú en pantalla) y sin teclas (0 = idle_minutes)
-warn_seconds = 60             # cuenta regresiva en pantalla antes
+warn_seconds = 60             # cuenta regresiva en pantalla antes (cualquier tecla la cancela)
+timer_postpone_minutes = 15   # temporizador para apagar: una tecla en su último minuto lo retrasa tanto
 tv_standby = true             # apagar también la TV por CEC
 wake_on_tv = true             # en reposo: volver cuando se prende la TV (sin cambiarle la entrada)
 resume_apps = false           # al volver: false = el menú de actividades; true = reabrir lo que estaba abierto, en pausa

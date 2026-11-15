@@ -4,7 +4,8 @@
 - Uso: cada tecla del control reinicia la cuenta.
 - TV apagada: si la TV avisó por CEC que pasó a standby, alcanza con un tiempo más corto.
 - Nada abierto: solo el menú (o el escritorio), sin ninguna actividad andando: también alcanza con menos.
-- Antes, el panel muestra una cuenta regresiva; cualquier tecla la cancela. Después se apaga la TV por CEC.
+- Antes, el panel muestra una cuenta regresiva; cualquier tecla la cancela (esa tecla no le llega a la app) y la
+  cuenta vuelve a empezar. Después se apaga la TV por CEC.
 
 Dos modos ([power] mode):
 - «reposo» (por defecto): se pausa y se cierra todo. La Pi sigue escuchando CEC: al apretar una tecla o al
@@ -97,7 +98,8 @@ class IdleShutdown:
 
     # ------------------------------------------------------------ lo que avisa el controller
     def note_key(self) -> bool:
-        """Se apretó una tecla. Devuelve True si solo sirvió para despertar (no hay que hacer nada más con ella)."""
+        """Se apretó una tecla. Devuelve True si solo sirvió para despertar o para cancelar la cuenta regresiva (no hay
+        que hacer nada más con ella: si no, un OK para cancelar también pausaba la película)."""
         self.last_activity = time.monotonic()
         self.tv_off_since = None  # si alguien usa el control, la TV está prendida
         self.tv_ours = True       # y mostrando la Pi (CEC le manda las teclas a la fuente activa)
@@ -111,7 +113,8 @@ class IdleShutdown:
         if self._countdown and not self._countdown.done():
             self._countdown.cancel()
             log.info("Reposo o apagado automático cancelado (tecla)")
-            asyncio.get_running_loop().create_task(self.ctl.toast("Cancelado", 2500))
+            asyncio.get_running_loop().create_task(self.ctl.toast("Cancelado: sigue andando", 2500))
+            return True
         return False
 
     def on_frame(self, frame: CecFrame) -> None:
@@ -199,7 +202,7 @@ class IdleShutdown:
                 return
             step = min(5, left) if left > 10 else 1
             # El aviso dura hasta la próxima actualización (así no parpadea).
-            await self.ctl.toast(f"La Raspberry Pi {self.verb} en {left} s\nApretá cualquier tecla para cancelar",
+            await self.ctl.toast(f"La Raspberry Pi {self.verb} en {left} s\nApretá cualquier tecla para seguir usándola",
                                  int(step * 1000) + 700)
             await asyncio.sleep(step)
             left -= step

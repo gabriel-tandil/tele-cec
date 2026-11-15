@@ -19,6 +19,7 @@ log = logging.getLogger("tele")
 KEEP_PLAYING = {"fotos": {"tidal", "musica", "radio"}}   # siguen sonando de fondo con las fotos
 WATCH_EVERY_S = 1.5    # cada cuánto se mira si la app en pantalla se cerró sola
 FOTOS_REMINDER_S = 3.0  # cuánto se ve el aviso del modo de Fotos antes de que arranque la presentación
+PHOTO_DATES_AFTER_S = 120  # al arrancar el servicio, a los 2 min sigue leyendo las fechas de las fotos que falten
 CLOSED_TEXT = {"android": "Se desconectó el celular", "videos": "Terminó el video", "juegos": "Terminó el juego"}
 
 
@@ -192,6 +193,17 @@ class ActivitiesMixin:
                 await m.ctl("play")
             elif local is not None:
                 await local.set_pause(False)
+
+    async def resume_photo_dates(self) -> None:
+        """Un rato después de arrancar: que siga la lectura de fondo de las fechas de las fotos (la cortan los
+        reinicios del servicio y antes recién seguía al volver a abrir Fotos)."""
+        await asyncio.sleep(PHOTO_DATES_AFTER_S)
+        f = self.activities.get("fotos")
+        if isinstance(f, activities_mod.PhotosActivity):
+            try:
+                await asyncio.to_thread(f.resume_dates)
+            except Exception:  # noqa: BLE001
+                log.exception("Fotos: no pude seguir leyendo las fechas")
 
     def _local_background(self):
         """La música local o la Radio abierta (las que pueden sonar de fondo con las fotos, además de Tidal)."""
