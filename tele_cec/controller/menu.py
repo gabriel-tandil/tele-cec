@@ -727,7 +727,7 @@ class MenuMixin:
         return isinstance(self.activities.get(ident), activities_mod.MediaActivity)
 
     def _picker_title(self, act: activities_mod.MediaActivity, path: Path) -> str:
-        """«Fotos · En red: fotosRemotas › 2017 › 07» (las últimas partes, si es muy largo)."""
+        """«Fotos · En red: fotos-red › 2017 › 07» (las últimas partes, si es muy largo)."""
         for root in act.roots():
             try:
                 rel = path.relative_to(root)

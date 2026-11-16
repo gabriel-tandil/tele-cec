@@ -351,7 +351,7 @@ key_echo = true
         await ctl.run_action(["profile:1", "wait:800", "continue_watching"])
         await asyncio.sleep(1.5)
         s = await st()
-        check("profile:Gaby:trusted" in s["log"] and s["path"] == "/watch/80001", f"macro perfil 1 + seguir viendo: {s['path']}")
+        check("profile:Ana:trusted" in s["log"] and s["path"] == "/watch/80001", f"macro perfil 1 + seguir viendo: {s['path']}")
     finally:
         await ctl.disconnect()
         chrome.terminate()

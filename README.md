@@ -233,7 +233,7 @@ Las opciones van en **dos columnas**, sin desplazar (`[menu] columns = 2`; con `
   - si en una carpeta no hay música o fotos, esa opción aparece en gris (en Videos, «No hay videos en esta carpeta»);
   - la carpeta elegida vale solo esa vez: la próxima vez vuelve la predeterminada. Si Videos o Fotos ya estaban abiertos, se reabren en la carpeta nueva.
 - **Temporizador para apagar**: al cumplirse baja el volumen de a poco (15 s), pausa todo, deja el volumen como estaba y la Pi entra en [reposo](#reposo-automático), que también apaga la TV. Con «al terminar este tema o video» pausa apenas termina, sin bajar el volumen. El último minuto la TV muestra una cuenta regresiva: **cualquier tecla lo retrasa 15 minutos** (`[power] timer_postpone_minutes`), también mientras baja el volumen, que vuelve a como estaba; esa tecla no le llega a la app. «Sonido» en el menú dice cuánto falta («se apaga en 28 min»). También se elige desde el celular. **Desde cualquier pantalla: el punto (•) dos veces seguidas** muestra cómo está («Temporizador · Se apaga en 28 min · • otra vez: en 45 minutos») y, mientras se ve ese aviso, cada toque del punto pasa a la opción siguiente (15 → 30 → 45 → 60 → 90 min → al terminar el tema → sin temporizador), como el botón Sleep de las teles; la app de abajo no recibe esas teclas. Un toque solo sigue siendo la Ayuda (el segundo la cierra). `[power] timer_key` cambia la tecla (`""` lo apaga) y `timer_double_press_ms` (1000) cuánto puede pasar entre los dos toques.
-- **Sonido**: la anteúltima opción muestra por dónde sale el sonido ahora y el volumen («KN320 · volumen 40 %»). Con OK o ▶ se abre: arriba, la fila **Volumen** con su barra (◀ ▶ lo bajan y suben de a 5 %, OK pone o saca el silencio; subirlo o bajarlo también saca el silencio), después el **Temporizador para apagar** (◀ ▶ u OK pasan por 15, 30, 45 minutos, 1 hora, 1 hora y media, «al terminar este tema o video» y ninguno; ver abajo) y la lista de salidas: la TV por HDMI, los parlantes o auriculares **Bluetooth** emparejados (aunque estén desconectados: elegirlos los conecta), y las salidas analógicas o USB que haya. Mientras la lista está abierta se **buscan parlantes y auriculares Bluetooth cercanos** (25 s; los teléfonos, teclados y demás no aparecen): los que se encuentran se agregan al final como «nuevo», y elegir uno lo empareja, lo marca de confianza (así después se reconecta solo) y lo conecta. Para que aparezca, ponelo en modo emparejamiento; la última fila, «Buscar Bluetooth otra vez», repite la búsqueda. OK pasa el sonido ahí (lo que esté sonando se muda solo) y, sobre una salida, ◀ o Atrás vuelve. Elegir la TV (o cualquier salida que no sea Bluetooth) también **desconecta** el parlante o los auriculares Bluetooth: no quedan tomados y al reiniciar la Pi no vuelven a conectarse solos. Usa PipeWire (`wpctl`) y `bluetoothctl`. Se oculta con `[menu] sound = false`.
+- **Sonido**: la anteúltima opción muestra por dónde sale el sonido ahora y el volumen («Auriculares BT · volumen 40 %»). Con OK o ▶ se abre: arriba, la fila **Volumen** con su barra (◀ ▶ lo bajan y suben de a 5 %, OK pone o saca el silencio; subirlo o bajarlo también saca el silencio), después el **Temporizador para apagar** (◀ ▶ u OK pasan por 15, 30, 45 minutos, 1 hora, 1 hora y media, «al terminar este tema o video» y ninguno; ver abajo) y la lista de salidas: la TV por HDMI, los parlantes o auriculares **Bluetooth** emparejados (aunque estén desconectados: elegirlos los conecta), y las salidas analógicas o USB que haya. Mientras la lista está abierta se **buscan parlantes y auriculares Bluetooth cercanos** (25 s; los teléfonos, teclados y demás no aparecen): los que se encuentran se agregan al final como «nuevo», y elegir uno lo empareja, lo marca de confianza (así después se reconecta solo) y lo conecta. Para que aparezca, ponelo en modo emparejamiento; la última fila, «Buscar Bluetooth otra vez», repite la búsqueda. OK pasa el sonido ahí (lo que esté sonando se muda solo) y, sobre una salida, ◀ o Atrás vuelve. Elegir la TV (o cualquier salida que no sea Bluetooth) también **desconecta** el parlante o los auriculares Bluetooth: no quedan tomados y al reiniciar la Pi no vuelven a conectarse solos. Usa PipeWire (`wpctl`) y `bluetoothctl`. Se oculta con `[menu] sound = false`.
 - Elegir otra **cierra la actual** (pausando antes lo que esté sonando) y abre la nueva. Mientras tanto el menú muestra «Abriendo…» y las teclas se ignoran, para que el cambio no quede por la mitad.
 - Las actividades sin contenido (por ejemplo, Fotos sin pendrive ni fotos en `~/Imágenes`) aparecen en gris y avisan al elegirlas. Las que no están instaladas no aparecen.
 - Si no tocás nada, el menú se cierra solo a los 10 s (`menu.timeout_s`).
@@ -357,11 +357,9 @@ shuffle = false
 
 [apps.radio]
 stations = [   # nombre y dirección de la transmisión (mp3, aac, m3u, m3u8…); sin ninguna, Radio queda en gris
-  { name = "La 100", url = "https://playerservices.streamtheworld.com/api/livestream-redirect/FM999_56.mp3" },
-  { name = "Rock & Pop", url = "https://playerservices.streamtheworld.com/api/livestream-redirect/ROCKANDPOPAAC.aac" },
-  { name = "Somos Radio (AM 530)", url = "https://live-ar1.cdnrad.com/hls/radio-2121/live.m3u8" },
-  { name = "Pipí Cucú", url = "https://comodin.uy/radio/8000/320.mp3" },
-]
+  { name = "Mi radio", url = "https://radio.example.com/stream.mp3" },
+  { name = "Otra radio", url = "https://otra.example.com/live.m3u8" },
+]   # las direcciones de casi todas las emisoras están en https://www.radio-browser.info
 
 [apps.fotos]
 folders = ["/media/*/*", "~/Imágenes", "~/Pictures"]
@@ -381,10 +379,10 @@ command = []      # otro visor
 Para una carpeta compartida por Samba (por ejemplo, desde otra Raspberry Pi), lo más cómodo es que se monte sola al usarla. En `/etc/fstab`, con el usuario y la contraseña en un archivo que solo lee root (`chmod 600`):
 
 ```
-//192.168.0.8/Fotos  /mnt/fotosRemotas  cifs  credentials=/etc/samba/credenciales-fotos,ro,uid=1000,gid=1000,iocharset=utf8,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=600  0  0
+//servidor/Fotos  /mnt/fotos-red  cifs  credentials=/etc/samba/credenciales,ro,uid=1000,gid=1000,iocharset=utf8,nofail,_netdev,x-systemd.automount,x-systemd.idle-timeout=600  0  0
 ```
 
-y en tu `config.toml`: `[apps.fotos] folders = ["/mnt/fotosRemotas", "/media/*/*", "~/Imágenes"]`. Con `nofail` y `x-systemd.automount`, la Pi arranca igual aunque la otra máquina esté apagada.
+y en tu `config.toml`: `[apps.fotos] folders = ["/mnt/fotos-red", "/media/*/*", "~/Imágenes"]`. Con `nofail` y `x-systemd.automount`, la Pi arranca igual aunque la otra máquina esté apagada.
 
 **Con feh** (`viewer = "feh"`): feh es una app X11 (corre por Xwayland) y sus atajos (pausa, zoom, girar) se le mandan con `xdotool`, que instala `install.sh`. Con `wtype` no sirve: Xwayland no usa su mapa de teclas y a feh le llega otra tecla (Escape, que lo cierra).
 
@@ -463,7 +461,7 @@ bookmarks = [
 
 ```toml
 [apps.juegos]
-rompath = []          # [] = el de ~/.mame/mame.ini; o p. ej. ["~/mame/roms", "/media/gaby/USB/roms"]
+rompath = []          # [] = el de ~/.mame/mame.ini; o p. ej. ["~/mame/roms", "/media/usuario/USB/roms"]
 extra_args = []       # más opciones de MAME, p. ej. ["-skip_gameinfo"]
 guide_menu = true     # el botón del medio abre nuestro menú (el de MAME queda en Tab y en «Opciones de MAME»)
 control = true        # script Lua para pausar y cerrar MAME bien
@@ -538,7 +536,7 @@ extra_args = []               # más opciones de scrcpy
 
 ## Control desde el celular
 
-Lo más fácil: abajo del menú de actividades de la TV hay un **código QR**; apuntale con la cámara del celular y abre la página (lleva la IP de la Pi, así anda aunque el celular no resuelva nombres `.local`; necesita `qrencode`, y `[web] menu_qr = false` lo oculta). O, con el celular en la misma red que la Pi, abrí **`http://raspberrypi.local:8765/`** en el navegador. Si el celular no resuelve nombres `.local`, usá la IP de la Pi, por ejemplo `http://192.168.0.111:8765/`. En el menú del navegador, **Agregar a la pantalla de inicio** la deja como una app más. `#tidal`, `#musica` o `#sonido` al final de la dirección abren directo esa parte.
+Lo más fácil: abajo del menú de actividades de la TV hay un **código QR**; apuntale con la cámara del celular y abre la página (lleva la IP de la Pi, así anda aunque el celular no resuelva nombres `.local`; necesita `qrencode`, y `[web] menu_qr = false` lo oculta). O, con el celular en la misma red que la Pi, abrí **`http://raspberrypi.local:8765/`** en el navegador. Si el celular no resuelve nombres `.local`, usá la IP de la Pi, por ejemplo `http://192.168.1.50:8765/`. En el menú del navegador, **Agregar a la pantalla de inicio** la deja como una app más. `#tidal`, `#musica` o `#sonido` al final de la dirección abren directo esa parte.
 
 Si se instala una versión nueva en la Pi, la página abierta en el celular se recarga sola.
 

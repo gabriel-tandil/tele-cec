@@ -118,7 +118,7 @@
   const NEW = (sessionStorage.getItem('layout') || 'nuevo') !== 'viejo';
   document.documentElement.dataset.layout = NEW ? 'nuevo' : 'viejo';
 
-  const PROFILES = ['Gaby', 'Chicos', 'Invitado'];
+  const PROFILES = ['Ana', 'Chicos', 'Invitado'];
   const choose = (name, e) => {
     e.preventDefault();
     log('profile:' + name + (e.isTrusted ? ':trusted' : ''));
@@ -231,7 +231,7 @@
 
   // ============================================================ inicio (/browse)
   const ROWS = [
-    ['continueWatching', NEW ? 'Continuar viendo contenido de Gaby' : 'Seguir viendo como Gaby', 'Seguir'],
+    ['continueWatching', NEW ? 'Continuar viendo contenido de Ana' : 'Seguir viendo como Ana', 'Seguir'],
     ['trending', 'Tendencias', 'Tendencias'], ['popular', 'Populares', 'Populares'],
     ['new', 'Nuevos lanzamientos', 'Nuevos'], ['top10', 'Top 10', 'Top'], ['comedy', 'Comedias', 'Comedias'],
   ];

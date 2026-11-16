@@ -40,11 +40,9 @@
 # [apps.radio]                # Radio por internet con mpv (no viene ninguna). OK en el menú pone la última que
 #                             # sonó; el botoncito «Radios» (o ▶) muestra la lista. covers = false: sin buscar tapas
 # stations = [
-#   { name = "La 100", url = "https://playerservices.streamtheworld.com/api/livestream-redirect/FM999_56.mp3" },
-#   { name = "Rock & Pop", url = "https://playerservices.streamtheworld.com/api/livestream-redirect/ROCKANDPOPAAC.aac" },
-#   { name = "Somos Radio (AM 530)", url = "https://live-ar1.cdnrad.com/hls/radio-2121/live.m3u8" },
-#   { name = "Pipí Cucú", url = "https://comodin.uy/radio/8000/320.mp3" },
-# ]
+#   { name = "Mi radio", url = "https://radio.example.com/stream.mp3" },
+#   { name = "Otra radio", url = "https://otra.example.com/live.m3u8" },
+# ]                           # direcciones de emisoras: https://www.radio-browser.info
 
 # [apps.navegador]            # Navegador: cualquier página con el control remoto (Firefox aparte, perfil propio)
 # scale = 1.5                 # todo un 50 % más grande, para leer desde el sillón

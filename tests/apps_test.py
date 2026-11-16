@@ -419,7 +419,7 @@ class FakePhotos(FakeProcMixin, activities_mod.PhotosActivity):
         return True
 
     async def photo_info(self):
-        base = self.current_folder or Path("/mnt/fotosRemotas")
+        base = self.current_folder or Path("/mnt/fotos-red")
         return {"path": str(base / "2017" / "07" / "IMG_0001.jpg"), "index": 12, "total": 49403}
 
 
@@ -598,16 +598,16 @@ async def main() -> int:
     check(fotos.paused, "queda en pausa")
     out = await press("NUMBER1")
     check(out == ["ov:toast:♥ Guardada en Favoritas (1) · 1 otra vez la saca"]
-          and fotos.favorites() == ["/mnt/fotosRemotas/2017/07/IMG_0001.jpg"],
+          and fotos.favorites() == ["/mnt/fotos-red/2017/07/IMG_0001.jpg"],
           f"1 guarda la foto que se ve en Favoritas (también con feh): {out}")
     out = await press("NUMBER1")
     check(out == ["ov:toast:Sacada de Favoritas (0)"] and fotos.favorites() == [], f"otra vez 1 la saca: {out}")
     check(ctl.cfg.action_for("fotos_zoom", parse_key("NUMBER1"))[0] == "fotos:favorite"
           and ctl.cfg.action_for("fotos", parse_key("NUMBER2")) is None, "también con zoom; el 2 queda libre")
     await press("SELECT")
-    fotos.current_folder = Path("/mnt/fotosRemotas")
+    fotos.current_folder = Path("/mnt/fotos-red")
     out = await press("F2_RED", "F4_YELLOW", "F1_BLUE")
-    where = activities_mod.describe_folder(Path("/mnt/fotosRemotas"))  # «En red: …» o «Pendrive …» según la máquina
+    where = activities_mod.describe_folder(Path("/mnt/fotos-red"))  # «En red: …» o «Pendrive …» según la máquina
     check(out == ["feh:greater", "feh:z", f"ov:toast:{where} › 2017 › 07\nIMG_0001.jpg\nFoto 12 de 49.403"],
           f"rojo gira, amarillo al azar, azul = qué foto es (carpeta, archivo, número): {out}")
 
@@ -682,7 +682,7 @@ async def main() -> int:
     ctl.sleep_timer.cancel()
     ctl.sleep_timer._panel_until = ctl.sleep_timer._key_last = 0.0
 
-    print("La tecla CC (SUB_PICTURE, así la manda la Philips)")
+    print("La tecla CC (SUB_PICTURE, así la mandan algunas TVs)")
     af = ctl.cfg.action_for
     check(af("player", 0x51) == ("subtitles", "player") and af("player_menu", 0x51) == ("subtitles", "player_menu")
           and af("player", 0x71) == ("profiles", "player") and af("videos", 0x51) == ("video:subtitles", "videos")
@@ -696,7 +696,7 @@ async def main() -> int:
     check(any(k == "CC" and d == "Subtítulos" for k, d in help_t.rows(ctl.cfg, "player")), "la Ayuda la muestra como CC")
 
     print("Fotos: modos (▼)")
-    fotos.current_folder = fotos.current_folder or Path("/mnt/fotosRemotas")
+    fotos.current_folder = fotos.current_folder or Path("/mnt/fotos-red")
     out = await press("DOWN")
     opened_now = [x for x in out if x.startswith("fotos:")]
     check(opened_now == ["fotos:close", f"fotos:open:{fotos.current_folder.name}:mixed:desde:IMG_0001.jpg"]
@@ -798,7 +798,7 @@ async def main() -> int:
     ctl._switching = False
 
     print("Elegir otra carpeta (▶ sobre Videos)")
-    usb = tmp / "pick" / "media" / "gaby" / "USB"
+    usb = tmp / "pick" / "media" / "usuario" / "USB"
     for d in ("Series/T1", "Series/T2", "Pelis", ".oculta"):
         (usb / d).mkdir(parents=True)
     (usb / "Pelis" / "a.mp4").write_bytes(b"")
@@ -1962,7 +1962,7 @@ async def main() -> int:
         await settle()
 
     await ctl.run_action("app:videos")
-    andr.net_devices = [android_mod.Device("ZY327", "unauthorized", "moto_e7_plus")]
+    andr.net_devices = [android_mod.Device("XY123", "unauthorized", "moto_e7_plus")]
     andr.connect_services = []
     await press("ROOT_MENU")
     idx = [it["id"] for it in ctl._menu_items].index("android")
@@ -1975,9 +1975,9 @@ async def main() -> int:
     out = await press("SELECT")
     check("ov:toast:Aceptá «Permitir depuración USB» en el celular" in out,
           f"OK sobre él todavía sin autorizar: repite el aviso: {out[-2:]}")
-    andr.net_devices = [android_mod.Device("ZY327", "device", "moto_e7_plus")]  # se tocó «Permitir»
-    await wait_for(lambda: ctl._macro_task is not None or "android:open:ZY327" in log[start:])
-    check("android:open:ZY327" in log[start:] and ctl.current_app() == "android" and not ctl._menu_open,
+    andr.net_devices = [android_mod.Device("XY123", "device", "moto_e7_plus")]  # se tocó «Permitir»
+    await wait_for(lambda: ctl._macro_task is not None or "android:open:XY123" in log[start:])
+    check("android:open:XY123" in log[start:] and ctl.current_app() == "android" and not ctl._menu_open,
           f"apenas se acepta en el celular, la lista se entera sola y muestra su pantalla: {log[start:][-4:]}")
 
     ctl._switch_until = 0.0
@@ -2013,7 +2013,7 @@ async def main() -> int:
           f"«Dejar de compartir» cierra scrcpy y queda la lista (sin el aviso de «se desconectó»): {log[start:]} {ids}")
     out = await press("EXIT")
     check(ctl._menu_mode == "activities" and ctl._menu_open, f"ahí Atrás vuelve al menú de actividades: {out}")
-    andr.net_devices = [android_mod.Device("ZY327", "device", "moto_e7_plus")]
+    andr.net_devices = [android_mod.Device("XY123", "device", "moto_e7_plus")]
     await press("EXIT")
     await ctl.run_action("app:android")
     ctl._switch_until = 0.0
@@ -2038,7 +2038,7 @@ async def main() -> int:
         mk("usb1")
         mk("1-1", product="USB2.0 Hub")
         mk("1-1:1.0", bInterfaceClass="09", bInterfaceSubClass="00", bInterfaceProtocol="00")
-        mk("1-1.1", manufacturer="motorola", product="moto e(7) plus", serial="ZY327X8THP")
+        mk("1-1.1", manufacturer="motorola", product="moto e(7) plus", serial="XY12345678")
         mk("1-1.1:1.0", bInterfaceClass="ff", bInterfaceSubClass="ff", bInterfaceProtocol="00", interface="MTP")
         mk("1-1.1:1.1", bInterfaceClass="ff", bInterfaceSubClass="42", bInterfaceProtocol="01", interface="ADB Interface")
         mk("1-1.2", manufacturer="Samsung", product="Galaxy", serial="R5CR")
@@ -2047,7 +2047,7 @@ async def main() -> int:
         mk("1-1.3:1.0", bInterfaceClass="03", bInterfaceSubClass="01", bInterfaceProtocol="01")
         found = android_mod.usb_phones(sysfs)
     check([(p.name, p.serial, p.adb) for p in found]
-          == [("motorola moto e(7) plus", "ZY327X8THP", True), ("Samsung Galaxy", "R5CR", False)],
+          == [("motorola moto e(7) plus", "XY12345678", True), ("Samsung Galaxy", "R5CR", False)],
           f"/sys: encuentra los celulares (con y sin depuración USB) y no el hub ni el teclado: {found}")
     await ctl.run_action("app:videos")
     andr.net_devices = []
@@ -2061,7 +2061,7 @@ async def main() -> int:
     ctl._menu_sel = [it["id"] for it in ctl.overlay.items].index("_usb")
     out = await press("SELECT")
     check(any(o.startswith("ov:toast:Por USB: no detecto") for o in out), f"OK sobre «Por USB» vuelve a mirar y avisa: {out}")
-    fake_usb.append(android_mod.UsbPhone("motorola moto e(7) plus", "ZY327X8THP", False))
+    fake_usb.append(android_mod.UsbPhone("motorola moto e(7) plus", "XY12345678", False))
     await wait_for(lambda: "sin depuración" in next(it for it in ctl.overlay.items if it["id"] == "_usb")["name"])
     usb_row = next(it for it in ctl.overlay.items if it["id"] == "_usb")
     check("sin depuración" in usb_row["name"] and "Depuración USB" in usb_row["sub"]
@@ -2175,7 +2175,7 @@ async def main() -> int:
     check(rp.mode == "reposo" and rp.verb == "entra en reposo", "el modo por defecto es reposo")
     check(not power_mod.IdleShutdown(ctl, {}).resume_apps, "por defecto, al volver muestra el menú (resume_apps = false)")
     await ctl.run_action("app:tidal")
-    await ctl.switch_to("fotos", tmp / "pick" / "media" / "gaby" / "USB")
+    await ctl.switch_to("fotos", tmp / "pick" / "media" / "usuario" / "USB")
     check(ctl.current_app() == "fotos" and ctl.music.running(), "fotos en pantalla con música de fondo")
     sent.clear()
     start = len(log)
@@ -2290,7 +2290,7 @@ async def main() -> int:
     mp.idle_since = None
     mp._note_open(t0)
     check(mp.reason(t0 + 60) is None, "la cuenta corta arranca cuando se cerró la última app, no antes")
-    await ctl.switch_to("fotos", tmp / "pick" / "media" / "gaby" / "USB")
+    await ctl.switch_to("fotos", tmp / "pick" / "media" / "usuario" / "USB")
     mp._note_open(t0 + 20 * 60)
     check(not ctl.nothing_open() and mp.idle_since is None and mp.reason(t0 + 20 * 60) is None,
           "con una actividad abierta no cuenta (vale idle_minutes)")
@@ -2431,7 +2431,7 @@ B: KEY=7fff000000000000 0 0 0 0
     real_on_key = ctl.on_key
     ctl.on_key = lambda c: got.append(key_name(c))  # type: ignore[method-assign]
     ctl._gamepad_menu_only = {"fotos"}
-    await ctl.switch_to("fotos", tmp / "pick" / "media" / "gaby" / "USB")
+    await ctl.switch_to("fotos", tmp / "pick" / "media" / "usuario" / "USB")
     for code, btn in (("RIGHT", "DPAD_RIGHT"), ("CONTENTS_MENU", "START"), ("F1_BLUE", "BACK"),
                       ("F1_BLUE", "BACK+START"), ("F1_BLUE", "BACK:HOLD")):
         ctl.on_gamepad_key(NAME_TO_CODE[code], btn)
@@ -2779,7 +2779,7 @@ echo '</mame>'
         menu_mod.asyncio.sleep = real_sleep  # type: ignore[assignment]
 
     print("QR del celular en el menú")
-    qr = {"path": "/tmp/q.svg", "url": "192.168.0.111:8765", "title": "Manejá la TV desde el celular", "text": "…"}
+    qr = {"path": "/tmp/q.svg", "url": "192.168.1.50:8765", "title": "Manejá la TV desde el celular", "text": "…"}
     ctl.phone_qr = lambda: qr
     await ctl.menu_open()
     check(ctl.overlay.qr == qr, f"el menú de actividades muestra el QR de la página del celular: {ctl.overlay.qr}")
@@ -2993,7 +2993,7 @@ echo '</mame>'
         audio_mod.run_cmd = saved_run  # type: ignore[assignment]
 
     print("Carpetas de contenido")
-    usb = tmp / "media" / "gaby" / "KINGSTON"
+    usb = tmp / "media" / "usuario" / "KINGSTON"
     local = tmp / "Vídeos"
     (local / "serie").mkdir(parents=True)
     (local / "serie" / "cap1.MKV").write_bytes(b"")
@@ -3004,7 +3004,7 @@ echo '</mame>'
     check(found == local, f"pendrive sin videos: usa la carpeta local: {found}")
     (usb / "peli.mp4").write_bytes(b"")
     found = activities_mod.find_media_folder(pats, activities_mod.VIDEO_EXT)
-    check(found == usb and activities_mod.describe_folder(Path("/media/gaby/KINGSTON")) == "Pendrive KINGSTON",
+    check(found == usb and activities_mod.describe_folder(Path("/media/usuario/KINGSTON")) == "Pendrive KINGSTON",
           f"con videos en el pendrive, va primero: {found}")
     check(activities_mod.find_media_folder(pats, activities_mod.IMAGE_EXT) is None, "sin fotos en ninguna: None")
     v = activities_mod.VideosActivity({"folders": pats, "command": ["vlc", "--qt-minimal-view", "{carpeta}"]})
@@ -3748,7 +3748,7 @@ echo '</mame>'
     desktop_mod.PairingNoticeCloser = FakeCloser  # type: ignore[assignment,misc]
     audio_mod2.pair = fail_pair  # type: ignore[assignment]
     try:
-        r = await audio_mod2.select(audio_mod2.Output("KN320", "bluetooth", mac="8B:D9:43:D1:A1:AE", paired=False))
+        r = await audio_mod2.select(audio_mod2.Output("Auriculares BT", "bluetooth", mac="AA:BB:CC:DD:EE:01", paired=False))
         check(r == (False, "no") and closer_log == ["start", "pair", "finish"],
               f"al emparejar se vigilan los avisos del panel (y se suelta aunque falle): {closer_log}")
         closer_log.clear()
@@ -3771,17 +3771,17 @@ echo '</mame>'
     tv = audio_mod2.Output("TV (HDMI)", "hdmi", 55)
     try:
         audio_mod2.run_cmd = fake_run
-        audio_mod2.list_outputs = lambda: [tv, audio_mod2.Output("KN320", "bluetooth", 77 if speaker_on[0] else None,
-                                                                 mac="8B:D9:43:D1:A1:AE")]
+        audio_mod2.list_outputs = lambda: [tv, audio_mod2.Output("Auriculares BT", "bluetooth", 77 if speaker_on[0] else None,
+                                                                 mac="AA:BB:CC:DD:EE:01")]
         r = await audio_mod2.select(tv)
-        check(r[0] and cmds == ["wpctl set-default 55", "bluetoothctl disconnect 8B:D9:43:D1:A1:AE"],
+        check(r[0] and cmds == ["wpctl set-default 55", "bluetoothctl disconnect AA:BB:CC:DD:EE:01"],
               f"elegir la TV: el sonido pasa a la TV y el parlante se desconecta: {cmds}")
         cmds.clear()
         r = await audio_mod2.select(tv)
         check(r[0] and cmds == ["wpctl set-default 55"], f"con el parlante ya desconectado, no hace nada más: {cmds}")
         cmds.clear()
         speaker_on[0] = True
-        r = await audio_mod2.select(audio_mod2.Output("KN320", "bluetooth", 77, mac="8B:D9:43:D1:A1:AE"))
+        r = await audio_mod2.select(audio_mod2.Output("Auriculares BT", "bluetooth", 77, mac="AA:BB:CC:DD:EE:01"))
         check(r[0] and cmds == ["wpctl set-default 77"], f"elegir el parlante no desconecta nada: {cmds}")
     finally:
         audio_mod2.list_outputs, audio_mod2.run_cmd = real
@@ -3796,14 +3796,14 @@ echo '</mame>'
               and r0.context == "radio" and r0.audio_only,
               f"no viene con ninguna radio (se ponen en config.toml): {getattr(r0, 'stations', None)}")
         check(r0.source() == ("Sin radios: agregalas en [apps.radio] stations", False)
-              and activities_mod.RadioActivity({"stations": [{"name": "Pipí Cucú", "url": "https://a.example/x"}]})
-              .source() == ("Pipí Cucú", True), "en el menú: las radios (o que no hay)")
-        two = {"stations": [{"name": "Pipí Cucú", "url": "https://a.example/320.mp3"},
+              and activities_mod.RadioActivity({"stations": [{"name": "Radio Uno", "url": "https://a.example/x"}]})
+              .source() == ("Radio Uno", True), "en el menú: las radios (o que no hay)")
+        two = {"stations": [{"name": "Radio Uno", "url": "https://a.example/320.mp3"},
                             "https://otra.example:8000/stream", {"name": "sin url"}]}
         radio = activities_mod.RadioActivity(two)
-        check([s["name"] for s in radio.stations] == ["Pipí Cucú", "otra.example:8000"],
+        check([s["name"] for s in radio.stations] == ["Radio Uno", "otra.example:8000"],
               f"una dirección sola sirve (el nombre sale de la dirección); sin url, se saltea: {radio.stations}")
-        check(radio.playlist_text() == "#EXTM3U\n#EXTINF:-1,Pipí Cucú\nhttps://a.example/320.mp3\n"
+        check(radio.playlist_text() == "#EXTM3U\n#EXTINF:-1,Radio Uno\nhttps://a.example/320.mp3\n"
               "#EXTINF:-1,otra.example:8000\nhttps://otra.example:8000/stream\n", "la lista .m3u con los nombres")
         spawned: list = []
 
@@ -3840,7 +3840,7 @@ echo '</mame>'
             return True
         radio.mpv.command, radio.mpv.get, radio.mpv.set = radio_cmd, radio_get, radio_set  # type: ignore[method-assign]
         check(await radio.step(1) == "otra.example:8000" and radio_state["pos"] == 1
-              and await radio.step(1) == "Pipí Cucú" and radio_state["pos"] == 0,
+              and await radio.step(1) == "Radio Uno" and radio_state["pos"] == 0,
               "⏭: la radio siguiente (y da la vuelta)")
         await radio.step(1)
         check(radio.last_index() == 1, "se acuerda de la última que sonó")
@@ -3885,7 +3885,7 @@ echo '</mame>'
         try:
             check(covers_mod.song_parts("Charly Garcia - Demoliendo Hoteles") == ("Charly Garcia", "Demoliendo Hoteles")
                   and covers_mod.song_parts("Soda Stereo – De música ligera") == ("Soda Stereo", "De música ligera")
-                  and covers_mod.song_parts("La 100 FM") is None and covers_mod.song_parts("") is None,
+                  and covers_mod.song_parts("Radio Dos FM") is None and covers_mod.song_parts("") is None,
                   "«Artista - Tema» (también con guion largo); sin guion no se busca (saldría cualquier disco)")
             check(covers_mod._similar("Charly García", "charly garcia") and covers_mod._similar("Pericos", "Los Pericos")
                   and covers_mod._similar("Charly García", "Charly Garcia feat. Fito") and not covers_mod._similar("Soda Stereo", "Gustavo Cerati"),
@@ -3950,7 +3950,7 @@ echo '</mame>'
             start = len(log)
             await ctl.a_radio("next")
             await ctl.a_radio("station:1")
-            check("ov:toast:Radio: otra.example:8000" in log[start:] and "ov:toast:Radio: Pipí Cucú" in log[start:]
+            check("ov:toast:Radio: otra.example:8000" in log[start:] and "ov:toast:Radio: Radio Uno" in log[start:]
                   and radio_state["pos"] == 0, f"radio:next y radio:station:N, con aviso: {log[start:]}")
             rows = help_rows(ctl, "radio")
             check(any(k == "⏭  ⏮" or "⏭" in k for k, _d in rows) and any(d == "Esa radio de la lista" and "1 – 9" in k
@@ -3975,7 +3975,7 @@ echo '</mame>'
             ctl._menu_open = True
             await ctl._radio_open()
             items = ctl.overlay.items
-            check(ctl._menu_mode == "radio" and [i["name"] for i in items] == ["Pipí Cucú", "otra.example:8000"]
+            check(ctl._menu_mode == "radio" and [i["name"] for i in items] == ["Radio Uno", "otra.example:8000"]
                   and ctl._menu_sel == 1 and items[1]["current"] and items[1].get("badge") == "sonando",
                   f"Radio en el menú: la lista, con la que suena resaltada: {[(i['name'], i.get('badge')) for i in items]}")
             await ctl.a_menu("pick:1")
@@ -4012,7 +4012,7 @@ echo '</mame>'
             ctl._menu_switch = fake_switch  # type: ignore[method-assign]
             switched.clear()
             try:
-                check(radio.has_last() and radio.source() == ("Pipí Cucú (la última) · 2 radios", True),
+                check(radio.has_last() and radio.source() == ("Radio Uno (la última) · 2 radios", True),
                       f"en el menú, abajo de Radio, cuál es la última que sonó: {radio.source()}")
                 await ctl.menu_open()
                 row = next(i for i in ctl.overlay.items if i["id"] == "radio")
@@ -4025,7 +4025,7 @@ echo '</mame>'
                 await ctl.menu_open(select_id="radio")
                 ctl._menu_chip = True
                 await ctl._menu_choose(ctl._menu_sel)
-                check(ctl._menu_mode == "radio" and [i["name"] for i in ctl.overlay.items] == ["Pipí Cucú", "otra.example:8000"]
+                check(ctl._menu_mode == "radio" and [i["name"] for i in ctl.overlay.items] == ["Radio Uno", "otra.example:8000"]
                       and ctl.overlay.items[0]["sub"] == "la última que sonó",
                       f"OK sobre el botoncito: la lista para elegir otra: {[i['name'] for i in ctl.overlay.items]}")
                 out = await press("ROOT_MENU")
@@ -4033,7 +4033,7 @@ echo '</mame>'
                       f"la tecla Menú vuelve al menú: {out}")
                 radio._last_file().unlink()
                 switched.clear()
-                check(not radio.has_last() and radio.source()[0] == "Pipí Cucú · otra.example:8000",
+                check(not radio.has_last() and radio.source()[0] == "Radio Uno · otra.example:8000",
                       "sin una última (nunca sonó): abajo de Radio, la lista")
                 await ctl.menu_open(select_id="radio")
                 await ctl._menu_choose(ctl._menu_sel)

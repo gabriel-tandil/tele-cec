@@ -200,14 +200,14 @@ def phone_qr_test() -> None:
         runs.append(cmd)
         Path(cmd[cmd.index("-o") + 1]).write_text("<svg/>")
     try:
-        server.LOG_DIR, server._lan_ip = tmp, lambda: "192.168.0.111"
+        server.LOG_DIR, server._lan_ip = tmp, lambda: "192.168.1.50"
         server.shutil.which = lambda name: "/usr/bin/" + name
         server.subprocess.run = fake_run
         web = server.WebRemote(SimpleNamespace(), {"port": 8765})
         check(web.phone_qr() is None, "sin el servidor andando: sin QR")
         web.server = object()
         qr = web.phone_qr()
-        check(qr and qr["url"] == "192.168.0.111:8765" and runs and runs[0][-1] == "http://192.168.0.111:8765/"
+        check(qr and qr["url"] == "192.168.1.50:8765" and runs and runs[0][-1] == "http://192.168.1.50:8765/"
               and Path(qr["path"]).is_file(), f"QR con la IP y el puerto: {qr} {runs}")
         web.phone_qr()
         check(len(runs) == 1, "la segunda vez usa el mismo archivo (no lo regenera)")
@@ -510,7 +510,7 @@ async def main() -> int:
                                                  "::ffff:192.168.0.9")),
           "la red de la casa (privadas, loopback, link-local)")
     check(not any(server.allowed_client(h) for h in ("8.8.8.8", "2800:810::1", "basura")), "internet no")
-    check(all(server.allowed_host(h) for h in ("raspberrypi.local:8765", "192.168.0.111:8765", "raspberrypi",
+    check(all(server.allowed_host(h) for h in ("raspberrypi.local:8765", "192.168.1.50:8765", "raspberrypi",
                                                "[fe80::1]:8765", "localhost:8765")),
           "nombres de la casa: .local, IP, el nombre de la Pi")
     check(not any(server.allowed_host(h) for h in ("evil.example.com:8765", "", "x.attacker.net")),
@@ -536,7 +536,7 @@ async def main() -> int:
         return True
 
     outs = [audio.Output("TV (HDMI)", "hdmi", 50, "alsa_output.hdmi", default=True),
-            audio.Output("KN320", "bluetooth", None, mac="AA:BB:CC:DD:EE:FF"),
+            audio.Output("Auriculares BT", "bluetooth", None, mac="AA:BB:CC:DD:EE:FF"),
             audio.Output("Otro", "bluetooth", None, mac="11:22:33:44:55:66", paired=False)]
 
     async def fake_select(out, connect_timeout=25.0):
@@ -587,7 +587,7 @@ async def main() -> int:
         from tele_cec.web import server as server_mod
         check(s.get("ui") and s["ui"] == server_mod._ui_version(),
               f"y la versión de la página (si cambia, la página abierta en el celular se recarga sola): {s.get('ui')}")
-        check([o["name"] for o in s["outputs"]] == ["TV (HDMI)", "KN320"] and s["outputs"][0]["current"]
+        check([o["name"] for o in s["outputs"]] == ["TV (HDMI)", "Auriculares BT"] and s["outputs"][0]["current"]
               and "tocá" in s["outputs"][1]["detail"],
               f"salidas emparejadas, con la actual marcada (las nuevas sin emparejar no): {s['outputs']}")
 
@@ -646,7 +646,7 @@ async def main() -> int:
 
         _, _, body = await http(port, "POST", "/api/sound", {"id": "AA:BB:CC:DD:EE:FF"}, {"X-Tele-CEC": "1"})
         r = json.loads(body)
-        check(r["ok"] and calls[-1] == ("sound", "KN320") and ctl.toasts == ["Sonido por KN320"],
+        check(r["ok"] and calls[-1] == ("sound", "Auriculares BT") and ctl.toasts == ["Sonido por Auriculares BT"],
               f"elegir el parlante Bluetooth: lo conecta y la TV lo avisa: {r}")
         _, _, body = await http(port, "POST", "/api/sound", {"id": "nada"}, {"X-Tele-CEC": "1"})
         check(not json.loads(body)["ok"], "una salida que no existe: no")
@@ -716,8 +716,8 @@ async def main() -> int:
         from tele_cec.apps.radio import RadioActivity
         tmp_r = Path(tempfile.mkdtemp(prefix="nfx-web-radio-"))
         real_radio_dir, radio_mod.LOG_DIR = radio_mod.LOG_DIR, tmp_r / "cache"
-        radio = RadioActivity({"stations": [{"name": "Pipí Cucú", "url": "https://a.example/320.mp3"},
-                                            {"name": "La 100", "url": "https://b.example/la100.mp3"}]})
+        radio = RadioActivity({"stations": [{"name": "Radio Uno", "url": "https://a.example/320.mp3"},
+                                            {"name": "Radio Dos", "url": "https://b.example/radio2.mp3"}]})
         radio.running = lambda: False  # type: ignore[method-assign]
         radio.installed = lambda: True  # type: ignore[method-assign]
         rstate = {"pos": 0, "pause": False, "played": []}
@@ -745,7 +745,7 @@ async def main() -> int:
                   f"la fila de Radio con el botoncito «Radios»; nunca sonó: tocarla abre la lista: {row}")
             _, _, body = await http(port, "GET", "/api/radio")
             r = json.loads(body)
-            check(r["title"] == "Radio · elegir emisora" and [i["name"] for i in r["items"]] == ["Pipí Cucú", "La 100"]
+            check(r["title"] == "Radio · elegir emisora" and [i["name"] for i in r["items"]] == ["Radio Uno", "Radio Dos"]
                   and not any(i["current"] or i["sub"] for i in r["items"]) and r["playing"] == -1,
                   f"/api/radio: las emisoras: {r}")
             ctl.log.clear()
@@ -771,13 +771,13 @@ async def main() -> int:
             check(json.loads(body)["ok"] and ("switch", "radio", False) in ctl.log and radio.want_station is None,
                   f"tocar la fila: la abre con la última: {ctl.log}")
             radio.running = lambda: True  # type: ignore[method-assign]
-            rstate["pos"] = 1  # suena La 100
+            rstate["pos"] = 1  # suena Radio Dos
             ctl.cur = "radio"
             ctl._menu_open = True
             ctl.log.clear()
             _, _, body = await http(port, "POST", "/api/app", {"id": "radio", "station": 0}, H)
             r = json.loads(body)
-            check(r["ok"] and r["message"] == "Radio: Pipí Cucú" and rstate["played"] == [0] and ("menu_close",) in ctl.log
+            check(r["ok"] and r["message"] == "Radio: Radio Uno" and rstate["played"] == [0] and ("menu_close",) in ctl.log
                   and not any(x[0] == "switch" for x in ctl.log), f"sonando: tocar otra la cambia, sin reabrir: {r} {ctl.log}")
             rstate["pause"] = True
             _, _, body = await http(port, "POST", "/api/app", {"id": "radio", "station": 0}, H)
@@ -1118,7 +1118,7 @@ async def main() -> int:
         outside = Path(tempfile.mkdtemp(prefix="tele-fuera-"))
         vids = FakeVideos({"folders": [str(tmp)]})
         andr = FakeAndroid({})
-        andr.devs = [activities_mod.android.Device("ZY327", "device", "moto_e7_plus"),
+        andr.devs = [activities_mod.android.Device("XY123", "device", "moto_e7_plus"),
                      activities_mod.android.Device("192.168.0.9:5555", "unauthorized", "")]
         ctl.activities["videos"] = vids
         ctl.activities["android"] = andr
@@ -1266,8 +1266,8 @@ async def main() -> int:
         check([(d["name"], d["ready"]) for d in r["devices"]] == [("moto e7 plus", True), ("192.168.0.9:5555", False)]
               and "Permitir" in r["devices"][1]["sub"], f"Android: los celulares y su estado: {r['devices']}")
         ctl.log.clear()
-        _, _, body = await http(port, "POST", "/api/app", {"id": "android", "serial": "ZY327"}, H)
-        check(json.loads(body)["ok"] and andr.want_serial == "ZY327" and ("switch", "android", False) in ctl.log,
+        _, _, body = await http(port, "POST", "/api/app", {"id": "android", "serial": "XY123"}, H)
+        check(json.loads(body)["ok"] and andr.want_serial == "XY123" and ("switch", "android", False) in ctl.log,
               f"tocar un celular lo comparte: {ctl.log}")
         _, _, body = await http(port, "POST", "/api/app", {"id": "android", "serial": "192.168.0.9:5555"}, H)
         check(not json.loads(body)["ok"], "uno sin autorizar: no")

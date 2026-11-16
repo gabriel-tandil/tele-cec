@@ -776,7 +776,7 @@ def _capture(path: str, page: str) -> int:
                                 {"name": "Temporizador para apagar", "icon": "temporizador.svg",
                                  "sub": "Se apaga en 28 min · ◀ ▶ cambiarlo", "badge": "prendido"},
                                 {"name": "TV (HDMI)", "icon": "video-display", "sub": "HDMI"},
-                                {"name": "KN320", "icon": "bluetooth", "sub": "Bluetooth", "current": True}]})
+                                {"name": "Auriculares BT", "icon": "bluetooth", "sub": "Bluetooth", "current": True}]})
         panel.handle({"op": "select", "index": 3 if mute else 1})
     else:
         panel.handle({"op": "show", "items": DEMO_ITEMS, "selected": 2})
