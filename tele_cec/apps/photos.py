@@ -12,6 +12,8 @@ los tres modos (también con [apps.fotos] shuffle = true); al cambiar de modo co
 «Un día como hoy» también va al azar (con [apps.fotos] today_shuffle = false, del año más viejo al más nuevo).
 La fecha de cada foto en una esquina (1 en el control, con mpv): el día, o el mes, o el año, según lo que se sepa
 (del nombre, de la foto o de las carpetas). Queda prendida o apagada para las próximas veces.
+Favoritas (2 en el control): guarda la foto que se ve en una lista (~/.local/share/tele-cec/fotos-favoritas.txt);
+otra vez la saca. En Carpetas ▸ está «♥ Favoritas» para verlas, y en la esquina se ve un ♥ en las guardadas.
 Mientras suena un video, la música de Tidal de fondo se pausa (on_video, lo pone el controlador).
 """
 
@@ -32,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from ..system.keyboard import xdotool_key
-from ..system.procs import LOG_DIR, find_pids, run_cmd
+from ..system.procs import DATA_DIR, LOG_DIR, find_pids, run_cmd
 from . import photodates
 from .folders import IMAGE_EXT, VIDEO_EXT, describe_folder, scan_media
 from .media import MediaActivity
@@ -40,12 +42,15 @@ from .mpv import SCRIPTS, Mpv, base_args, mpv_pids
 
 MODES = ("photos", "mixed", "videos")   # los que pasa ▼
 TODAY = "today"                          # «Un día como hoy»: las fotos de esta fecha en otros años
-ALL_MODES = MODES + (TODAY,)
+FAVORITES = "favorites"                  # «♥ Favoritas»: las guardadas con 2
+ALL_MODES = MODES + (TODAY, FAVORITES)
+FAVORITES_FILE = "fotos-favoritas.txt"   # en ~/.local/share/tele-cec: una ruta por línea, en el orden en que se guardaron
 TODAY_SPREAD = 3        # si no hay de este día exacto: esta semana (± 3 días) en otros años
 REFRESH_EVERY_S = 600   # la lista guardada se vuelve a recorrer (en segundo plano) como mucho cada 10 minutos
 CORNER = "tele_cec_corner"   # el script de mpv que escribe la fecha (o el año) en la esquina
 SHOW_DATE_FILE = "fotos-fecha-en-pantalla"   # en ~/.cache/tele-cec: «si» o «no» (lo último elegido con 1)
-MODE_NAMES = {"photos": "solo fotos", "mixed": "fotos y videos", "videos": "solo videos", TODAY: "un día como hoy"}
+MODE_NAMES = {"photos": "solo fotos", "mixed": "fotos y videos", "videos": "solo videos", TODAY: "un día como hoy",
+              FAVORITES: "favoritas"}
 _DATE_RE = re.compile(r"((?:19|20)\d{6})[_-]?(\d{6})?")  # IMG_20201130_185306 · VID-20201108-WA0001
 
 
@@ -102,7 +107,57 @@ class PhotosActivity(MediaActivity):
         self._show_year = False     # «Un día como hoy»: el año de cada foto en una esquina
         self.show_date = self._load_show_date()   # la fecha de cada foto en una esquina (1 en el control)
         self._corner_path = ""      # de qué foto es lo que dice la esquina
+        self._favorites: list[str] | None = None   # las guardadas con 2 (se leen la primera vez que hacen falta)
         self.reset_view()
+
+    # ------------------------------------------------------------ favoritas (2 en el control)
+    def favorites_file(self) -> Path:
+        return DATA_DIR / FAVORITES_FILE
+
+    def favorites(self) -> list[str]:
+        """Las rutas guardadas, en el orden en que se guardaron (sin repetidas)."""
+        if self._favorites is None:
+            try:
+                lines = self.favorites_file().read_text("utf-8").splitlines()
+            except OSError:
+                lines = []
+            self._favorites = list(dict.fromkeys(ln.strip() for ln in lines if ln.strip()))
+        return list(self._favorites)
+
+    def _save_favorites(self) -> bool:
+        f = self.favorites_file()
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            tmp = f.with_suffix(".tmp")
+            tmp.write_text("".join(p + "\n" for p in self._favorites or []), "utf-8")
+            tmp.replace(f)
+        except OSError as exc:
+            log.warning("Fotos: no pude guardar las favoritas (%s)", exc)
+            return False
+        return True
+
+    def is_favorite(self, path: str) -> bool:
+        return path in self.favorites()
+
+    def toggle_favorite(self, path: str) -> bool | None:
+        """Guarda la foto en Favoritas (True) o la saca si ya estaba (False); None si no se pudo guardar."""
+        favs = self.favorites()
+        if path in favs:
+            favs.remove(path)
+            added = False
+        else:
+            favs.append(path)
+            added = True
+        self._favorites = favs
+        if not self._save_favorites():
+            return None
+        log.info("Fotos: %s %s (%d favoritas)", "guardo" if added else "saco de Favoritas", os.path.basename(path),
+                 len(favs))
+        return added
+
+    def favorite_files(self, folder: Path | None = None) -> list[str]:
+        """Las favoritas que todavía existen (de todas las carpetas, no solo de esta: son pocas y van juntas)."""
+        return [p for p in self.favorites() if os.path.isfile(p)]
 
     # ------------------------------------------------------------ la fecha en la esquina
     def _show_date_file(self) -> Path:
@@ -141,7 +196,7 @@ class PhotosActivity(MediaActivity):
     def use_mpv(self, mode: str) -> bool:
         """mpv para todo (la placa de video achica, hace zoom y mueve la foto); feh solo para «solo fotos» si se
         eligió ([apps.fotos] viewer = "feh") o si no está mpv."""
-        if mode == TODAY:  # con los videos de ese día, si hay mpv
+        if mode in (TODAY, FAVORITES):  # con los videos (de ese día, o guardados), si hay mpv
             return bool(shutil.which("mpv"))
         if mode != "photos":
             return True
@@ -268,7 +323,7 @@ class PhotosActivity(MediaActivity):
         if folder is None:
             log.warning("%s: no hay contenido en %s", self.name, ", ".join(map(str, self.folders)) or "(sin carpetas)")
             return False
-        if mode not in ("photos", TODAY) and not shutil.which("mpv"):
+        if mode not in ("photos", TODAY, FAVORITES) and not shutil.which("mpv"):
             self.fail_text = "Para ver videos falta mpv (sudo apt install mpv)"
             log.warning("Fotos: falta mpv para «%s»", MODE_NAMES[mode])
             return False
@@ -280,16 +335,21 @@ class PhotosActivity(MediaActivity):
                 return False
         if mode == TODAY:
             files, _spread = await asyncio.to_thread(self.today_files, folder)
+        elif mode == FAVORITES:
+            files = await asyncio.to_thread(self.favorite_files, folder)
         else:
             files = await asyncio.to_thread(self.mode_files, folder, mode)
         if not files:
             log.warning("Fotos: no hay archivos para «%s» en %s", MODE_NAMES[mode], describe_folder(folder))
             self.fail_text = {"photos": "No hay fotos en esta carpeta", "videos": "No hay videos en esta carpeta",
                               "mixed": "No hay fotos ni videos en esta carpeta",
-                              TODAY: "No hay fotos de esta fecha en otros años"}[mode]
+                              TODAY: "No hay fotos de esta fecha en otros años",
+                              FAVORITES: "Todavía no hay favoritas: 2 guarda la foto que se está viendo"}[mode]
             return False
         if mode == TODAY:  # un día como hoy: al azar (o año por año, con today_shuffle = false)
             self.random_order = bool(self.cfg.get("today_shuffle", True)) and len(files) > 1
+        elif mode == FAVORITES:  # en el orden en que se guardaron (al azar solo con shuffle = true)
+            self.random_order = self.shuffle and len(files) > 1
         else:
             self.random_order = self.shuffled_order(files)
         self._show_year = mode == TODAY
@@ -404,22 +464,34 @@ class PhotosActivity(MediaActivity):
     async def _update_corner(self, path: str) -> None:
         """La esquina de abajo a la derecha (tele_cec_corner.lua): con la fecha prendida, la de la foto con lo que se
         sepa («sábado 20 de diciembre de 2008 · hace 17 años», «diciembre de 2008», «2008»); en «Un día como hoy»,
-        el año («2014 · hace 11 años»)."""
+        el año («2014 · hace 11 años»). Si la foto está en Favoritas, un ♥ adelante (aunque la fecha esté apagada)."""
         self._corner_path = path
+        heart = "♥" if self.is_favorite(path) else ""
         if not self._corner_on():
-            await self.mpv.command("script-message-to", CORNER, "clear")
+            await self._corner(heart, "")
             return
         full = await asyncio.to_thread(photodates.dates().date_of, path)
         if self._corner_path != path:
             return  # ya pasó a otra foto mientras se leía la fecha
         parts = photodates.date_parts(path, full)
         if not parts:
-            await self.mpv.command("script-message-to", CORNER, "clear")
+            await self._corner(heart, "")
             return
         if not self.show_date:  # solo «Un día como hoy»: el año
             parts = (parts[0], None, None, parts[3])
         big, ago = photodates.date_text(parts)
-        await self.mpv.command("script-message-to", CORNER, "show", big, ago)
+        await self._corner(f"{heart} {big}".strip(), ago)
+
+    async def _corner(self, big: str, small: str) -> None:
+        if big:
+            await self.mpv.command("script-message-to", CORNER, "show", big, small)
+        else:
+            await self.mpv.command("script-message-to", CORNER, "clear")
+
+    async def refresh_corner(self) -> None:
+        """Volver a escribir la esquina de la foto que se ve (después de guardarla o sacarla de Favoritas)."""
+        if self.backend == "mpv" and self._corner_path:
+            await self._update_corner(self._corner_path)
 
     async def _mpv_reset(self) -> None:
         """mpv conserva zoom, corrimiento y giro entre archivos: el siguiente, entero y derecho."""

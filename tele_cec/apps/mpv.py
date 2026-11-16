@@ -137,24 +137,25 @@ class Mpv:
         return False
 
     # ------------------------------------------------------------ avisos
-    def watch(self, on_file: Callable[[str], Awaitable[None]]) -> None:
-        """Llama a on_file(ruta) cada vez que mpv pasa a otro archivo (y una vez al empezar)."""
+    def watch(self, on_change: Callable[[Any], Awaitable[None]], prop: str = "path") -> None:
+        """Llama a on_change(valor) cada vez que cambia esa propiedad de mpv (de entrada, "path": pasa a otro
+        archivo; y una vez al empezar). Con "metadata" (la Radio): el diccionario con lo que manda la emisora."""
         self.stop_watch()
-        self._watch = asyncio.get_running_loop().create_task(self._watch_loop(on_file))
+        self._watch = asyncio.get_running_loop().create_task(self._watch_loop(on_change, prop))
 
     def stop_watch(self) -> None:
         if self._watch and not self._watch.done():
             self._watch.cancel()
         self._watch = None
 
-    async def _watch_loop(self, on_file: Callable[[str], Awaitable[None]]) -> None:
+    async def _watch_loop(self, on_change: Callable[[Any], Awaitable[None]], prop: str = "path") -> None:
         try:
             reader, writer = await asyncio.open_unix_connection(str(self.socket_path))
         except OSError as exc:
             log.warning("mpv: no pude escuchar sus avisos: %s", exc)
             return
         try:
-            writer.write(json.dumps({"command": ["observe_property", 1, "path"]}).encode() + b"\n")
+            writer.write(json.dumps({"command": ["observe_property", 1, prop]}).encode() + b"\n")
             await writer.drain()
             last = None
             while True:
@@ -165,14 +166,14 @@ class Mpv:
                     msg = json.loads(line)
                 except ValueError:
                     continue
-                if msg.get("event") == "property-change" and msg.get("name") == "path":
-                    path = msg.get("data")
-                    if path and path != last:
-                        last = path
+                if msg.get("event") == "property-change" and msg.get("name") == prop:
+                    value = msg.get("data")
+                    if prop != "path" or (value and value != last):
+                        last = value
                         try:
-                            await on_file(str(path))
+                            await on_change(str(value) if prop == "path" else value)
                         except Exception:  # noqa: BLE001
-                            log.exception("mpv: error con el aviso de archivo nuevo")
+                            log.exception("mpv: error con el aviso de %s", prop)
         except asyncio.CancelledError:
             raise
         except OSError:

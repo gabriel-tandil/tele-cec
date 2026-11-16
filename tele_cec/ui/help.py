@@ -83,10 +83,10 @@ ACTIONS = {
     "menu": "Menú de actividades",
 }
 SUB_ACTIONS = {
-    "menu": {"": "Abrir el menú (abierto: siguiente opción)", "up": "Moverse", "down": "Moverse", "ok": "Abrir",
+    "menu": {"": "Abrir el menú (abierto: volver atrás o cerrarlo)", "up": "Moverse", "down": "Moverse", "ok": "Abrir",
              "back": "Volver · cerrar", "close": "Cerrar", "left": "Otra columna · carpeta de arriba",
              "right": "Botón de la fila (Carpetas…) · otra columna", "pick": "Elegir directo", "help": "Ayuda",
-             "options": "Opciones: carpetas, conectar, juegos"},
+             "options": "Opciones: carpetas, radios, conectar, juegos"},
     "music": {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "stop": "Pausa", "next": "Tema siguiente",
               "previous": "Tema anterior", "like": "Me gusta (favoritos)", "shuffle": "Aleatorio",
               "my_tracks": "Mis canciones → Colección → Inicio (en ciclo)", "lyrics": "Letras (otra vez: volver)", "back": "Atrás en la app",
@@ -112,7 +112,8 @@ SUB_ACTIONS = {
               "media_previous": "Foto anterior",
               "mode": "Cambiar: solo fotos → fotos y videos → solo videos",
               "map": "Dónde se sacó la foto (mapa, si tiene GPS)",
-              "date": "La fecha en una esquina (prender / apagar)"},
+              "date": "La fecha en una esquina (prender / apagar)",
+              "favorite": "Guardar la foto en Favoritas (otra vez: sacarla)"},
     "android": {"back": "Atrás (botón de Android)", "home": "Inicio de Android", "apps": "Apps recientes",
                 "notifications": "Notificaciones (otra vez: cerrarlas)", "menu": "Menú de la app",
                 "play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "stop": "Stop",

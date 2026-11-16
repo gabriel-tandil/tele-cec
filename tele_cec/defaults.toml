@@ -113,7 +113,7 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #    video:subtitles  video:audio
 #  Radio: radio:ok|play|pause|next|previous (otra radio)  radio:station:N  radio:volume:+|-
 #  Fotos: fotos:next  fotos:previous  fotos:pause  fotos:rotate  fotos:random  fotos:info  fotos:filename  fotos:mode
-#    fotos:date (la fecha en una esquina)
+#    fotos:date (la fecha en una esquina)  fotos:favorite (guardar en Favoritas, o sacarla)
 #    fotos:zoom_in  fotos:zoom_out  fotos:fit (sin zoom)  fotos:scroll:left|right|up|down
 #  Netflix: my_list (Mi lista)   Tidal: music:lyrics (letras)   Videos: video:aspect (proporción)
 #  YouTube: yt:key:<Tecla> (Up, Down, Left, Right, Return, Escape)  yt:play_pause|play|pause  yt:seek:+10|-10
@@ -130,8 +130,7 @@ ROOT_MENU = "menu"
 CONTENTS_MENU = "menu"
 SETUP_MENU = "menu"
 HELP = "help"                 # ayuda: qué hace cada tecla (también está al final del menú de actividades)
-DISPLAY_INFORMATION = "help"
-DOT = "help"                  # el punto (•): muchas TVs no mandan Info/Ayuda por CEC, y esta sí
+DOT = "help"                  # el punto (•): muchas TVs no mandan Ayuda ni Info por CEC, y esta sí
 EXIT = "back"
 AN_RETURN = "back"
 F1_BLUE = "home"
@@ -206,7 +205,6 @@ ROOT_MENU = "menu"
 CONTENTS_MENU = "menu"
 SETUP_MENU = "menu"
 HELP = "help"
-DISPLAY_INFORMATION = "help"
 DOT = "help"
 
 [keys.menu]                   # menú de actividades abierto
@@ -219,9 +217,9 @@ SELECT = "menu:ok"
 ENTER = "menu:ok"
 EXIT = "menu:back"            # cierra el menú (en el selector de carpetas: vuelve atrás)
 AN_RETURN = "menu:back"
-ROOT_MENU = "menu"            # Menú otra vez = siguiente opción
-CONTENTS_MENU = "menu"
-SETUP_MENU = "menu"
+ROOT_MENU = "menu:back"       # Menú otra vez = volver atrás (en una lista de adentro) o cerrar el menú
+CONTENTS_MENU = "menu:back"
+SETUP_MENU = "menu:back"
 NUMBER0 = "menu:pick:0"       # (en «Android · vincular con código» los números escriben el código)
 NUMBER1 = "menu:pick:1"       # los números eligen directo
 NUMBER2 = "menu:pick:2"
@@ -233,7 +231,6 @@ NUMBER7 = "menu:pick:7"
 NUMBER8 = "menu:pick:8"
 NUMBER9 = "menu:pick:9"
 HELP = "menu:help"
-DISPLAY_INFORMATION = "menu:help"
 
 [keys.tidal]
 SELECT = "music:play_pause"
@@ -435,7 +432,7 @@ F3_GREEN = "fotos:map"        # verde = dónde se sacó la foto (un mapa, si tie
 UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
 DOWN = "fotos:mode"           # ▼ = solo fotos → fotos y videos → solo videos (sigue desde la foto que se veía)
 NUMBER1 = "fotos:date"        # 1 = la fecha de cada foto en una esquina (el día, el mes o el año: lo que se sepa)
-DISPLAY_INFORMATION = "fotos:date"   # la tecla Info, si la TV la manda
+NUMBER2 = "fotos:favorite"    # 2 = guardar la foto en Favoritas (otra vez: sacarla); se ven desde Carpetas ▸
 
 [keys.fotos_zoom]             # Fotos con zoom: las flechas mueven la foto, OK acerca y Atrás aleja
 UP = "fotos:scroll:up"
@@ -527,13 +524,13 @@ items = ["netflix", "youtube", "tidal", "local", "radio", "fotos", "juegos", "an
                                                   # [activities.<id>] se agregan al final si no están acá.
                                                   # Un nombre de [menu.groups] es una «carpeta» con otras adentro.
 columns = 2                   # en dos columnas (sin desplazar): ◀ ▶ cambian de columna. OK abre de una; Videos,
-                              # Fotos y Android tienen un botoncito («Carpetas», «Conectar»): ▶ lo enfoca y OK lo
+                              # Fotos, Radio y Android tienen un botoncito («Carpetas», «Radios», «Conectar»): ▶ lo enfoca y OK lo
                               # abre (o el amarillo). 1 = una columna, con ▶ = más opciones
 timeout_s = 10                # con una app abierta, se cierra solo si no tocás nada (sin nada abierto queda a la vista)
 open_on_start = true          # al prender la Pi (al arrancar el servicio), el menú aparece abierto
 sound = true                  # opción «Sonido» al final del menú: elegir la salida (TV por HDMI, Bluetooth…)
 keyboard = true               # mientras el menú está a la vista, también se maneja con el teclado: flechas,
-                              # Enter elige, Esc o Retroceso vuelve, números, F1 ayuda, tecla Menú = siguiente
+                              # Enter elige, Esc o Retroceso vuelve, números, F1 ayuda, tecla Menú = volver
 
 [menu.groups.local]           # «Videos y música»: una fila del menú que abre otra lista con estas actividades
 name = "Videos y música"
@@ -591,6 +588,8 @@ command = []
 
 [apps.radio]                         # Radio por internet con mpv. ⏮ ⏭ cambian de radio; 1 – 9 eligen una
 volume_step = 0.05
+covers = true                        # buscar en línea (iTunes) la tapa del disco del tema que suena, para la TV y el
+                                     # celular: sale de la casa solo «Artista - Tema», lo que mandó la emisora
 stations = []                        # sin ninguna: se ponen en config.toml (ver config.example.toml), p. ej.
 # stations = [
 #   { name = "La 100", url = "https://playerservices.streamtheworld.com/api/livestream-redirect/FM999_56.mp3" },

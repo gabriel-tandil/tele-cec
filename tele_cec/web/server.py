@@ -223,6 +223,8 @@ class WebRemote:
                 return _json(await self.menu.folders(query))
             if path == "/api/games":
                 return _json(await self.menu.games())
+            if path == "/api/radio":
+                return _json(await self.menu.radio())
             if path == "/api/android":
                 return _json(await self.menu.android())
             if path == "/api/tidal/library":
@@ -273,6 +275,8 @@ class WebRemote:
             return _json(await self.open_app(data))
         if path == "/api/close":
             return _json(await self.menu.close(str(data.get("id") or "")))
+        if path == "/api/fotos/favorite":  # la foto que se ve en la TV: guardarla en Favoritas (o sacarla)
+            return _json(await self.photo_favorite())
         if path == "/api/search":
             return _json(await self.search(str(data.get("app") or ""), str(data.get("text") or "")))
         if path == "/api/text":
@@ -360,7 +364,8 @@ class WebRemote:
         return cur.kind if cur else ""
 
     async def open_app(self, data: dict[str, Any]) -> dict[str, Any]:
-        """/api/app: {id} y, según la app, {folder} (Videos, Fotos), {rom} (Juegos) o {serial} (Android)."""
+        """/api/app: {id} y, según la app, {folder} (Videos, Fotos), {rom} (Juegos), {serial} (Android) o
+        {station} (Radio: el número de la emisora, desde 0)."""
         ident = str(data.get("id") or "")
         folder: str | None = None
         mode = str(data.get("mode") or "") or None
@@ -390,6 +395,26 @@ class WebRemote:
             act.want_serial = serial
         elif ident == "juegos" and isinstance(self.ctl.activities.get(ident), activities_mod.MameActivity):
             return {"ok": False, "error": "Elegí un juego"}  # sin uno por defecto (no el último que se jugó)
+        elif ident == "radio" and isinstance(self.ctl.activities.get(ident), activities_mod.RadioActivity):
+            act = self.ctl.activities[ident]
+            if "station" in data:
+                station = self.menu.allowed_station(data.get("station"))
+                if station is None:
+                    return {"ok": False, "error": "esa radio no está en la lista"}
+                if act.running():  # ya suena (en pantalla o de fondo): se cambia la emisora
+                    if await act.current() != station:
+                        await act.play_station(station)
+                    elif await act.playback() == "Paused":
+                        await act.set_pause(False)
+                    self._state = None
+                    if self.ctl.current_app() == ident:
+                        if self.ctl._menu_open:
+                            await self.ctl.menu_close()
+                        return {"ok": True, "message": f"Radio: {act.stations[station]['name']}"}
+                else:
+                    act.want_station = station
+            elif not act.running() and not act.has_last() and len(act.stations) > 1:
+                return {"ok": False, "error": "Elegí una radio"}  # la primera vez no hay una «última»
         return await self.launch(ident, folder, mode)
 
     async def launch(self, ident: str, folder: str | None = None, mode: str | None = None) -> dict[str, Any]:
@@ -439,6 +464,23 @@ class WebRemote:
             await ctl.overlay.toast(why, 3000)
             return {"ok": False, "error": why}
         return {"ok": True}
+
+    # ---------------------------------------------------------------- Fotos: favoritas
+    async def photo_favorite(self) -> dict[str, Any]:
+        act = self.ctl.activities.get("fotos")
+        if not isinstance(act, activities_mod.PhotosActivity) or not act.running():
+            return {"ok": False, "error": "Fotos no está abierto"}
+        info = await act.photo_info()
+        if not info:
+            return {"ok": False, "error": "No sé qué foto se está viendo"}
+        added = await asyncio.to_thread(act.toggle_favorite, info["path"])
+        if added is None:
+            return {"ok": False, "error": "No pude guardar la lista de favoritas"}
+        await act.refresh_corner()
+        n = len(act.favorites())
+        log.info("Celular: %s %s", "guardo en Favoritas" if added else "saco de Favoritas", Path(info["path"]).name)
+        return {"ok": True, "added": added, "count": n,
+                "message": f"♥ Guardada en Favoritas ({n})" if added else f"Sacada de Favoritas ({n})"}
 
     # ---------------------------------------------------------------- escribir
     async def type_text(self, text: str, key: str) -> dict[str, Any]:
@@ -605,6 +647,11 @@ class WebRemote:
                 now["art"] = ""
             if not now["art"] and track.url.startswith("file://"):  # Música local: la tapa del disco
                 now["art"] = await self.music.art_for(urllib.parse.unquote(urllib.parse.urlparse(track.url).path))
+            if not now["art"]:  # la Radio: la tapa que se encontró en línea para lo que está sonando
+                act = self._act_of(track.player)
+                if isinstance(act, activities_mod.RadioActivity) and act.cover_path is not None:
+                    self._art = str(act.cover_path)
+                    now["art"] = f"/api/art?v={abs(hash(self._art)) % 10 ** 8}"
             now.pop("url", None)
             now["tidal"] = self._is_tidal(track.player)
             if now["tidal"]:

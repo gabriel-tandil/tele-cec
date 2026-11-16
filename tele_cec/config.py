@@ -169,11 +169,11 @@ class Config:
                 return None  # desactivada explícitamente
             return action, ctx
         if context == "menu":
-            # Con el menú abierto, la tecla que lo abre (si la cambiaste en [keys.global]) pasa a la
-            # siguiente opción, aunque no esté en [keys.menu].
+            # Con el menú abierto, la tecla que lo abre (si la cambiaste en [keys.global]) vuelve atrás o lo
+            # cierra, aunque no esté en [keys.menu].
             action = self.bindings.get("global", {}).get(code)
             if isinstance(action, str) and action.strip().partition(":")[0] == "menu":
-                return action, "global"
+                return "menu:back", "global"
         return None
 
 

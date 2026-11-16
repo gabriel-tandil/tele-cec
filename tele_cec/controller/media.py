@@ -161,7 +161,8 @@ class MediaMixin:
     async def a_fotos(self, arg: str) -> None:
         """Fotos: fotos:next, previous, pause, rotate, random, info, zoom_in, zoom_out, fit (sin zoom),
         scroll:left|right|up|down (mover la foto con zoom), mode (solo fotos → fotos y videos → solo videos),
-        date (la fecha de cada foto en una esquina: prender / apagar)."""
+        date (la fecha de cada foto en una esquina: prender / apagar), favorite (guardar la foto en Favoritas, o
+        sacarla)."""
         f = self.activities.get("fotos")
         if not isinstance(f, activities_mod.PhotosActivity) or not f.running():
             log.info("Fotos no está abierto: no ejecuto fotos:%s", arg)
@@ -211,6 +212,8 @@ class MediaMixin:
                 await self.toast("La fecha en la esquina necesita mpv ([apps.fotos] viewer = \"mpv\")", 3000)
             else:
                 await self.toast("Fecha en la esquina · 1 la saca" if on else "Sin la fecha · 1 la muestra", 1800)
+        elif cmd in ("favorite", "favorita", "fav"):
+            await self._fotos_favorite(f)
         elif cmd == "filename":
             await f.filename()
         elif cmd == "rotate":
@@ -235,6 +238,21 @@ class MediaMixin:
                 log.debug("fotos:scroll:%s sin zoom o dirección inválida (left, right, up, down)", rest)
         else:
             log.warning("fotos:%s desconocida", arg)
+
+    async def _fotos_favorite(self, f: activities_mod.PhotosActivity) -> None:
+        """2 en Fotos: guarda la foto que se ve en Favoritas (otra vez la saca). Se ven desde Carpetas ▸."""
+        info = await f.photo_info()
+        if not info:
+            await self.toast("No sé qué foto se está viendo", 2500)
+            return
+        added = await asyncio.to_thread(f.toggle_favorite, info["path"])
+        if added is None:
+            await self.toast("No pude guardar la lista de favoritas", 3000)
+            return
+        n = len(f.favorites())
+        await f.refresh_corner()
+        await self.toast(f"♥ Guardada en Favoritas ({n}) · 2 otra vez la saca" if added
+                         else f"Sacada de Favoritas ({n})", 2500)
 
     async def _fotos_map(self, f: activities_mod.PhotosActivity) -> None:
         """Verde en Fotos: el mapa de dónde se sacó la foto que se ve (si tiene GPS)."""

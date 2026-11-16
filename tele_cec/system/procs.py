@@ -17,6 +17,8 @@ log = logging.getLogger("procs")
 
 # Lo que escriben los programas que abre tele-cec (mpv, feh, High Tide): sirve para ver por qué se cerraron.
 LOG_DIR = Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")).expanduser() / "tele-cec"
+# Lo que no es caché (las fotos favoritas): si se borra ~/.cache no se pierde.
+DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", "~/.local/share")).expanduser() / "tele-cec"
 
 # Variables que inyecta un snap (p. ej. la terminal de VS Code instalado como snap) y que
 # rompen la parte gráfica de otros programas: el navegador se lanza sin ellas.

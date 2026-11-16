@@ -709,6 +709,143 @@ async def main() -> int:
               f"Juegos sin elegir juego: no abre uno por defecto: {r} {ctl.log}")
         ctl.activities["juegos"] = real_juegos
 
+        print("Radio: elegir la emisora desde el celular")
+        import tempfile
+        from tele_cec.apps import radio as radio_mod
+        from tele_cec.apps import photos as photos_mod
+        from tele_cec.apps.radio import RadioActivity
+        tmp_r = Path(tempfile.mkdtemp(prefix="nfx-web-radio-"))
+        real_radio_dir, radio_mod.LOG_DIR = radio_mod.LOG_DIR, tmp_r / "cache"
+        radio = RadioActivity({"stations": [{"name": "Pipí Cucú", "url": "https://a.example/320.mp3"},
+                                            {"name": "La 100", "url": "https://b.example/la100.mp3"}]})
+        radio.running = lambda: False  # type: ignore[method-assign]
+        radio.installed = lambda: True  # type: ignore[method-assign]
+        rstate = {"pos": 0, "pause": False, "played": []}
+
+        async def rcmd(*a, timeout=3.0):
+            if a[0] == "playlist-play-index":
+                rstate["pos"] = a[1]
+                rstate["played"].append(a[1])
+            return True, None
+
+        async def rget(prop):
+            return {"playlist-pos": rstate["pos"], "pause": rstate["pause"], "metadata": {"icy-title": "Fito - Mariposa"}}.get(prop)
+
+        async def rset(prop, value):
+            if prop == "pause":
+                rstate["pause"] = value
+            return True
+        radio.mpv.command, radio.mpv.get, radio.mpv.set = rcmd, rget, rset  # type: ignore[method-assign]
+        ctl.activities["radio"] = radio
+        cur_before, menu_before = ctl.cur, ctl._menu_open
+        ctl.cur = None
+        try:
+            row = web.menu._row({"id": "radio", "name": "Radio", "icon": "radio.svg", "sub": "x", "enabled": True})
+            check(row["option"] == "radio" and row["chip"] == "Radios" and row["browse"],
+                  f"la fila de Radio con el botoncito «Radios»; nunca sonó: tocarla abre la lista: {row}")
+            _, _, body = await http(port, "GET", "/api/radio")
+            r = json.loads(body)
+            check(r["title"] == "Radio · elegir emisora" and [i["name"] for i in r["items"]] == ["Pipí Cucú", "La 100"]
+                  and not any(i["current"] or i["sub"] for i in r["items"]) and r["playing"] == -1,
+                  f"/api/radio: las emisoras: {r}")
+            ctl.log.clear()
+            _, _, body = await http(port, "POST", "/api/app", {"id": "radio"}, H)
+            r = json.loads(body)
+            check(not r["ok"] and r["error"] == "Elegí una radio" and not ctl.log, f"sin una última: hay que elegir: {r}")
+            for bad in (5, -1, "1", True):
+                _, _, body = await http(port, "POST", "/api/app", {"id": "radio", "station": bad}, H)
+                check(not json.loads(body)["ok"], f"una emisora que no está en la lista: no ({bad!r})")
+            _, _, body = await http(port, "POST", "/api/app", {"id": "radio", "station": 1}, H)
+            check(json.loads(body)["ok"] and ("switch", "radio", False) in ctl.log and radio.want_station == 1,
+                  f"tocar una la abre con esa: {ctl.log}")
+            radio.want_station = None
+            radio._remember(1)
+            row = web.menu._row({"id": "radio", "name": "Radio", "icon": "radio.svg", "sub": "x", "enabled": True})
+            _, _, body = await http(port, "GET", "/api/radio")
+            r = json.loads(body)
+            check(not row["browse"] and r["items"][1]["sub"] == "la última que sonó",
+                  f"con una última: tocar la fila la pone, y en la lista se la marca: {r['items'][1]}")
+            ctl.log.clear()
+            ctl.cur = None
+            _, _, body = await http(port, "POST", "/api/app", {"id": "radio"}, H)
+            check(json.loads(body)["ok"] and ("switch", "radio", False) in ctl.log and radio.want_station is None,
+                  f"tocar la fila: la abre con la última: {ctl.log}")
+            radio.running = lambda: True  # type: ignore[method-assign]
+            rstate["pos"] = 1  # suena La 100
+            ctl.cur = "radio"
+            ctl._menu_open = True
+            ctl.log.clear()
+            _, _, body = await http(port, "POST", "/api/app", {"id": "radio", "station": 0}, H)
+            r = json.loads(body)
+            check(r["ok"] and r["message"] == "Radio: Pipí Cucú" and rstate["played"] == [0] and ("menu_close",) in ctl.log
+                  and not any(x[0] == "switch" for x in ctl.log), f"sonando: tocar otra la cambia, sin reabrir: {r} {ctl.log}")
+            rstate["pause"] = True
+            _, _, body = await http(port, "POST", "/api/app", {"id": "radio", "station": 0}, H)
+            check(json.loads(body)["ok"] and rstate["pause"] is False and rstate["played"] == [0],
+                  "la misma, en pausa: sigue")
+            _, _, body = await http(port, "GET", "/api/radio")
+            r = json.loads(body)
+            check(r["items"][0]["current"] and r["items"][0]["badge"] == "sonando" and r["items"][0]["sub"] == "Fito - Mariposa",
+                  f"en la lista: la que suena, con el tema: {r['items'][0]}")
+            ctl.cur = "fotos"  # de fondo con las fotos: tocar una la cambia y vuelve Radio a la pantalla
+            ctl.log.clear()
+            _, _, body = await http(port, "POST", "/api/app", {"id": "radio", "station": 1}, H)
+            check(json.loads(body)["ok"] and rstate["played"] == [0, 1] and ("switch", "radio", False) in ctl.log,
+                  f"de fondo: la cambia y la trae a la pantalla: {ctl.log}")
+
+            # la tapa de lo que suena, para el reproductor del celular
+            (tmp_r / "tapa.jpg").write_bytes(b"\xff\xd8\xff\xe0tapa")
+            radio.cover_path = tmp_r / "tapa.jpg"
+            ctl.cur = "radio"
+            players[:] = [nowplaying.Track("mpv", "Playing", "Mariposa", "Fito")]
+            web._state = None
+            _, _, body = await http(port, "GET", "/api/state")
+            s = json.loads(body)
+            check(s["now"]["art"].startswith("/api/art?v=") and s["now"]["app"] == "Radio", f"la Radio con su tapa: {s['now']}")
+            st, h, body = await http(port, "GET", s["now"]["art"])
+            check(st == 200 and h["Content-Type"] == "image/jpeg" and body == b"\xff\xd8\xff\xe0tapa", "y se sirve")
+            radio.cover_path = None
+            web._state = None
+            _, _, body = await http(port, "GET", "/api/state")
+            check(json.loads(body)["now"]["art"] == "", "sin tapa, sin imagen")
+            players[:] = [tracks[0]]
+        finally:
+            del ctl.activities["radio"]
+            radio_mod.LOG_DIR = real_radio_dir
+            ctl.cur, ctl._menu_open = cur_before, menu_before
+
+        print("Fotos: guardar la foto que se ve en Favoritas desde el celular")
+        from tele_cec.apps.photos import PhotosActivity
+        real_data_dir, photos_mod.DATA_DIR = photos_mod.DATA_DIR, tmp_r / "datos"
+        fotos = PhotosActivity({"folders": [str(tmp_r)]})
+        fotos_on = [False]
+        fotos.running = lambda: fotos_on[0]  # type: ignore[method-assign]
+
+        async def fake_info():
+            return {"path": str(tmp_r / "IMG_1.jpg"), "index": 1, "total": 9}
+        fotos.photo_info = fake_info  # type: ignore[method-assign]
+        real_fotos_act = ctl.activities.get("fotos")
+        ctl.activities["fotos"] = fotos
+        try:
+            _, _, body = await http(port, "POST", "/api/fotos/favorite", {}, H)
+            check(not json.loads(body)["ok"], "con Fotos cerrado: no")
+            fotos_on[0] = True
+            _, _, body = await http(port, "POST", "/api/fotos/favorite", {}, H)
+            r = json.loads(body)
+            check(r["ok"] and r["added"] and r["count"] == 1 and r["message"] == "♥ Guardada en Favoritas (1)"
+                  and (tmp_r / "datos" / "fotos-favoritas.txt").read_text() == str(tmp_r / "IMG_1.jpg") + "\n", f"la guarda: {r}")
+            _, _, body = await http(port, "POST", "/api/fotos/favorite", {}, H)
+            r = json.loads(body)
+            check(r["ok"] and not r["added"] and r["count"] == 0, f"otra vez: la saca: {r}")
+            st, _, _ = await http(port, "POST", "/api/fotos/favorite", {})
+            check(st == 403, "sin el encabezado propio, no (como todo lo que cambia algo)")
+        finally:
+            photos_mod.DATA_DIR = real_data_dir
+            if real_fotos_act is None:
+                del ctl.activities["fotos"]
+            else:
+                ctl.activities["fotos"] = real_fotos_act
+
         print("Abrir Tidal con el sonido en Bluetooth y la Pi en reposo: sin prender la TV")
         outs[0].default, outs[1].default, outs[1].sink_id = False, True, 79
         web._outputs_at = 0.0

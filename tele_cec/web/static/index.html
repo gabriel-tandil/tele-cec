@@ -407,6 +407,10 @@ function tapActivity(it) {
   if (it.current) {
     const options = [];
     if (it.option) options.push([it.chip, () => openOption(it)]);
+    if (it.id === "fotos") options.push(["♥ Guardar esta foto en Favoritas", async () => {
+      const r = await post("/api/fotos/favorite", {});
+      if (r.ok) toast(r.message);
+    }]);
     options.push([`Cerrar ${it.name}`, () => closeApp(it)]);
     optionsSheet(`${it.name} está en la TV`, it.sub, options);
     return;
@@ -424,6 +428,30 @@ function openOption(it) {
   else if (it.option === "music") show(MUSIC);
   else if (it.option === "search") show(searchPage(it));
   else if (it.option === "sound") show(SOUND);
+  else if (it.option === "radio") show(radioPage(it));
+}
+
+// Radio: elegir la emisora (tocar la fila pone la última que sonó, como OK en la TV)
+function radioPage(app) {
+  return {
+    title: app.name,
+    async render(body, page) {
+      body.replaceChildren(note("Cargando…"));
+      const r = await get("/api/radio");
+      if (stack[stack.length - 1] !== page) return;
+      if (r.error) { body.replaceChildren(note(r.error)); return; }
+      retitle(page, r.title);
+      const rows = el("div", "rows");
+      r.items.forEach((s) => {
+        const it = {name: s.name, sub: s.sub, badge: s.badge, current: s.current, icon: app.icon};
+        rows.appendChild(row(it, async () => {
+          const x = await openApp(app, {station: s.index});
+          if (x.ok) back();
+        }));
+      });
+      body.replaceChildren(rows);
+    },
+  };
 }
 
 // Carpetas (Videos, Fotos)

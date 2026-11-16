@@ -439,6 +439,8 @@ async def main() -> int:
     from tele_cec.apps import photodates as photodates_mod
     photodates_mod._dates = photodates_mod.PhotoDates(tmp / "fotos-fechas.json")  # las fechas de las fotos: tampoco
     photodates_mod._dates.pause_s = 0.0  # sin la pausa entre fotos (en la Pi va de a poco)
+    from tele_cec.apps import photos as photos_main
+    photos_main.DATA_DIR = tmp / "datos"  # las fotos favoritas: no tocar las de verdad
     cfg_file = tmp / "config.toml"
     cfg_file.write_text('[browser]\nengine = "firefox"\nlaunch = "on_key"\n[feedback]\nbusy = false\n'
                         '[menu]\nitems = ["netflix", "tidal", "videos", "fotos"]\nsound = false\n')  # YouTube y Sonido, aparte
@@ -488,10 +490,22 @@ async def main() -> int:
           f"OK abre el menú con las 4 actividades y la ayuda: {out} {names()}")
     check(await ctl.context() == "menu", "contexto 'menu'")
     check(not any(it["current"] for it in ctl.overlay.items), "ninguna marcada «en uso»")
-    out = await press("DOWN", "ROOT_MENU", "UP", "DOWN")
-    check(out == ["ov:select:1", "ov:select:2", "ov:select:1", "ov:select:2"], f"▼, Menú y ▲ mueven: {out}")
-    out = await press("DOWN", "DOWN", "DOWN")
+    out = await press("DOWN", "UP", "DOWN")
+    check(out == ["ov:select:1", "ov:select:0", "ov:select:1"], f"▼ y ▲ mueven: {out}")
+    out = await press("DOWN", "DOWN", "DOWN", "DOWN")
     check(out[-1] == "ov:select:0", f"después de la última vuelve a la primera: {out}")
+    out = await press("ROOT_MENU")
+    check(out == ["ov:hide"] and not ctl._menu_open and await ctl.context() == "offline",
+          f"Menú otra vez, en el menú principal, lo cierra (ya no pasa a la opción siguiente): {out}")
+    out = await press("ROOT_MENU", "NUMBER5")
+    check(out[-1].startswith("ov:help:") and ctl._menu_mode == "help", f"Menú lo abre y 5 es la Ayuda: {out}")
+    out = await press("ROOT_MENU")
+    check(out == ["ov:show:4"] and ctl._menu_open and ctl._menu_mode == "activities",
+          f"Menú desde una lista de adentro (la Ayuda) vuelve al menú, como Atrás: {out}")
+    await ctl.run_action("menu:next")
+    check(ctl._menu_sel == 0, "menu:next sigue siendo «la opción siguiente» (para quien lo quiera en una tecla)")
+    check(ctl.cfg.action_for("menu", parse_key("ROOT_MENU")) == ("menu:back", "menu"),
+          "por defecto, la tecla Menú con el menú abierto es menu:back")
     out = await press("EXIT")
     check(out == ["ov:hide"] and await ctl.context() == "offline", f"Atrás cierra el menú sin abrir nada: {out}")
 
@@ -582,6 +596,13 @@ async def main() -> int:
     out = await press("RIGHT", "LEFT", "SELECT", "EXIT")
     check(out == ["feh:next", "feh:previous", "feh:h"], f"▶, ◀, OK (Atrás nada): {out}")
     check(fotos.paused, "queda en pausa")
+    out = await press("NUMBER2")
+    check(out == ["ov:toast:♥ Guardada en Favoritas (1) · 2 otra vez la saca"]
+          and fotos.favorites() == ["/mnt/fotosRemotas/2017/07/IMG_0001.jpg"],
+          f"2 guarda la foto que se ve en Favoritas (también con feh): {out}")
+    out = await press("NUMBER2")
+    check(out == ["ov:toast:Sacada de Favoritas (0)"] and fotos.favorites() == [], f"otra vez 2 la saca: {out}")
+    check(ctl.cfg.action_for("fotos_zoom", parse_key("NUMBER2"))[0] == "fotos:favorite", "también con zoom")
     await press("SELECT")
     fotos.current_folder = Path("/mnt/fotosRemotas")
     out = await press("F2_RED", "F4_YELLOW", "F1_BLUE")
@@ -2715,8 +2736,9 @@ echo '</mame>'
         row = next((i for i in its if i.get("mode") == "today"), None)
         check(row is not None and row["name"] == "▶ Un día como hoy" and row["enabled"]
               and row["sub"] == "15 de noviembre: 4 fotos y 1 video de 2009, 2014 y 2017"
-              and its.index(row) == 3 and its[4]["kind"] == "dir",
-              f"en la carpeta de Fotos, después de los modos: «Un día como hoy» con cuántas y de qué años: {row}")
+              and its.index(row) == 3 and its[4].get("mode") == "favorites" and its[5]["kind"] == "dir",
+              f"en la carpeta de Fotos, después de los modos: «Un día como hoy» (y «Favoritas») con cuántas y de qué "
+              f"años: {row}")
         _, its = ctl._picker_entries("fotos", hoy / "2014")
         check(not any(i.get("mode") == "today" for i in its), "en las subcarpetas no aparece")
         opened_files: list = []
@@ -2843,6 +2865,63 @@ echo '</mame>'
               f"sin fotos de esa fecha: lo dice: {row['sub']}")
         check(menu_ctl._years_text([2009, 2010, 2012, 2014, 2023]) == "de 5 años, entre 2009 y 2023"
               and menu_ctl._years_text([2014]) == "de 2014", "los años")
+
+        print("Fotos: favoritas (2)")
+        fav = str(hoy / "2009" / "11" / "DSC02815.JPG")
+        vid = str(hoy / "2017" / "11" / "VID_20171115_200000.mp4")
+        check(ph.favorites() == [] and not ph.is_favorite(fav), "de entrada no hay ninguna")
+        check(ph.toggle_favorite(fav) is True and ph.is_favorite(fav)
+              and (tmp / "datos" / "fotos-favoritas.txt").read_text() == fav + "\n",
+              "2 guarda la foto que se ve en ~/.local/share/tele-cec/fotos-favoritas.txt (no en la caché)")
+        ph.show_date = False
+        corner.clear()
+        await ph._mpv_file(fav)
+        check(corner == [("script-message-to", "tele_cec_corner", "show", "♥", "")],
+              f"en la esquina se ve un ♥ (aunque la fecha esté apagada): {corner}")
+        ph.show_date = True
+        corner.clear()
+        await ph.refresh_corner()
+        check(corner and corner[-1][3] == "♥ domingo 15 de noviembre de 2009", f"con la fecha prendida: ♥ y la fecha: {corner}")
+        ph.show_date = False
+        corner.clear()
+        await ph._mpv_file(str(hoy / "2009" / "11" / "sin_fecha.jpg"))
+        check(corner == [("script-message-to", "tele_cec_corner", "clear")], "una que no es favorita: nada")
+        ph.toggle_favorite(vid)
+        ph.toggle_favorite("/no/existe.jpg")
+        check(ph.favorite_files() == [fav, vid], "para verlas: las que existen, en el orden en que se guardaron")
+        _, its = ctl._picker_entries("fotos", None)
+        row = its[-1]
+        check(row.get("mode") == "favorites" and row["name"] == "▶ ♥ Favoritas" and row["enabled"]
+              and row["sub"] == "1 foto y 1 video guardadas con 2 · otra vez 2 las saca" and row["path"] == its[0]["path"]
+              and its[0]["kind"] == "dir",
+              f"en Carpetas ▸ (la lista de carpetas), al final: «♥ Favoritas» con cuántas hay: {row}")
+        _, its = ctl._picker_entries("fotos", hoy)
+        check([i.get("mode") for i in its if i.get("mode") in ("today", "favorites")] == ["today", "favorites"],
+              "y adentro de la carpeta, después de «Un día como hoy»")
+        favs_opened: list = []
+
+        async def fake_open_mpv_favs(files, start):
+            favs_opened.extend(files)
+            return True
+        ph._open_mpv = fake_open_mpv_favs  # type: ignore[method-assign]
+        photos_mod.shutil.which = lambda name: "/usr/bin/" + name
+        try:
+            ok = await ph.open(hoy, mode="favorites")
+            check(ok and favs_opened == [fav, vid] and ph.mode == "favorites" and not ph.random_order
+                  and not ph._show_year, f"abrirlas: las favoritas en el orden guardado, con mpv: {favs_opened}")
+            ph._favorites = None  # se vuelven a leer del archivo
+            check(ph.toggle_favorite(fav) is False and not ph.is_favorite(fav)
+                  and ph.favorites() == [vid, "/no/existe.jpg"], "otra vez 2: la saca")
+            ph._favorites = []
+            ph._save_favorites()
+            ok = await ph.open(hoy, mode="favorites")
+            check(not ok and ph.fail_text.startswith("Todavía no hay favoritas"), f"sin ninguna: avisa: {ph.fail_text}")
+            row = ctl._picker_entries("fotos", None)[1][-1]
+            check(not row["enabled"] and row["sub"].startswith("Todavía no hay"), f"y en Carpetas ▸ queda en gris: {row}")
+        finally:
+            photos_mod.shutil.which = real_which_hoy
+        check(photos_mod.FAVORITES in photos_mod.ALL_MODES and photos_mod.MODE_NAMES[photos_mod.FAVORITES] == "favoritas",
+              "es un modo más (el celular también puede pedirlo)")
     finally:
         ctl.activities["fotos"] = real_fotos
         menu_ctl.datetime, photodates_mod.dt = real_dt_menu, real_dt_pd
@@ -3366,6 +3445,79 @@ echo '</mame>'
               and await activities_mod.RadioActivity({"stations": ["https://x.example/a"]}).step(1) == "",
               "con una sola radio, ⏭ no hace nada")
 
+        print("Radio: la tapa del disco de lo que suena (iTunes)")
+        from tele_cec.apps import covers as covers_mod
+        real_cover_dir, covers_mod.LOG_DIR = covers_mod.LOG_DIR, tmp / "cache-radio"
+        real_fetch, real_find = covers_mod._fetch, covers_mod.find
+        fetched: list[str] = []
+        import io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (4, 4), (255, 0, 0)).save(buf, "PNG")
+        png = buf.getvalue()
+
+        def fake_fetch(url):
+            fetched.append(url)
+            if "itunes.apple.com/search" in url:
+                return json.dumps({"results": [
+                    {"artistName": "Charly García", "trackName": "Demoliendo hoteles", "collectionName": "Piano bar",
+                     "artworkUrl100": "https://a.example/100x100bb.jpg"}]}).encode()
+            return png
+        covers_mod._fetch = fake_fetch  # type: ignore[assignment]
+        try:
+            check(covers_mod.song_parts("Charly Garcia - Demoliendo Hoteles") == ("Charly Garcia", "Demoliendo Hoteles")
+                  and covers_mod.song_parts("Soda Stereo – De música ligera") == ("Soda Stereo", "De música ligera")
+                  and covers_mod.song_parts("La 100 FM") is None and covers_mod.song_parts("") is None,
+                  "«Artista - Tema» (también con guion largo); sin guion no se busca (saldría cualquier disco)")
+            check(covers_mod._similar("Charly García", "charly garcia") and covers_mod._similar("Pericos", "Los Pericos")
+                  and covers_mod._similar("Charly García", "Charly Garcia feat. Fito") and not covers_mod._similar("Soda Stereo", "Gustavo Cerati"),
+                  "el artista de iTunes tiene que parecerse al que mandó la emisora")
+            path = covers_mod.find("Charly Garcia", "Demoliendo Hoteles")
+            check(path is not None and path.is_file() and path.read_bytes() == png and path.suffix == ".png"
+                  and fetched == ["https://itunes.apple.com/search?media=music&entity=song&limit=5"
+                                  "&term=Charly+Garcia+Demoliendo+Hoteles", "https://a.example/600x600bb.jpg"],
+                  f"busca en iTunes y baja la tapa grande a ~/.cache/tele-cec/radio-tapas: {fetched}")
+            fetched.clear()
+            check(covers_mod.find("charly garcía", "demoliendo hoteles") == path and not fetched,
+                  "la segunda vez (sin tildes ni mayúsculas) sale de la caché, sin red")
+            check(covers_mod.find("Los Pericos", "Demoliendo Hoteles") is None and len(fetched) == 1,
+                  "otro artista (iTunes devuelve a Charly): no se acepta, mejor sin tapa que una equivocada")
+            fetched.clear()
+            check(covers_mod.find("Los Pericos", "Demoliendo Hoteles") is None and not fetched,
+                  "y eso también se recuerda (no se vuelve a preguntar)")
+            raw = covers_mod.raw_bgra(path, 48)
+            px = raw.read_bytes() if raw else b""
+            mid = (24 * 48 + 24) * 4
+            check(raw is not None and len(px) == 48 * 48 * 4 and px[mid:mid + 4] == b"\x00\x00\xff\xff" and px[3] == 0,
+                  f"los píxeles BGRA para mpv (overlay-add), con las puntas redondeadas: {len(px)}")
+            check(covers_mod.raw_bgra(path, 48) == raw, "convertida una vez, queda")
+
+            # la actividad: cuando cambia lo que manda la emisora, saca la tapa vieja y busca la nueva
+            covers_mod.find = lambda a, t: path if a == "Charly Garcia" else None  # type: ignore[assignment]
+            rcmds.clear()
+            await radio._on_metadata({"icy-title": "Charly Garcia - Demoliendo Hoteles"})
+            await radio._cover_task
+            raw480 = covers_mod.raw_bgra(path, 480)
+            check(radio.cover_path == path and raw480 is not None
+                  and ("script-message-to", "tele_cec_radio", "cover", str(raw480), "480", "480") in rcmds,
+                  f"otro tema: la tapa va a la pantalla de la radio (480 px): {rcmds}")
+            rcmds.clear()
+            await radio._on_metadata({"icy-title": "Charly Garcia - Demoliendo Hoteles"})
+            check(not rcmds and radio.cover_path == path, "el mismo tema otra vez: nada")
+            await radio._on_metadata({"icy-title": "Los Pericos - Runaway"})
+            await radio._cover_task
+            check(rcmds == [("script-message-to", "tele_cec_radio", "nocover")] and radio.cover_path is None,
+                  f"un tema sin tapa: se saca la de antes y queda sin tapa: {rcmds}")
+            rcmds.clear()
+            await radio._on_metadata({"icy-title": "Tanda publicitaria"})
+            await radio._cover_task
+            check(not rcmds and radio.cover_path is None, "sin «Artista - Tema» no se busca")
+            check(radio.song_of({"ICY-TITLE": " x - y "}) == "x - y" and radio.song_of(None) == "", "icy-title, como venga")
+            check(not activities_mod.RadioActivity({"stations": ["https://x.example/a"], "covers": False}).covers
+                  and radio.covers, "[apps.radio] covers = false lo apaga")
+        finally:
+            covers_mod._fetch, covers_mod.find, covers_mod.LOG_DIR = real_fetch, real_find, real_cover_dir
+
         # en el controlador: teclas, menú, ayuda, de fondo con las fotos
         real_radio_act = ctl.activities["radio"]
         ctl.activities["radio"] = radio
@@ -3430,6 +3582,49 @@ echo '</mame>'
             finally:
                 ctl._menu_switch = real_menu_switch  # type: ignore[method-assign]
                 ctl._switching = False
+                radio.want_station = None
+
+            # OK sobre Radio en el menú: pone la última que sonó de una; el botoncito «Radios» (o ▶), la lista
+            radio.running = lambda: False  # type: ignore[method-assign]
+            radio.installed = lambda: True  # type: ignore[method-assign]
+            ctl._foreground = None
+            items_before, cols_before = ctl.cfg.menu.get("items"), ctl._menu_columns
+            ctl.cfg.menu["items"] = ["netflix", "radio", "fotos"]
+            ctl._menu_columns = 2
+            ctl._menu_switch = fake_switch  # type: ignore[method-assign]
+            switched.clear()
+            try:
+                check(radio.has_last() and radio.source() == ("Pipí Cucú (la última) · 2 radios", True),
+                      f"en el menú, abajo de Radio, cuál es la última que sonó: {radio.source()}")
+                await ctl.menu_open()
+                row = next(i for i in ctl.overlay.items if i["id"] == "radio")
+                check(row.get("action") == "Radios", f"con el botoncito «Radios»: {row}")
+                await ctl._menu_choose(ctl.overlay.items.index(row))
+                await ctl._macro_task
+                check(switched and switched[0]["id"] == "radio" and ctl._menu_mode == "activities"
+                      and radio.want_station is None, f"OK la abre de una, con la última (sin preguntar): {switched}")
+                ctl._switching = False
+                await ctl.menu_open(select_id="radio")
+                ctl._menu_chip = True
+                await ctl._menu_choose(ctl._menu_sel)
+                check(ctl._menu_mode == "radio" and [i["name"] for i in ctl.overlay.items] == ["Pipí Cucú", "otra.example:8000"]
+                      and ctl.overlay.items[0]["sub"] == "la última que sonó",
+                      f"OK sobre el botoncito: la lista para elegir otra: {[i['name'] for i in ctl.overlay.items]}")
+                out = await press("ROOT_MENU")
+                check(ctl._menu_mode == "activities" and ctl._menu_open and out[-1].startswith("ov:show:"),
+                      f"la tecla Menú vuelve al menú: {out}")
+                radio._last_file().unlink()
+                switched.clear()
+                check(not radio.has_last() and radio.source()[0] == "Pipí Cucú · otra.example:8000",
+                      "sin una última (nunca sonó): abajo de Radio, la lista")
+                await ctl.menu_open(select_id="radio")
+                await ctl._menu_choose(ctl._menu_sel)
+                check(ctl._menu_mode == "radio" and not switched, "y OK abre la lista para elegir (no hay una «última»)")
+                await ctl.menu_close()
+            finally:
+                ctl._menu_switch = real_menu_switch  # type: ignore[method-assign]
+                ctl._switching = False
+                ctl.cfg.menu["items"], ctl._menu_columns = items_before, cols_before
                 radio.want_station = None
         finally:
             ctl.activities["radio"] = real_radio_act

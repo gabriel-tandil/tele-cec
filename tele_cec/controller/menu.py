@@ -21,7 +21,7 @@ from .activities import KEEP_PLAYING
 log = logging.getLogger("tele")
 
 # Ayuda al pie del menú.
-MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Juegos, Android) · Atrás cerrar · • ayuda"
+MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Radio, Juegos, Android) · Atrás cerrar · • ayuda"
 GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar · • (punto) ayuda, en cualquier app"
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
 SOUND_HINT = "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida · Atrás volver"
@@ -159,6 +159,23 @@ def _today_item(act: activities_mod.PhotosActivity, path: Path) -> dict | None:
     return item
 
 
+def _favorites_item(act: activities_mod.PhotosActivity, path: Path) -> dict:
+    """«♥ Favoritas»: las fotos guardadas con 2 (de todas las carpetas), en el orden en que se guardaron."""
+    files = act.favorite_files()
+    item = {"kind": "play", "mode": activities_mod.photos.FAVORITES, "path": str(path), "icon": "media-playback-start",
+            "name": "▶ ♥ Favoritas", "enabled": bool(files), "current": False}
+    if files:
+        videos = sum(1 for f in files if activities_mod.photos.is_video(f))
+        photos = len(files) - videos
+        parts = [_plural(photos, act.unit)] if photos else []
+        if videos:
+            parts.append(_plural(videos, ("video", "videos")))
+        item["sub"] = " y ".join(parts) + " guardadas con 2 · otra vez 2 las saca"
+    else:
+        item["sub"] = "Todavía no hay: 2 guarda la foto que se está viendo"
+    return item
+
+
 def _continue_items(act: activities_mod.MediaActivity, roots: list[Path]) -> list[dict]:
     """«Seguir viendo»: los últimos videos que quedaron a la mitad (arriba de todo en la carpeta de Videos)."""
     found = [(Path(p), s) for p, s in resume.recent(3)
@@ -200,7 +217,7 @@ class MenuMixin:
         self._picker_stack: list[tuple[Path | None, int]] = []
         # Lista de juegos: si se abrió desde el juego (menú cerrado), Atrás vuelve al juego en vez de al menú.
         self._games_back_closes = False
-        # Ayuda (desde el menú o con la tecla Info/Ayuda): páginas por app y desde dónde se abrió.
+        # Ayuda (desde el menú, con • o con la tecla Ayuda): páginas por app y desde dónde se abrió.
         self._menu_from_ctx = "offline"
         self._help_pages: list[tuple[str, str]] = []
         self._help_idx = 0
@@ -275,6 +292,8 @@ class MenuMixin:
         if self._menu_columns > 1 and isinstance(act, (activities_mod.MediaActivity,
                                                        activities_mod.AndroidActivity)):
             item["action"] = "Conectar" if isinstance(act, activities_mod.AndroidActivity) else "Carpetas"
+        elif self._menu_columns > 1 and isinstance(act, activities_mod.RadioActivity) and len(act.stations) > 1:
+            item["action"] = "Radios"  # OK pone la última que sonó; el botoncito, la lista para elegir otra
         if ident != cur and ident in KEEP_PLAYING.get(cur or "", set()) and act.running():
             item["badge"] = "sonando"  # p. ej. Tidal de fondo mientras pasan las fotos
             item["background"] = True  # _menu_playback la corrige si en realidad está en pausa
@@ -538,9 +557,9 @@ class MenuMixin:
             await self.overlay.toast(self.activities[item["id"]].unavailable_text(), 2500)
             self._menu_restart_timer()
             return
-        if isinstance(act, activities_mod.RadioActivity):
+        if isinstance(act, activities_mod.RadioActivity) and not act.running() and not act.has_last():
             self._menu_act_sel = index
-            await self._radio_open()  # Radio: la lista de emisoras, para elegir cuál (abierta o no)
+            await self._radio_open()  # Radio por primera vez: la lista de emisoras, para elegir cuál
             return
         if item["id"] == self.current_app() and isinstance(act, activities_mod.AndroidActivity):
             # Compartiendo la pantalla del celular: «Seguir viendo», «Dejar de compartir» u otro celular.
@@ -580,13 +599,17 @@ class MenuMixin:
             await self.overlay.toast(why or f"No pude abrir {item['name']}", 4000 if why else 3000)
 
     async def a_menu(self, arg: str) -> None:
-        """menu (abrir; abierto = siguiente opción), menu:up|down|left|right|ok|back|close|open|pick:N.
+        """menu (abrir; abierto = volver atrás o cerrarlo), menu:up|down|left|right|ok|back|close|open|next|pick:N.
 
-        ▶ (right) sobre Videos o Fotos abre el selector de carpetas; ahí ◀ (left) o Atrás (back) sube.
+        ▶ (right) sobre Videos o Fotos abre el selector de carpetas; ahí ◀ (left) o Atrás (back) sube. La tecla
+        Menú con el menú abierto hace lo mismo que Atrás: sale de la lista de adentro (Carpetas, Sonido, Radios,
+        Ayuda…) o, en el menú principal, lo cierra.
         """
         sub, _, rest = arg.strip().lower().partition(":")
         if self._switching:
             return
+        if self._menu_open and sub in ("", "toggle"):
+            sub = "back"
         if self._menu_open and self._menu_mode == "help":
             await self._help_key(sub)
             return
@@ -602,7 +625,7 @@ class MenuMixin:
             return
         if sub in ("", "next", "toggle"):
             if self._menu_open:
-                await self._menu_move(+1)
+                await self._menu_move(+1)  # menu:next: la opción siguiente (como era antes la tecla Menú)
             else:
                 await self.menu_open()
             return
@@ -712,6 +735,8 @@ class MenuMixin:
                 items.append({"kind": "dir", "path": str(root), "name": activities_mod.describe_folder(root),
                               "icon": "folder", "sub": "predeterminada" if root == default else "",
                               "enabled": True, "current": False})
+            if isinstance(act, activities_mod.PhotosActivity) and not act.command and items:
+                items.append(_favorites_item(act, Path(items[0]["path"])))  # las guardadas con 2
             return f"{act.name} · elegir carpeta", items
         pick = act.pick_files and not act.command  # los archivos, para elegir uno (Videos, Música)
         subfolders = activities_mod.list_subfolders(path)
@@ -759,6 +784,8 @@ class MenuMixin:
             today_item = _today_item(act, path)
             if today_item is not None:
                 items.append(today_item)
+            if not act.command:
+                items.append(_favorites_item(act, path))
         for d in subfolders:
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})

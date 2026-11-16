@@ -2,9 +2,9 @@
 
 - las actividades (con su ícono, el texto de abajo, «en uso» / «sonando»), como las arma el menú de la TV;
 - tocar una fila hace lo mismo que OK en la TV: abrirla;
-- su botoncito, lo mismo que «Carpetas ▸» / «Conectar ▸» en la TV, y algunos más: elegir carpeta (Videos, Fotos),
-  elegir juego, elegir celular o dejar de compartir (Android), buscar (Netflix, YouTube), explorar Tidal, salida de
-  sonido;
+- su botoncito, lo mismo que «Carpetas ▸» / «Radios ▸» / «Conectar ▸» en la TV, y algunos más: elegir carpeta
+  (Videos, Fotos), elegir la radio, elegir juego, elegir celular o dejar de compartir (Android), buscar (Netflix,
+  YouTube), explorar Tidal, salida de sonido;
 - cerrar la app que está abierta (vuelve el menú en la TV).
 
 Las carpetas y los juegos que se piden desde el celular se validan contra lo configurado (no se puede abrir
@@ -56,6 +56,8 @@ class MenuWeb:
             return "games", "Juegos"
         if isinstance(act, activities_mod.AndroidActivity):
             return "android", "Conectar"
+        if isinstance(act, activities_mod.RadioActivity):
+            return ("radio", "Radios") if len(act.stations) > 1 else ("", "")
         if isinstance(act, activities_mod.TidalActivity) or ident == "tidal":
             return "tidal", "Explorar"
         if ident in ("netflix", "youtube"):
@@ -71,8 +73,11 @@ class MenuWeb:
                 "current": bool(e.get("current")), "badge": e.get("badge") or "",
                 "option": option, "chip": chip, "running": bool(act is not None and act.running()),
                 "background": bool(e.get("background")),
-                # Videos, Música: tocar la fila (cerrada) abre su carpeta o Explorar, no arranca con todo
-                "browse": bool(isinstance(act, activities_mod.MediaActivity) and act.browse_on_ok)}
+                # Videos, Música: tocar la fila (cerrada) abre su carpeta o Explorar, no arranca con todo;
+                # Radio, la primera vez (sin una última que sonó): la lista para elegir
+                "browse": bool((isinstance(act, activities_mod.MediaActivity) and act.browse_on_ok)
+                               or (isinstance(act, activities_mod.RadioActivity) and len(act.stations) > 1
+                                   and not act.has_last()))}
 
     def _build(self) -> list[dict[str, Any]]:
         ctl = self.ctl
@@ -166,6 +171,34 @@ class MenuWeb:
                            # Seguir viendo: dónde quedó (y si la fila ya es «Seguir viendo», que no pregunta)
                            "resume": round(it.get("resume") or 0), "direct": bool(it.get("direct"))}
                           for it in items]}
+
+    # ---------------------------------------------------------------- Radio
+    async def radio(self) -> dict[str, Any]:
+        """Las emisoras, con la que suena (o la última que sonó) marcada; tocar una la pone."""
+        act = self.ctl.activities.get("radio")
+        if not isinstance(act, activities_mod.RadioActivity) or not act.stations:
+            return {"error": "No hay radios: agregalas en [apps.radio] stations (config.toml)"}
+        playing, state, song = -1, "", ""
+        if act.running():
+            playing, state = await act.current(), await act.playback()
+            song = await act.now_playing()
+        last = act.last_index() if act.has_last() else -1
+        items = []
+        for i, st in enumerate(act.stations):
+            it = {"index": i, "name": st["name"], "current": i == playing, "sub": "", "badge": ""}
+            if i == playing:
+                it["badge"] = {"Playing": "sonando", "Paused": "en pausa"}.get(state, "sonando")
+                it["sub"] = song
+            elif playing < 0 and i == last:
+                it["sub"] = "la última que sonó"
+            items.append(it)
+        return {"title": f"{act.name} · elegir emisora", "playing": playing, "items": items}
+
+    def allowed_station(self, index: Any) -> int | None:
+        act = self.ctl.activities.get("radio")
+        if not isinstance(act, activities_mod.RadioActivity) or isinstance(index, bool) or not isinstance(index, int):
+            return None
+        return index if 0 <= index < len(act.stations) else None
 
     # ---------------------------------------------------------------- juegos
     async def games(self) -> dict[str, Any]:
