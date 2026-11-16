@@ -25,7 +25,8 @@ log = logging.getLogger("actividades")
 DEBUG_PORT = 9224   # canal de control de la página (Netflix usa 9222 y el Navegador 9223); solo escucha en 127.0.0.1
 
 # CC del control: el reproductor de YouTube para TV (probado en la Pi) no tiene toggleSubtitles como el de
-# escritorio, pero sí toggleSubtitlesOn / isSubtitlesOn; la tecla «c» ahí abre la búsqueda.
+# escritorio. toggleSubtitlesOn() solo los prende; para apagarlos, setOption('captions', 'track', {}) (o
+# unloadModule('captions')). La tecla «c» ahí abre la búsqueda.
 SUBTITLES_JS = """(() => {
   const p = document.querySelector('.html5-video-player');
   const v = document.querySelector('video');
@@ -34,8 +35,13 @@ SUBTITLES_JS = """(() => {
   let n = 0;
   try { n = ((p.getAudioTrack && p.getAudioTrack()) || {}).captionTracks?.length || 0; } catch (e) {}
   try { n = n || (p.getOption('captions', 'tracklist') || []).length; } catch (e) {}
-  if (!n && !p.isSubtitlesOn()) return JSON.stringify({error: 'none'});
-  p.toggleSubtitlesOn();
+  if (p.isSubtitlesOn()) {
+    p.setOption('captions', 'track', {});   // apagar (toggleSubtitlesOn solo prende)
+    if (p.isSubtitlesOn()) p.unloadModule('captions');
+  } else {
+    if (!n) return JSON.stringify({error: 'none'});
+    p.toggleSubtitlesOn();
+  }
   const on = !!p.isSubtitlesOn();
   let t = {};
   try { t = on ? (p.getOption('captions', 'track') || {}) : {}; } catch (e) {}

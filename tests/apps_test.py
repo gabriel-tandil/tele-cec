@@ -1748,8 +1748,8 @@ async def main() -> int:
     yfx.js = fake_yt_js  # type: ignore[method-assign]
     texts = [await yfx.toggle_subtitles() for _ in range(4)]
     check(texts == ["Subtítulos: Español", "Sin subtítulos", "Este video no tiene subtítulos",
-                    "Los subtítulos, con un video puesto"] and "toggleSubtitlesOn" in yt_exprs[0],
-          f"prende o apaga con toggleSubtitlesOn y dice cuál quedó: {texts}")
+                    "Los subtítulos, con un video puesto"] and "toggleSubtitlesOn" in yt_exprs[0] and "setOption('captions', 'track', {})" in yt_exprs[0],
+          f"prende o apaga con toggleSubtitlesOn (y apaga con setOption) y dice cuál quedó: {texts}")
     yold = activities_mod.YouTubeActivity({"debug_port": 0}, {})
     check(await yold.toggle_subtitles() == "Para los subtítulos con CC, cerrá YouTube y abrilo de nuevo",
           "un YouTube abierto sin el canal: avisa que hay que reabrirlo")
