@@ -1390,6 +1390,11 @@ async def main() -> int:
           "sus preferencias: todo al 150 %, sin ventanas nuevas, sin animaciones ni trabajo de fondo (como Netflix), "
           "extensiones copiadas habilitadas, sin preguntar por ubicación")
     check("layout.css.devPixelsPerPx" not in nav_mod.WebActivity({"scale": 1.0}, {}).prefs(), "scale = 1.0: como una PC")
+    icons_dir = Path(nav_mod.__file__).resolve().parent.parent.parent / "ui" / "icons"
+    check(nav_mod.WebActivity({}, {}).icon == "firefox.svg" and nav_mod.WebActivity({}, {"engine": "chromium"}).icon
+          == "chromium.svg" and nav_mod.WebActivity({"icon": "x.svg"}, {"engine": "chromium"}).icon == "x.svg"
+          and (icons_dir / "firefox.svg").is_file() and (icons_dir / "chromium.svg").is_file(),
+          "el ícono del Navegador es el del navegador configurado (Firefox o Chromium)")
     page_html = wa.start_page_html()
     check(wa.home_url() == (tmp / "nav-perfil" / "inicio.html").as_uri() and (tmp / "nav-perfil" / "inicio.html").is_file()
           and 'href="https://es.wikipedia.org"' in page_html and "<small>1</small>" in page_html and "0 = escribir" in page_html,

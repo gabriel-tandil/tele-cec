@@ -958,7 +958,7 @@ class MenuMixin:
             host = b["url"].split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
             ico = w.favicon(b["url"])
             items.append({"id": f"_site{i}", "url": b["url"], "name": b["name"], "enabled": True,
-                          "icon": str(ico) if ico else w.icon,
+                          "icon": str(ico) if ico else "navegador.svg",
                           "sub": host, "current": bool(cur) and cur.rstrip("/").startswith(b["url"].rstrip("/"))})
         if w.running():
             items.append({"id": "_site_go", "url": "", "name": "Escribir una dirección o buscar", "icon": "edit-find",

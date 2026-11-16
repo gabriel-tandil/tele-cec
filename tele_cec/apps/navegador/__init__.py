@@ -139,7 +139,7 @@ def allowed_url(url: str) -> bool:
 class WebActivity(Activity):
     id = "navegador"
     name = "Navegador"
-    icon = "navegador.svg"
+    icon = "navegador.svg"   # el globo: para los sitios sin ícono propio; la fila del menú lleva el del navegador
     context = "navegador"
     start_timeout = 30.0
 
@@ -148,12 +148,12 @@ class WebActivity(Activity):
         browser_cfg = browser_cfg or {}
         self.cfg = cfg
         self.name = str(cfg.get("name") or self.name)
-        self.icon = str(cfg.get("icon") or self.icon)
         engine = str(cfg.get("engine") or browser_cfg.get("engine") or "firefox").strip().lower()
         if engine not in NAMES:
             log.warning("Navegador: navegador %r inválido (firefox/chromium); uso firefox", engine)
             engine = "firefox"
         self.engine = engine
+        self.icon = str(cfg.get("icon") or f"{engine}.svg")  # en el menú, el de Firefox o el de Chromium
         self.reduce_effects = bool(browser_cfg.get("reduce_effects", True))
         self.profile = Path(os.path.expanduser(str(cfg.get("profile") or f"~/.config/{engine}-navegador")))
         self.scale = float(cfg.get("scale", 1.5) or 1.0)
