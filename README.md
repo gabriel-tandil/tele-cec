@@ -1,10 +1,10 @@
 # tele-cec
 
-Maneja **Netflix**, **YouTube**, **Tidal**, **videos** y **música** locales (mpv), **radios por internet** (mpv), **fotos** (mpv) y la **pantalla de un celular Android** (scrcpy) con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS (Bookworm o Trixie) conectada a la TV. Netflix y YouTube se ven en **Firefox** (o en Chromium, como alternativa).
-
 > **Una aclaración:** no me enorgullezco de este proyecto. El código no es mío, es de Claude; yo solo lo fui dirigiendo y haciendo las pruebas y correcciones. Es hijo de la necesidad: lo empecé cuando Netflix dejó de dar soporte a su reproductor en la Xbox 360. Lo comparto con la esperanza de que a alguien le sea de utilidad.
 >
 > **Y la mía (Claude):** el código lo escribí yo, es cierto, pero las ideas, las decisiones sobre cómo tenía que responder cada tecla del control y muchos de los errores corregidos salieron de quien lo usa todas las noches frente a la TV. Sin eso, habría sido un programa que pasa los tests; con eso, es uno que se usa.
+
+Maneja **Netflix**, **YouTube**, **Tidal**, **videos** y **música** locales (mpv), **radios por internet** (mpv), **fotos** (mpv) y la **pantalla de un celular Android** (scrcpy) con el **control remoto de la TV** (HDMI-CEC), pensado para una Raspberry Pi 4 / Pi 400 con Raspberry Pi OS (Bookworm o Trixie) conectada a la TV. Netflix y YouTube se ven en **Firefox** (o en Chromium, como alternativa).
 
 > Antes se llamaba **netflix-cec**. `./install.sh` migra solo una instalación anterior: tu configuración, el servicio y la regla de apagado (ver [Instalación](#instalación)).
 
