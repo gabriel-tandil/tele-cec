@@ -250,15 +250,37 @@ def parse_volume(text: str) -> tuple[int | None, bool]:
     return round(float(m.group(1)) * 100), "MUTED" in text
 
 
+# La última lectura buena: si wpctl tarda o falla una vez (la Pi ocupada, PipeWire cambiando de salida), las barras
+# del menú y del celular siguen mostrando ese valor en vez de caer a 0 (que parecería «sin volumen»).
+_last_volume: tuple[int | None, bool] = (None, False)
+
+
+def _keep_volume(text: str, why: str) -> tuple[int | None, bool]:
+    global _last_volume
+    got = parse_volume(text)
+    if got[0] is not None:
+        _last_volume = got
+        return got
+    log.info("No pude leer el volumen (%s); uso el último: %s", why or "sin respuesta", _last_volume[0])
+    return _last_volume
+
+
 def volume_now() -> tuple[int | None, bool]:
     """Lo mismo que get_volume, sin async (para el menú, que se arma en un hilo aparte)."""
-    return parse_volume(_run(["wpctl", "get-volume", SINK], 3))
+    out = _run(["wpctl", "get-volume", SINK], 3) or _run(["wpctl", "get-volume", SINK], 3)
+    return _keep_volume(out, "")
 
 
 async def get_volume() -> tuple[int | None, bool]:
-    """(porcentaje, silenciado) de la salida actual; (None, False) si no se sabe."""
-    rc, out = await run_cmd(["wpctl", "get-volume", SINK], 3)
-    return parse_volume(out) if rc == 0 else (None, False)
+    """(porcentaje, silenciado) de la salida actual. Si wpctl no contesta, se prueba otra vez y si no, la última
+    lectura buena; (None, False) solo si nunca se supo."""
+    out = ""
+    for _ in range(2):
+        rc, out = await run_cmd(["wpctl", "get-volume", SINK], 3)
+        if rc == 0 and parse_volume(out)[0] is not None:
+            break
+        out = out.strip()[:80] if rc != 0 else out
+    return _keep_volume(out, out if rc != 0 else "")
 
 
 async def change_volume(what: str, step: int = 5) -> bool:
