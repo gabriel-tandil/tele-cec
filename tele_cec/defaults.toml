@@ -299,7 +299,7 @@ FAST_FORWARD = "yt:seek:+10"
 REWIND = "yt:seek:-10"
 FORWARD = ""
 F1_BLUE = ""
-SUB_PICTURE = "yt:key:c"      # CC = subtítulos (la tecla c de YouTube)
+SUB_PICTURE = "yt:subtitles"  # CC = prender o apagar los subtítulos
 
 [keys.navegador]              # Navegador: las flechas van al enlace o botón más cercano (con un marco), OK lo abre
 UP = "web:nav:up"
@@ -496,9 +496,8 @@ F4_YELLOW = "fotos:random"    # amarillo = una foto al azar
 F3_GREEN = "fotos:map"        # verde = dónde se sacó la foto (un mapa, si tiene GPS)
 UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
 DOWN = "fotos:mode"           # ▼ = solo fotos → fotos y videos → solo videos (sigue desde la foto que se veía)
-NUMBER1 = "fotos:date"        # 1 = la fecha de cada foto en una esquina (el día, el mes o el año: lo que se sepa)
-SUB_PICTURE = "fotos:date"    # CC = lo mismo que 1: prender o apagar la fecha
-NUMBER2 = "fotos:favorite"    # 2 = guardar la foto en Favoritas (otra vez: sacarla); se ven desde Carpetas ▸
+SUB_PICTURE = "fotos:date"    # CC = la fecha de cada foto en una esquina (el día, el mes o el año: lo que se sepa)
+NUMBER1 = "fotos:favorite"    # 1 = guardar la foto en Favoritas (otra vez: sacarla); se ven desde Carpetas ▸
 
 [keys.fotos_zoom]             # Fotos con zoom: las flechas mueven la foto, OK acerca y Atrás aleja
 UP = "fotos:scroll:up"
@@ -691,7 +690,7 @@ delay_s = 8                          # segundos por foto
 shuffle = false
 on_this_day = true                   # «Un día como hoy» en Carpetas: las fotos de esta fecha en otros años
 today_shuffle = true                 # «Un día como hoy» al azar (false = del año más viejo al más nuevo)
-show_date = false                    # la fecha de cada foto en una esquina, hasta que se toque 1 (después se
+show_date = false                    # la fecha de cada foto en una esquina, hasta que se toque CC (después se
                                      # recuerda lo último elegido)
 show_location = true                 # con la fecha: un globo terráqueo si la foto o el video sabe dónde se sacó
 map = true                           # verde = dónde se sacó la foto (con GPS): un mapa de OpenStreetMap

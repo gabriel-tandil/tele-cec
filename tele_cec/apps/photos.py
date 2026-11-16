@@ -10,9 +10,9 @@ Tres modos (▼ pasa de uno a otro mientras se mira, y se pueden elegir en «Car
 Si la carpeta tiene subcarpetas con fotos o videos (los años, los viajes…), la presentación va en orden aleatorio en
 los tres modos (también con [apps.fotos] shuffle = true); al cambiar de modo con ▼ sigue desde la foto que se veía.
 «Un día como hoy» también va al azar (con [apps.fotos] today_shuffle = false, del año más viejo al más nuevo).
-La fecha de cada foto en una esquina (1 en el control, con mpv): el día, o el mes, o el año, según lo que se sepa
+La fecha de cada foto en una esquina (CC en el control, con mpv): el día, o el mes, o el año, según lo que se sepa
 (del nombre, de la foto o de las carpetas). Queda prendida o apagada para las próximas veces.
-Favoritas (2 en el control): guarda la foto que se ve en una lista (~/.local/share/tele-cec/fotos-favoritas.txt);
+Favoritas (1 en el control): guarda la foto que se ve en una lista (~/.local/share/tele-cec/fotos-favoritas.txt);
 otra vez la saca. En Carpetas ▸ está «♥ Favoritas» para verlas, y en la esquina se ve un ♥ en las guardadas.
 Mientras suena un video, la música de Tidal de fondo se pausa (on_video, lo pone el controlador).
 """
@@ -42,13 +42,13 @@ from .mpv import SCRIPTS, Mpv, base_args, mpv_pids
 
 MODES = ("photos", "mixed", "videos")   # los que pasa ▼
 TODAY = "today"                          # «Un día como hoy»: las fotos de esta fecha en otros años
-FAVORITES = "favorites"                  # «♥ Favoritas»: las guardadas con 2
+FAVORITES = "favorites"                  # «♥ Favoritas»: las guardadas con 1
 ALL_MODES = MODES + (TODAY, FAVORITES)
 FAVORITES_FILE = "fotos-favoritas.txt"   # en ~/.local/share/tele-cec: una ruta por línea, en el orden en que se guardaron
 TODAY_SPREAD = 3        # si no hay de este día exacto: esta semana (± 3 días) en otros años
 REFRESH_EVERY_S = 600   # la lista guardada se vuelve a recorrer (en segundo plano) como mucho cada 10 minutos
 CORNER = "tele_cec_corner"   # el script de mpv que escribe la fecha (o el año) en la esquina
-SHOW_DATE_FILE = "fotos-fecha-en-pantalla"   # en ~/.cache/tele-cec: «si» o «no» (lo último elegido con 1)
+SHOW_DATE_FILE = "fotos-fecha-en-pantalla"   # en ~/.cache/tele-cec: «si» o «no» (lo último elegido con CC)
 MODE_NAMES = {"photos": "solo fotos", "mixed": "fotos y videos", "videos": "solo videos", TODAY: "un día como hoy",
               FAVORITES: "favoritas"}
 _DATE_RE = re.compile(r"((?:19|20)\d{6})[_-]?(\d{6})?")  # IMG_20201130_185306 · VID-20201108-WA0001
@@ -105,12 +105,12 @@ class PhotosActivity(MediaActivity):
         self.fail_text = ""
         self.random_order = False   # la presentación abierta va al azar (la lista ya se mezcló)
         self._show_year = False     # «Un día como hoy»: el año de cada foto en una esquina
-        self.show_date = self._load_show_date()   # la fecha de cada foto en una esquina (1 en el control)
+        self.show_date = self._load_show_date()   # la fecha de cada foto en una esquina (CC en el control)
         self._corner_path = ""      # de qué foto es lo que dice la esquina
-        self._favorites: list[str] | None = None   # las guardadas con 2 (se leen la primera vez que hacen falta)
+        self._favorites: list[str] | None = None   # las guardadas con 1 (se leen la primera vez que hacen falta)
         self.reset_view()
 
-    # ------------------------------------------------------------ favoritas (2 en el control)
+    # ------------------------------------------------------------ favoritas (1 en el control)
     def favorites_file(self) -> Path:
         return DATA_DIR / FAVORITES_FILE
 
@@ -164,7 +164,7 @@ class PhotosActivity(MediaActivity):
         return LOG_DIR / SHOW_DATE_FILE
 
     def _load_show_date(self) -> bool:
-        """Lo último que se eligió con 1 (o, si nunca se tocó, [apps.fotos] show_date)."""
+        """Lo último que se eligió con CC (o, si nunca se tocó, [apps.fotos] show_date)."""
         try:
             return self._show_date_file().read_text("utf-8").strip() == "si"
         except OSError:
@@ -182,7 +182,7 @@ class PhotosActivity(MediaActivity):
         return self.show_date or self._show_year
 
     async def toggle_date(self) -> bool | None:
-        """1 en el control: prende o apaga la fecha en la esquina (y lo recuerda). None: con feh no se puede."""
+        """CC en el control: prende o apaga la fecha en la esquina (y lo recuerda). None: con feh no se puede."""
         if self.backend != "mpv":
             return None
         self.show_date = not self.show_date

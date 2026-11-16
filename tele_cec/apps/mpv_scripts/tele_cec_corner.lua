@@ -1,4 +1,4 @@
--- Un texto chico en la esquina de abajo a la derecha: en Fotos, la fecha de cada foto (1 en el control) o el año
+-- Un texto chico en la esquina de abajo a la derecha: en Fotos, la fecha de cada foto (CC en el control) o el año
 -- en «Un día como hoy», y un globo terráqueo a la derecha si la foto o el video tiene la ubicación (GPS).
 -- tele-cec lo pide por el canal de control con  script-message-to tele_cec_corner show <grande> [<chico>] [globe]
 -- (y clear para sacarlo). La capa la guarda este script: una capa pedida por el canal de control se borra sola

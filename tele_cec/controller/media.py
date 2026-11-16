@@ -104,7 +104,7 @@ class MediaMixin:
 
     async def a_yt(self, arg: str) -> None:
         """YouTube para TV: yt:key:<Tecla> (flechas, Return, Escape: la interfaz las entiende de fábrica),
-        yt:play_pause|play|pause (MPRIS), yt:seek:+10|-10."""
+        yt:play_pause|play|pause (MPRIS), yt:seek:+10|-10, yt:subtitles (por el canal de control de la página)."""
         y = self.activities.get("youtube")
         if not isinstance(y, activities_mod.YouTubeActivity) or not y.running():
             log.info("YouTube no está abierto: no ejecuto yt:%s", arg)
@@ -114,6 +114,8 @@ class MediaMixin:
         if cmd == "key":
             if rest:
                 await keyboard.wtype_key(rest)
+        elif cmd in ("subtitles", "cc"):
+            await self.toast(await y.toggle_subtitles(), 2500)
         elif cmd in mpris:
             await y.mpris.ctl(mpris[cmd])
         elif cmd == "seek":
@@ -211,7 +213,7 @@ class MediaMixin:
             if on is None:
                 await self.toast("La fecha en la esquina necesita mpv ([apps.fotos] viewer = \"mpv\")", 3000)
             else:
-                await self.toast("Fecha en la esquina · CC o 1 la saca" if on else "Sin la fecha · CC o 1 la muestra", 1800)
+                await self.toast("Fecha en la esquina · CC la saca" if on else "Sin la fecha · CC la muestra", 1800)
         elif cmd in ("favorite", "favorita", "fav"):
             await self._fotos_favorite(f)
         elif cmd == "filename":
@@ -251,7 +253,7 @@ class MediaMixin:
             return
         n = len(f.favorites())
         await f.refresh_corner()
-        await self.toast(f"♥ Guardada en Favoritas ({n}) · 2 otra vez la saca" if added
+        await self.toast(f"♥ Guardada en Favoritas ({n}) · 1 otra vez la saca" if added
                          else f"Sacada de Favoritas ({n})", 2500)
 
     async def _fotos_map(self, f: activities_mod.PhotosActivity) -> None:

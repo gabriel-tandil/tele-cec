@@ -7,6 +7,7 @@ Usa el mismo navegador que Netflix (browser.engine: Firefox por defecto, o Chrom
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import urllib.parse
@@ -16,9 +17,35 @@ from typing import Any
 from ...system.mpris import Mpris
 from ...system.procs import find_pids, graphical_env
 from ..base import ProcActivity
+from ..netflix import bidi, cdp
 from ..webprofile import FIREFOX_PERF_PREFS, FIREFOX_PREFS, NAMES, find_binary, mark_clean_exit, write_user_js
 
 log = logging.getLogger("actividades")
+
+DEBUG_PORT = 9224   # canal de control de la página (Netflix usa 9222 y el Navegador 9223); solo escucha en 127.0.0.1
+
+# CC del control: el reproductor de YouTube para TV (probado en la Pi) no tiene toggleSubtitles como el de
+# escritorio, pero sí toggleSubtitlesOn / isSubtitlesOn; la tecla «c» ahí abre la búsqueda.
+SUBTITLES_JS = """(() => {
+  const p = document.querySelector('.html5-video-player');
+  const v = document.querySelector('video');
+  if (!p || typeof p.toggleSubtitlesOn !== 'function') return JSON.stringify({error: 'noplayer'});
+  if (!v || !(v.currentSrc || v.src)) return JSON.stringify({error: 'novideo'});
+  let n = 0;
+  try { n = ((p.getAudioTrack && p.getAudioTrack()) || {}).captionTracks?.length || 0; } catch (e) {}
+  try { n = n || (p.getOption('captions', 'tracklist') || []).length; } catch (e) {}
+  if (!n && !p.isSubtitlesOn()) return JSON.stringify({error: 'none'});
+  p.toggleSubtitlesOn();
+  const on = !!p.isSubtitlesOn();
+  let t = {};
+  try { t = on ? (p.getOption('captions', 'track') || {}) : {}; } catch (e) {}
+  return JSON.stringify({on, name: t.displayName || t.languageName || ''});
+})()"""
+
+
+class NotConnected(Exception):
+    """YouTube no tiene el canal de control (lo abrió una versión anterior, o debug_port = 0)."""
+
 
 # Como h264ify, para Chromium: una extensión que esconde VP9 y AV1 (en Firefox alcanza con preferencias).
 H264_EXTENSION = Path(__file__).resolve().parent / "h264"
@@ -70,6 +97,10 @@ class YouTubeActivity(ProcActivity):
         default_profile = "~/.config/firefox-youtube" if self.firefox else "~/.config/chromium-youtube"
         self.profile = Path(os.path.expanduser(str(cfg.get("profile") or default_profile)))
         self.mpris = Mpris(str(cfg.get("mpris_player") or engine), float(cfg.get("volume_step", 0.05)))
+        # El canal de control de la página (WebDriver BiDi en Firefox, DevTools en Chromium), solo para lo que no
+        # se puede con teclas (los subtítulos). 0 = sin canal.
+        self.debug_port = int(cfg.get("debug_port", DEBUG_PORT) or 0)
+        self._js_lock = asyncio.Lock()
 
     @property
     def firefox(self) -> bool:
@@ -123,6 +154,8 @@ class YouTubeActivity(ProcActivity):
         url = url or self.url
         if self.firefox:
             args = [binary, "--no-remote", "--profile", str(self.profile)]
+            if self.debug_port:
+                args += ["--remote-debugging-port", str(self.debug_port)]
             if self.cfg.get("kiosk", True):
                 args.append("--kiosk")
             return args + [url]
@@ -130,6 +163,8 @@ class YouTubeActivity(ProcActivity):
                 "--no-first-run", "--no-default-browser-check", "--noerrdialogs", "--disable-session-crashed-bubble",
                 "--hide-crash-restore-bubble", "--disable-features=Translate", "--password-store=basic",
                 "--autoplay-policy=no-user-gesture-required"]
+        if self.debug_port:
+            args.append(f"--remote-debugging-port={self.debug_port}")
         if graphical_env().get("WAYLAND_DISPLAY"):
             # Wayland nativo: las teclas van con wtype, que no sirve con apps X11 (por Xwayland les llegan como
             # Escape). Chromium 156 arranca en X11 si no se le pide (ignora --ozone-platform-hint=auto).
@@ -169,3 +204,42 @@ class YouTubeActivity(ProcActivity):
 
     async def pause(self) -> None:
         await self.mpris.ctl("pause")
+
+    async def js(self, expression: str, timeout: float = 8.0) -> Any:
+        """Evalúa una expresión en la página de YouTube con una sesión de control corta: se abre, se usa y se
+        cierra (Firefox admite una sola sesión; así nunca queda tomada). NotConnected si no hay canal."""
+        if not self.debug_port:
+            raise NotConnected("debug_port = 0")
+        async with self._js_lock:
+            if self.firefox:
+                page = await bidi.connect_firefox(self.debug_port)
+            else:
+                page = await cdp.connect_chromium(self.debug_port)
+            if page is None:
+                raise NotConnected(f"nada escuchando en el puerto {self.debug_port}")
+            try:
+                return await page.evaluate(expression, timeout)
+            finally:
+                await page.close()
+
+    async def toggle_subtitles(self) -> str:
+        """CC: prende o apaga los subtítulos del video. Devuelve el aviso para la pantalla."""
+        try:
+            raw = await self.js(SUBTITLES_JS)
+        except NotConnected as exc:
+            log.info("YouTube: sin canal de control para los subtítulos (%s)", exc)
+            return "Para los subtítulos con CC, cerrá YouTube y abrilo de nuevo"
+        except (cdp.CDPError, OSError, asyncio.TimeoutError) as exc:
+            log.warning("YouTube: no pude cambiar los subtítulos: %s", exc)
+            return "No pude cambiar los subtítulos"
+        try:
+            r = json.loads(raw) if isinstance(raw, str) else dict(raw or {})
+        except (ValueError, TypeError):
+            r = {"error": "?"}
+        log.info("YouTube: subtítulos %s", r)
+        err = r.get("error")
+        if err == "none":
+            return "Este video no tiene subtítulos"
+        if err:
+            return "Los subtítulos, con un video puesto"
+        return f"Subtítulos: {r.get('name') or 'sí'}" if r.get("on") else "Sin subtítulos"

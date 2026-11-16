@@ -596,13 +596,14 @@ async def main() -> int:
     out = await press("RIGHT", "LEFT", "SELECT", "EXIT")
     check(out == ["feh:next", "feh:previous", "feh:h"], f"▶, ◀, OK (Atrás nada): {out}")
     check(fotos.paused, "queda en pausa")
-    out = await press("NUMBER2")
-    check(out == ["ov:toast:♥ Guardada en Favoritas (1) · 2 otra vez la saca"]
+    out = await press("NUMBER1")
+    check(out == ["ov:toast:♥ Guardada en Favoritas (1) · 1 otra vez la saca"]
           and fotos.favorites() == ["/mnt/fotosRemotas/2017/07/IMG_0001.jpg"],
-          f"2 guarda la foto que se ve en Favoritas (también con feh): {out}")
-    out = await press("NUMBER2")
-    check(out == ["ov:toast:Sacada de Favoritas (0)"] and fotos.favorites() == [], f"otra vez 2 la saca: {out}")
-    check(ctl.cfg.action_for("fotos_zoom", parse_key("NUMBER2"))[0] == "fotos:favorite", "también con zoom")
+          f"1 guarda la foto que se ve en Favoritas (también con feh): {out}")
+    out = await press("NUMBER1")
+    check(out == ["ov:toast:Sacada de Favoritas (0)"] and fotos.favorites() == [], f"otra vez 1 la saca: {out}")
+    check(ctl.cfg.action_for("fotos_zoom", parse_key("NUMBER1"))[0] == "fotos:favorite"
+          and ctl.cfg.action_for("fotos", parse_key("NUMBER2")) is None, "también con zoom; el 2 queda libre")
     await press("SELECT")
     fotos.current_folder = Path("/mnt/fotosRemotas")
     out = await press("F2_RED", "F4_YELLOW", "F1_BLUE")
@@ -687,7 +688,7 @@ async def main() -> int:
           and af("player", 0x71) == ("profiles", "player") and af("videos", 0x51) == ("video:subtitles", "videos")
           and af("videos", 0x71) is None and af("tidal", 0x51) == ("music:lyrics", "tidal")
           and af("tidal_nav", 0x51) == ("music:lyrics", "tidal") and af("tidal", 0x72) == ("music:shuffle", "tidal")
-          and af("youtube", 0x51) == ("yt:key:c", "youtube") and af("fotos", 0x51) == ("fotos:date", "fotos")
+          and af("youtube", 0x51) == ("yt:subtitles", "youtube") and af("fotos", 0x51) == ("fotos:date", "fotos")
           and af("fotos_zoom", 0x51) == ("fotos:date", "fotos"),
           "CC: subtítulos (Netflix, Videos, YouTube), letras (Tidal), la fecha (Fotos); azul en Netflix = perfiles, "
           "en Videos libre; rojo en Tidal = mezclar")
@@ -1730,6 +1731,28 @@ async def main() -> int:
         check(ych.pids() == [101, 104], f"encuentra solo el proceso principal de su perfil: {ych.pids()}")
     finally:
         procs_mod.proc_table = real_table  # type: ignore[assignment]
+
+    print("YouTube: CC = subtítulos (por el canal de control de la página)")
+    yfx = activities_mod.YouTubeActivity({}, {})
+    fargs = yfx.args("/usr/bin/firefox")
+    check(fargs[fargs.index("--remote-debugging-port") + 1] == "9224" and "--remote-debugging-port=9224" in yargs
+          and "--remote-debugging-port" not in activities_mod.YouTubeActivity({"debug_port": 0}, {}).args("/f"),
+          f"abre con su canal de control (9224, otro que Netflix y el Navegador; 0 lo apaga): {fargs}")
+    yt_answers = [json.dumps({"on": True, "name": "Español"}), json.dumps({"on": False}),
+                  json.dumps({"error": "none"}), json.dumps({"error": "novideo"})]
+    yt_exprs: list = []
+
+    async def fake_yt_js(expression, timeout=8.0):
+        yt_exprs.append(expression)
+        return yt_answers.pop(0)
+    yfx.js = fake_yt_js  # type: ignore[method-assign]
+    texts = [await yfx.toggle_subtitles() for _ in range(4)]
+    check(texts == ["Subtítulos: Español", "Sin subtítulos", "Este video no tiene subtítulos",
+                    "Los subtítulos, con un video puesto"] and "toggleSubtitlesOn" in yt_exprs[0],
+          f"prende o apaga con toggleSubtitlesOn y dice cuál quedó: {texts}")
+    yold = activities_mod.YouTubeActivity({"debug_port": 0}, {})
+    check(await yold.toggle_subtitles() == "Para los subtítulos con CC, cerrá YouTube y abrilo de nuevo",
+          "un YouTube abierto sin el canal: avisa que hay que reabrirlo")
 
     print("Android (scrcpy)")
     android_mod = activities_mod.android
@@ -3287,7 +3310,7 @@ echo '</mame>'
         _, its = ctl._picker_entries("fotos", None)
         row = its[-1]
         check(row.get("mode") == "favorites" and row["name"] == "▶ ♥ Favoritas" and row["enabled"]
-              and row["sub"] == "1 foto y 1 video guardadas con 2 · otra vez 2 las saca" and row["path"] == its[0]["path"]
+              and row["sub"] == "1 foto y 1 video guardadas con 1 · otra vez 1 las saca" and row["path"] == its[0]["path"]
               and its[0]["kind"] == "dir",
               f"en Carpetas ▸ (la lista de carpetas), al final: «♥ Favoritas» con cuántas hay: {row}")
         _, its = ctl._picker_entries("fotos", hoy)

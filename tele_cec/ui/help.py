@@ -146,10 +146,11 @@ def describe(action: Any, ctx: str, cfg: Config) -> str:
     if name == "yt":
         if sub == "key":
             return {"Up": "Moverse", "Down": "Moverse", "Left": "Moverse", "Right": "Moverse",
-                    "Return": "Elegir / OK", "Escape": "Volver", "c": "Subtítulos"}.get(rest, f"Tecla {rest}")
+                    "Return": "Elegir / OK", "Escape": "Volver"}.get(rest, f"Tecla {rest}")
         if sub == "seek":
             return _plus_minus("seek", rest or "+")
-        return {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa"}.get(sub, str(action))
+        return {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa",
+                "subtitles": "Subtítulos"}.get(sub, str(action))
     if name == "android" and sub == "key":
         if rest.isdigit():
             return "Escribir el número (p. ej. el PIN)"
