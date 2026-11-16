@@ -303,14 +303,14 @@ key_echo = true
         check((await last_log("vol:"))[-1] == "vol:0.7", "arriba x2 = volumen 70 %")
         if new:
             # Sin pista "none": "Desactivados" es la pista forced narrative y tiene que estar en el ciclo.
-            await press("F1_BLUE", "F1_BLUE", "F1_BLUE", "F1_BLUE", pause=0.2)
+            await press("SUB_PICTURE", "SUB_PICTURE", "SUB_PICTURE", "SUB_PICTURE", pause=0.2)
             subs = await last_log("subs:")
             check(subs == ["subs:Inglés", "subs:Español", "subs:Portugués (Brasil)", "subs:Desactivados"],
-                  f"azul cicla subtítulos y vuelve a «Desactivados» (forced): {subs}")
+                  f"CC cicla subtítulos y vuelve a «Desactivados» (forced): {subs}")
         else:
-            await press("F1_BLUE", "F1_BLUE", "F1_BLUE", pause=0.2)
+            await press("SUB_PICTURE", "SUB_PICTURE", "SUB_PICTURE", pause=0.2)
             subs = await last_log("subs:")
-            check(subs == ["subs:Español", "subs:English", "subs:Off"], f"azul cicla subtítulos (sin forzados): {subs}")
+            check(subs == ["subs:Español", "subs:English", "subs:Off"], f"CC cicla subtítulos (sin forzados): {subs}")
         await press("F2_RED", pause=0.2)
         want = "audio:Inglés [Original]" if new else "audio:Español"
         check((await last_log("audio:"))[-1] == want, f"rojo cicla audio: {want}")

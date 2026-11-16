@@ -211,7 +211,7 @@ class MediaMixin:
             if on is None:
                 await self.toast("La fecha en la esquina necesita mpv ([apps.fotos] viewer = \"mpv\")", 3000)
             else:
-                await self.toast("Fecha en la esquina · 1 la saca" if on else "Sin la fecha · 1 la muestra", 1800)
+                await self.toast("Fecha en la esquina · CC o 1 la saca" if on else "Sin la fecha · CC o 1 la muestra", 1800)
         elif cmd in ("favorite", "favorita", "fav"):
             await self._fotos_favorite(f)
         elif cmd == "filename":

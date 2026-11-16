@@ -175,7 +175,8 @@ DOWN = "volume:-"
 VOLUME_UP = "volume:+"
 VOLUME_DOWN = "volume:-"
 MUTE = "mute"
-F1_BLUE = "subtitles"
+SUB_PICTURE = "subtitles"     # CC = subtítulos (la Philips manda así su tecla de subtítulos)
+F1_BLUE = "profiles"          # azul = «¿Quién está viendo?» (cambiar de perfil)
 F2_RED = "audio"
 F4_YELLOW = "smart_skip"      # amarillo = botón inteligente (para controles sin la tecla ⏭)
 CHANNEL_UP = "next_episode"
@@ -183,7 +184,8 @@ NUMBER0 = "nav_mode"          # fuerza navegación con flechas dentro del reprod
 STOP = "back"
 
 [keys.player_menu]
-F1_BLUE = "subtitles"
+SUB_PICTURE = "subtitles"
+F1_BLUE = "profiles"
 F2_RED = "audio"
 F4_YELLOW = "smart_skip"
 NUMBER0 = "nav_mode"
@@ -253,7 +255,8 @@ DOWN = "music:volume:-"
 VOLUME_UP = "music:volume:+"
 VOLUME_DOWN = "music:volume:-"
 F1_BLUE = "music:like"        # azul = me gusta (agregar/quitar de favoritos)
-F2_RED = "music:lyrics"       # rojo = mostrar las letras (otra vez = volver al reproductor)
+SUB_PICTURE = "music:lyrics"  # CC = mostrar las letras (otra vez = volver al reproductor)
+F2_RED = "music:shuffle"      # rojo = mezclar / volver al orden
 F4_YELLOW = "music:my_tracks" # amarillo = Mis canciones
 NUMBER0 = "music:nav"         # cambia las flechas: recorrer la interfaz ↔ controles (volumen, temas)
 NUMBER1 = "music:page:inicio"     # páginas de High Tide (la barra de abajo)
@@ -296,6 +299,7 @@ FAST_FORWARD = "yt:seek:+10"
 REWIND = "yt:seek:-10"
 FORWARD = ""
 F1_BLUE = ""
+SUB_PICTURE = "yt:key:c"      # CC = subtítulos (la tecla c de YouTube)
 
 [keys.navegador]              # Navegador: las flechas van al enlace o botón más cercano (con un marco), OK lo abre
 UP = "web:nav:up"
@@ -411,7 +415,8 @@ FORWARD = "video:next"
 BACKWARD = "video:previous"
 CHANNEL_UP = "video:next"
 CHANNEL_DOWN = "video:previous"
-F1_BLUE = "video:subtitles"   # azul = subtítulos
+SUB_PICTURE = "video:subtitles"   # CC = subtítulos
+F1_BLUE = ""                  # azul: libre
 F2_RED = "video:audio"        # rojo = idioma de audio
 F4_YELLOW = "video:aspect"    # amarillo = proporción de la imagen (16:9, 4:3…)
 EXIT = "video:back"           # Atrás: deja de buscar (sin saltar)
@@ -492,6 +497,7 @@ F3_GREEN = "fotos:map"        # verde = dónde se sacó la foto (un mapa, si tie
 UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
 DOWN = "fotos:mode"           # ▼ = solo fotos → fotos y videos → solo videos (sigue desde la foto que se veía)
 NUMBER1 = "fotos:date"        # 1 = la fecha de cada foto en una esquina (el día, el mes o el año: lo que se sepa)
+SUB_PICTURE = "fotos:date"    # CC = lo mismo que 1: prender o apagar la fecha
 NUMBER2 = "fotos:favorite"    # 2 = guardar la foto en Favoritas (otra vez: sacarla); se ven desde Carpetas ▸
 
 [keys.fotos_zoom]             # Fotos con zoom: las flechas mueven la foto, OK acerca y Atrás aleja

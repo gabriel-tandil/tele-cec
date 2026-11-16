@@ -98,7 +98,8 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 | OK | Clic (la 1.ª vez solo muestra el resaltado) | Play / pausa |
 | Exit / Return | Volver · cerrar ficha · subir al principio | Salir del reproductor |
 | ⏭ Forward | Botón inteligente | Botón inteligente |
-| 🔵 Azul | Ir al inicio | Ciclar subtítulos |
+| CC (subtítulos) | — | Ciclar subtítulos |
+| 🔵 Azul | Ir al inicio | ¿Quién está viendo? (perfiles) |
 | 🔴 Rojo | **Seguir viendo** (retomar lo último) | Ciclar audio |
 | 🟡 Amarillo | **Mi lista** | Botón inteligente (para controles sin la tecla ⏭) |
 | ▶ Play / ⏯ Play-Pausa | Reproducir el título resaltado o el de la ficha abierta | Play / pausa |
@@ -118,7 +119,8 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 | ⏮ ⏭ · ⏪ ⏩ | Tema anterior / siguiente · −/+10 s | Igual |
 | 🔵 Azul | Me gusta (agregar o quitar de favoritos) | Igual |
 | 🟡 Amarillo | En ciclo: Mis canciones → Colección → Inicio | Igual |
-| 🔴 Rojo | Mostrar las letras (otra vez = volver al reproductor) | Igual |
+| CC (subtítulos) | Mostrar las letras (otra vez = volver al reproductor) | Igual |
+| 🔴 Rojo | Mezclar / volver al orden | Igual |
 | 1 · 2 · 3 | Inicio · Explorar · Colección | Igual |
 
 GTK solo mueve el foco con flechas dentro de cada bloque (una fila de portadas, una lista), así que a muchos lugares no se llegaba. El parche que tele-cec le carga a High Tide (ver abajo) hace que las flechas vayan al elemento más cercano en esa dirección según dónde está en la pantalla, como en una TV, primero dentro del mismo panel (así, al final de una lista sigue bajando por la lista y no salta a la barra de abajo). Para que se vea qué está elegido, tele-cec le pone a High Tide un estilo con **marco y fondo amarillos** en el elemento con el foco (GTK lo dibuja muy tenue); el color se cambia con `[apps.tidal] focus_color` (`""` lo desactiva). Las **portadas** (discos, playlists, artistas) de High Tide no se pueden elegir con el teclado: solo se abren con un clic del mouse. Por eso, al abrirlo, tele-cec le carga un pequeño parche (un `usercustomize.py` en su carpeta de datos, sin modificar la app instalada) que hace que la portada reciba el foco, que **OK** abra las portadas y los atajos de Inicio (que High Tide solo abre con un clic), que las flechas se muevan por posición, y le abre un canal de control para que tele-cec cambie de pantalla (Inicio, Colección, Mis canciones, Atrás, Letras, me gusta) llamando a las mismas funciones que sus botones; se desactiva con `[apps.tidal] keyboard_cards = false` (entonces esas acciones vuelven a ir por accesibilidad).
@@ -133,7 +135,8 @@ GTK solo mueve el foco con flechas dentro de cada bloque (una fila de portadas, 
 | ▲ ▼ | Volumen | ▲ = zoom (ver abajo) · ▼ = cambiar de modo: solo fotos → fotos y videos → solo videos |
 | ⏮ ⏭ · Canal −/+ | Video o tema anterior / siguiente | Foto anterior / siguiente (⏮ ⏭ también con zoom o con música) |
 | Atrás | Deja de buscar (sin saltar) | — |
-| 🔵 Azul · 🔴 Rojo | Videos: subtítulos · idioma de audio | Qué foto es (carpeta, archivo y número, en letra grande) · girar la foto |
+| CC (subtítulos) | Videos: subtítulos | La fecha en una esquina (prender / apagar), como el 1 |
+| 🔵 Azul · 🔴 Rojo | Videos: — · idioma de audio | Qué foto es (carpeta, archivo y número, en letra grande) · girar la foto |
 | 🟡 Amarillo | Videos: proporción (16:9, 4:3…) · Música: aleatorio (mezclar / volver al orden) | Una foto al azar |
 | 🟢 Verde | Música: repetir (toda la lista → este tema → no repetir) | Dónde se sacó la foto: un mapa (si tiene GPS) |
 | 1 · 2 | — | La fecha en una esquina (prender / apagar) · ♥ guardar la foto en **Favoritas** (otra vez la saca) |
@@ -389,7 +392,7 @@ y en tu `config.toml`: `[apps.fotos] folders = ["/mnt/fotosRemotas", "/media/*/*
 
 ## YouTube
 
-YouTube se ve con **YouTube para TV** (`youtube.com/tv`), la versión que traen los Smart TV y las consolas: se maneja de fábrica con **flechas, OK y Atrás**, así que las teclas del control le llegan tal cual.
+YouTube se ve con **YouTube para TV** (`youtube.com/tv`), la versión que traen los Smart TV y las consolas: se maneja de fábrica con **flechas, OK y Atrás**, así que las teclas del control le llegan tal cual. **CC** manda la tecla «c» (subtítulos).
 
 - Se abre con el **mismo navegador que Netflix** (`[browser] engine`: Firefox por defecto, o Chromium), en una ventana aparte con su propio perfil (`~/.config/firefox-youtube` o `~/.config/chromium-youtube`) que se presenta como TV: YouTube muestra esta versión solo a TVs. No afecta al perfil de Netflix. Para usar otro navegador solo en YouTube: `[apps.youtube] engine = "chromium"` (o `"firefox"`).
 - **Iniciar sesión**: «Sign in with your phone» muestra un código para entrar en `yt.be/activate` desde el celular (o un QR). También se puede mirar como invitado.

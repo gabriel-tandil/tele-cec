@@ -538,8 +538,8 @@ async def main() -> int:
                   "like"], f"OK, ⏭, ⏮, ▲, ▼, azul: {out}")
     out = await press("EXIT", "F3_GREEN")
     check(out == [], f"Atrás y verde no hacen nada en Tidal: {out}")
-    out = await press("F2_RED")
-    check(out == ["letras"], f"rojo = letras: {out}")
+    out = await press("SUB_PICTURE", "F2_RED")
+    check(out == ["letras", "shuffle"], f"CC = letras, rojo = mezclar: {out}")
     await press("NUMBER0")
     check(await ctl.context() == "tidal_nav", "0 activa el modo navegación de Tidal")
     out = await press("DOWN", "LEFT", "SELECT", "EXIT")
@@ -570,12 +570,12 @@ async def main() -> int:
     out = await press("ROOT_MENU", "DOWN", "SELECT")
     check(opened(out) == ["music:quit", "videos:open"], f"cierra Tidal y abre Videos: {opened(out)}")
     check(await ctl.context() == "videos", "contexto 'videos'")
-    out = await press("SELECT", "RIGHT", "LEFT", "FAST_FORWARD", "UP", "FORWARD", "CHANNEL_DOWN", "F1_BLUE", "F2_RED",
-                      "F4_YELLOW", "EXIT")
+    out = await press("SELECT", "RIGHT", "LEFT", "FAST_FORWARD", "UP", "FORWARD", "CHANNEL_DOWN", "SUB_PICTURE", "F2_RED",
+                      "F4_YELLOW", "EXIT", "F1_BLUE")
     check(out == ["mpv:ok", "mpv:seek+10", "mpv:seek-10", "mpv:seek+60", "mpv:volume+", "ov:toast:Volumen 55 %",
                   "mpv:next", "mpv:previous", "mpv:sub", "ov:toast:Subtítulos: Español", "mpv:audio",
                   "ov:toast:Audio: Inglés", "mpv:aspect", "ov:toast:Proporción: 4:3", "mpv:osd:cancel"],
-          f"OK, ▶ ◀ (buscar), ⏩ (1 min), ▲, ⏭, Canal−, azul, rojo, amarillo, Atrás (deja de buscar): {out}")
+          f"OK, ▶ ◀ (buscar), ⏩ (1 min), ▲, ⏭, Canal−, CC, rojo, amarillo, Atrás (deja de buscar); azul libre: {out}")
 
     print("Fotos sin contenido")
     fotos.content = False
@@ -680,6 +680,19 @@ async def main() -> int:
     await press("EXIT")
     ctl.sleep_timer.cancel()
     ctl.sleep_timer._panel_until = ctl.sleep_timer._key_last = 0.0
+
+    print("La tecla CC (SUB_PICTURE, así la manda la Philips)")
+    af = ctl.cfg.action_for
+    check(af("player", 0x51) == ("subtitles", "player") and af("player_menu", 0x51) == ("subtitles", "player_menu")
+          and af("player", 0x71) == ("profiles", "player") and af("videos", 0x51) == ("video:subtitles", "videos")
+          and af("videos", 0x71) is None and af("tidal", 0x51) == ("music:lyrics", "tidal")
+          and af("tidal_nav", 0x51) == ("music:lyrics", "tidal") and af("tidal", 0x72) == ("music:shuffle", "tidal")
+          and af("youtube", 0x51) == ("yt:key:c", "youtube") and af("fotos", 0x51) == ("fotos:date", "fotos")
+          and af("fotos_zoom", 0x51) == ("fotos:date", "fotos"),
+          "CC: subtítulos (Netflix, Videos, YouTube), letras (Tidal), la fecha (Fotos); azul en Netflix = perfiles, "
+          "en Videos libre; rojo en Tidal = mezclar")
+    from tele_cec.ui import help as help_t
+    check(any(k == "CC" and d == "Subtítulos" for k, d in help_t.rows(ctl.cfg, "player")), "la Ayuda la muestra como CC")
 
     print("Fotos: modos (▼)")
     fotos.current_folder = fotos.current_folder or Path("/mnt/fotosRemotas")
