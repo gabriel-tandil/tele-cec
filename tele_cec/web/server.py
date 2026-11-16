@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 
 from .. import apps as activities_mod
 from ..apps import resume
+from ..apps.netflix.cdp import CDPError
 from ..apps.photos import ALL_MODES
 from ..keys import parse_key
 from ..system import audio, keyboard
@@ -63,7 +64,7 @@ def _ui_version() -> str:
 
 UI_VERSION = _ui_version()
 ICONS = Path(__file__).resolve().parent.parent / "ui" / "icons"
-TEXT_APPS = {"youtube", "tidal", "android"}
+TEXT_APPS = {"youtube", "tidal", "android"}  # (el Navegador escribe por su script, no con wtype)
 NETFLIX_SEARCH = "https://www.netflix.com/search?q="   # apps Wayland: el texto se escribe con wtype (Netflix: por el navegador)
 APPS_TTL_S = 30.0
 MAX_BODY = 16 * 1024
@@ -225,6 +226,8 @@ class WebRemote:
                 return _json(await self.menu.games())
             if path == "/api/radio":
                 return _json(await self.menu.radio())
+            if path == "/api/sites":
+                return _json(await self.menu.sites())
             if path == "/api/android":
                 return _json(await self.menu.android())
             if path == "/api/tidal/library":
@@ -395,6 +398,22 @@ class WebRemote:
             act.want_serial = serial
         elif ident == "juegos" and isinstance(self.ctl.activities.get(ident), activities_mod.MameActivity):
             return {"ok": False, "error": "Elegí un juego"}  # sin uno por defecto (no el último que se jugó)
+        elif data.get("url"):  # el Navegador: una dirección (un sitio de la lista)
+            act = self.ctl.activities.get(ident)
+            if ident != "navegador" or not isinstance(act, activities_mod.WebActivity):
+                return {"ok": False, "error": "pedido inválido"}
+            url = str(data["url"]).strip()
+            if not activities_mod.navegador.allowed_url(url):
+                return {"ok": False, "error": "esa dirección no es una página web"}
+            if act.running():
+                await act.navigate(url)
+                self._state = None
+                if self.ctl.current_app() == ident:
+                    if self.ctl._menu_open:
+                        await self.ctl.menu_close()
+                    return {"ok": True, "message": f"{act.name}: {url.split('//', 1)[-1].split('/', 1)[0]}"}
+                return await self.launch(ident)  # abierto de fondo: al frente
+            folder = url
         elif ident == "radio" and isinstance(self.ctl.activities.get(ident), activities_mod.RadioActivity):
             act = self.ctl.activities[ident]
             if "station" in data:
@@ -514,6 +533,25 @@ class WebRemote:
                 await ctl.key("Backspace" if key == "BackSpace" else "Enter")
         elif cur == "youtube" and text and hasattr(ctl.activities[cur], "search_url"):
             return await self._youtube_search(text)
+        elif cur == "navegador" and isinstance(ctl.activities[cur], activities_mod.WebActivity):
+            act = ctl.activities[cur]
+            try:
+                info = await act.js("ctx")
+                if text and info.get("ctx") != "text":  # sin un campo con el foco: una dirección o una búsqueda
+                    url = await act.go(text)
+                    return {"ok": True, "message": f"Abriendo {url.split('//', 1)[-1][:60]}"}
+                if text:
+                    await act.js("type", text, False)
+                if key == "Enter":
+                    r = await act.js("submit")
+                    if r.get("go"):
+                        await act.go(r["go"])
+                    elif r.get("enter"):
+                        await act.key_press("Enter")
+                elif key:
+                    await act.key_press("Backspace")
+            except CDPError as exc:
+                return {"ok": False, "error": f"No pude escribir en el Navegador ({exc})"}
         elif cur in TEXT_APPS:
             if text and not await keyboard.wtype_text(text):
                 return {"ok": False, "error": "No pude escribir en la TV"}
@@ -541,12 +579,22 @@ class WebRemote:
     async def search(self, app: str, text: str) -> dict[str, Any]:
         """Buscar en Netflix o YouTube desde el celular; si la app está cerrada, la abre primero."""
         text = " ".join("".join(ch for ch in text if ch.isprintable()).split())[:120]
-        if app not in ("netflix", "youtube") or app not in self.ctl.activities:
-            return {"ok": False, "error": "solo Netflix y YouTube"}
+        if app not in ("netflix", "youtube", "navegador") or app not in self.ctl.activities:
+            return {"ok": False, "error": "solo Netflix, YouTube y el Navegador"}
         if not text:
             return {"ok": False, "error": "escribí qué buscar"}
         ctl = self.ctl
         act = ctl.activities[app]
+        if app == "navegador":
+            url = activities_mod.navegador.target_url(text, act.search)
+            if act.running():
+                await act.navigate(url)
+                if ctl.current_app() != app:
+                    await self.launch(app)
+                return {"ok": True, "message": f"Abriendo {url.split('//', 1)[-1][:60]}"}
+            log.info("Celular: abro el Navegador en «%s»", text)
+            r = await self.launch(app, url)
+            return {**r, "message": f"Abriendo {url.split('//', 1)[-1][:60]}"} if r.get("ok") else r
         if app == "youtube":
             if act.running():
                 return await self._youtube_search(text)
@@ -667,7 +715,7 @@ class WebRemote:
             "apps": self._apps,
             "tidal": self.tidal.available(),
             "tidal_open": bool(self.tidal.music is not None and self.tidal.music.running()),
-            "text": cur in TEXT_APPS or (cur == "netflix" and ctl.page is not None),
+            "text": cur in TEXT_APPS or cur == "navegador" or (cur == "netflix" and ctl.page is not None),
             "app": {"id": cur, "name": ctl.activities[cur].name if cur else ""},
             "menu": bool(ctl._menu_open),
             "asleep": bool(ctl.power.asleep),

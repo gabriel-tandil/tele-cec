@@ -814,6 +814,108 @@ async def main() -> int:
             radio_mod.LOG_DIR = real_radio_dir
             ctl.cur, ctl._menu_open = cur_before, menu_before
 
+        print("Navegador: sitios, direcciones y búsquedas desde el celular")
+        from tele_cec.apps import navegador as nav_mod
+
+        class FakeNavPage:
+            def __init__(self):
+                self.ctx, self.value, self.cmds = "page", "", []
+
+            async def evaluate(self, expr, timeout=10.0):
+                import re
+                m = re.search(r'cmd\("([a-zA-Z]+)", (\[.*\])\)', expr)
+                name, args = m.group(1), json.loads(m.group(2))
+                self.cmds.append((name, *args))
+                if name == "ctx":
+                    return {"ctx": self.ctx, "url": "https://es.wikipedia.org/wiki/Pi"}
+                if name == "type":
+                    self.value += args[0]
+                    return {"ok": True}
+                if name == "submit":
+                    return {"enter": True}
+                return {}
+
+            async def navigate(self, url):
+                self.cmds.append(("navigate", url))
+
+            async def key_press(self, name):
+                self.cmds.append(("key", name))
+
+            async def close(self):
+                pass
+
+            async def bring_to_front(self):
+                pass
+
+        nav = nav_mod.WebActivity({"profile": str(tmp_r / "nav-perfil"), "bookmarks": [
+            {"name": "Wikipedia", "url": "https://es.wikipedia.org"}, {"name": "Clarín", "url": "https://www.clarin.com"}]},
+            {"engine": "firefox"})
+        nav_on = [False]
+        nav.running = lambda: nav_on[0]  # type: ignore[method-assign]
+        nav.installed = lambda: True  # type: ignore[method-assign]
+        nav.page = FakeNavPage()
+
+        async def nav_ensure():
+            return nav_on[0]
+        nav._ensure_page = nav_ensure  # type: ignore[method-assign]
+        ctl.activities["navegador"] = nav
+        cur_before, menu_before = ctl.cur, ctl._menu_open
+        ctl.cur, ctl._menu_open = None, False
+        try:
+            row = web.menu._row({"id": "navegador", "name": "Navegador", "icon": "navegador.svg", "sub": "x", "enabled": True})
+            check(row["option"] == "sites" and row["chip"] == "Sitios" and not row["browse"], f"la fila con el botoncito «Sitios»: {row}")
+            _, _, body = await http(port, "GET", "/api/sites")
+            r = json.loads(body)
+            check(r["title"] == "Navegador · sitios" and [i["name"] for i in r["items"]] == ["Wikipedia", "Clarín"]
+                  and not r["running"] and not any(i["current"] for i in r["items"]), f"/api/sites: los sitios: {r}")
+            ctl.log.clear()
+            _, _, body = await http(port, "POST", "/api/app", {"id": "navegador", "url": "https://www.clarin.com"}, H)
+            check(json.loads(body)["ok"] and ("switch", "navegador", False, "https://www.clarin.com") in ctl.log,
+                  f"tocar un sitio con el Navegador cerrado: lo abre ahí: {ctl.log}")
+            for bad in ("file:///etc/passwd", "javascript:alert(1)", "about:config", "ftp://x", ""):
+                _, _, body = await http(port, "POST", "/api/app", {"id": "navegador", "url": bad}, H)
+                check(not json.loads(body)["ok"] or bad == "", f"una dirección que no es una página web: no ({bad!r})")
+            _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "url": "https://x.example"}, H)
+            check(not json.loads(body)["ok"], "una dirección para otra app: no")
+            nav_on[0] = True
+            ctl.cur = "navegador"
+            ctl.log.clear()
+            nav.page.cmds.clear()
+            _, _, body = await http(port, "POST", "/api/app", {"id": "navegador", "url": "https://es.wikipedia.org"}, H)
+            r = json.loads(body)
+            check(r["ok"] and r["message"] == "Navegador: es.wikipedia.org" and ("navigate", "https://es.wikipedia.org") in nav.page.cmds
+                  and not ctl.log, f"abierto: va a esa página sin reabrir: {r} {nav.page.cmds}")
+            _, _, body = await http(port, "GET", "/api/sites")
+            r = json.loads(body)
+            check(r["running"] and r["items"][0]["current"] and r["url"] == "https://es.wikipedia.org/wiki/Pi",
+                  f"en la lista, el sitio que está abierto: {r}")
+            nav.page.cmds.clear()
+            _, _, body = await http(port, "POST", "/api/search", {"app": "navegador", "text": "clima mañana"}, H)
+            r = json.loads(body)
+            check(r["ok"] and ("navigate", "https://www.google.com/search?q=clima+ma%C3%B1ana") in nav.page.cmds,
+                  f"buscar desde el celular: el buscador con el texto: {r} {nav.page.cmds}")
+            nav.page.cmds.clear()
+            _, _, body = await http(port, "POST", "/api/text", {"text": "infobae.com", "key": ""}, H)
+            r = json.loads(body)
+            check(r["ok"] and ("navigate", "https://infobae.com") in nav.page.cmds,
+                  f"escribir sin un campo con el foco: abre la dirección: {r} {nav.page.cmds}")
+            nav.page.ctx = "text"
+            nav.page.cmds.clear()
+            _, _, body = await http(port, "POST", "/api/text", {"text": "hola", "key": "Enter"}, H)
+            r = json.loads(body)
+            check(r["ok"] and ("type", "hola", False) in nav.page.cmds and ("key", "Enter") in nav.page.cmds and nav.page.value == "hola",
+                  f"con un campo enfocado: escribe ahí (por el script, no con wtype) y Enter: {nav.page.cmds}")
+            nav_on[0] = False
+            ctl.cur = None
+            ctl.log.clear()
+            _, _, body = await http(port, "POST", "/api/search", {"app": "navegador", "text": "clarin.com"}, H)
+            r = json.loads(body)
+            check(r["ok"] and ("switch", "navegador", False, "https://clarin.com") in ctl.log and r["message"] == "Abriendo clarin.com",
+                  f"buscar con el Navegador cerrado: lo abre en esa dirección: {r} {ctl.log}")
+        finally:
+            del ctl.activities["navegador"]
+            ctl.cur, ctl._menu_open = cur_before, menu_before
+
         print("Fotos: guardar la foto que se ve en Favoritas desde el celular")
         from tele_cec.apps.photos import PhotosActivity
         real_data_dir, photos_mod.DATA_DIR = photos_mod.DATA_DIR, tmp_r / "datos"

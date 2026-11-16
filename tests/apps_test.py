@@ -1328,6 +1328,8 @@ async def main() -> int:
     await press("EXIT")
 
     print("YouTube")
+    from tele_cec.controller import web as ctl_web
+    from tele_cec.ui import help as help_mod_nav
     class FakeYouTube(FakeProcMixin, activities_mod.YouTubeActivity):
         def __init__(self, log):
             activities_mod.YouTubeActivity.__init__(self, {})
@@ -1345,6 +1347,224 @@ async def main() -> int:
     await ctl.run_action("app:tidal")
     check(not yt.on, "abrir otra app cierra YouTube")
     del ctl.activities["youtube"]
+
+    print("Navegador")
+    from tele_cec.apps import navegador as nav_mod
+    from tele_cec.apps.navegador.t9 import T9
+    t9 = T9(1000)
+    seq = [t9.press(k, now=1.0 + i * 0.2) for i, k in enumerate(("2", "2", "2", "6", "0"))]
+    check([(c, r) for c, r, _l, _i in seq] == [("a", False), ("b", True), ("c", True), ("m", False), (" ", False)]
+          and seq[1][2] == "abcáä2" and seq[1][3] == 1,
+          f"T9: el mismo número seguido pasa a la letra siguiente (reemplaza); otro número, letra nueva; 0 espacio: {seq}")
+    check(t9.press("2", now=1.9)[0] == "a" and t9.press("2", now=5.0)[0] == "a",
+          "después de un rato (t9_ms) la misma tecla empieza de nuevo")
+    check(t9.next_mode() == "ABC" and t9.press("3", now=6.0)[0] == "D" and t9.next_mode() == "123"
+          and t9.press("3", now=6.1) == ("3", False, "", 0) and t9.next_mode() == "abc", "modos: abc → ABC → 123 → abc")
+    check(t9.press("x") == ("", False, "", 0) and t9.press("1", now=9.0)[0] == ".", "una tecla que no es número: nada; 1 = signos")
+    check(nav_mod.target_url("clarin.com") == "https://clarin.com" and nav_mod.target_url("http://x.y/z?a=1") == "http://x.y/z?a=1"
+          and nav_mod.target_url("clima mañana") == "https://www.google.com/search?q=clima+ma%C3%B1ana"
+          and nav_mod.target_url("hola", "https://duckduckgo.com/?q={q}") == "https://duckduckgo.com/?q=hola"
+          and nav_mod.target_url("  ") == "",
+          "«Ir a»: una dirección (con o sin https://) o una búsqueda en el buscador configurado")
+    check(nav_mod.allowed_url("https://es.wikipedia.org/wiki/Pi") and not nav_mod.allowed_url("file:///etc/passwd")
+          and not nav_mod.allowed_url("javascript:alert(1)") and not nav_mod.allowed_url("about:config"),
+          "desde el celular solo páginas web (http, https)")
+    bms = nav_mod.bookmarks_from({"bookmarks": ["infobae.com", {"name": "Wiki", "url": "https://es.wikipedia.org"}, {"name": "sin"}]})
+    check(bms == [{"name": "infobae.com", "url": "https://infobae.com"}, {"name": "Wiki", "url": "https://es.wikipedia.org"}]
+          and [b["name"] for b in nav_mod.bookmarks_from({})] == ["Google", "Wikipedia", "YouTube", "Mercado Libre"],
+          f"los sitios: una dirección sola sirve; sin url se saltea; sin la lista, unos de muestra: {bms}")
+    wa = nav_mod.WebActivity({"profile": str(tmp / "nav-perfil"), "bookmarks": [{"name": "Wiki", "url": "https://es.wikipedia.org"}]},
+                             {"engine": "firefox", "reduce_effects": True})
+    wargs = wa.browser.args(wa.home_url())
+    check(wa.browser.port == 9223 and wa.browser.unit == "navegador-firefox" and "--kiosk" in wargs
+          and "--no-remote" in wargs and str(tmp / "nav-perfil") in wargs and "9223" in wargs,
+          f"Firefox aparte: perfil propio, puerto de control 9223 (no el 9222 de Netflix), scope propio: {wargs}")
+    wprefs = wa.browser.firefox_prefs()
+    check(wprefs.get("layout.css.devPixelsPerPx") == "1.5" and wprefs.get("browser.link.open_newwindow") == 1
+          and wprefs.get("ui.prefersReducedMotion") == 1 and wprefs.get("app.normandy.enabled") is False
+          and wprefs.get("extensions.autoDisableScopes") == 0 and wprefs.get("permissions.default.geo") == 2,
+          "sus preferencias: todo al 150 %, sin ventanas nuevas, sin animaciones ni trabajo de fondo (como Netflix), "
+          "extensiones copiadas habilitadas, sin preguntar por ubicación")
+    check("layout.css.devPixelsPerPx" not in nav_mod.WebActivity({"scale": 1.0}, {}).prefs(), "scale = 1.0: como una PC")
+    page_html = wa.start_page_html()
+    check(wa.home_url() == (tmp / "nav-perfil" / "inicio.html").as_uri() and (tmp / "nav-perfil" / "inicio.html").is_file()
+          and 'href="https://es.wikipedia.org"' in page_html and "<small>1</small>" in page_html and "0 = escribir" in page_html,
+          "la página de inicio: un archivo propio con los sitios en cuadros grandes y el número de cada uno")
+    check(nav_mod.WebActivity({"home": "https://www.google.com"}, {}).home_url() == "https://www.google.com"
+          and nav_mod.WebActivity({}, {"engine": "chromium"}).profile.name == "chromium-navegador"
+          and any(a.startswith("--force-device-scale-factor=1.5") for a in
+                  nav_mod.WebActivity({"profile": str(tmp / "nav-ch")}, {"engine": "chromium"}).browser.args("https://x")),
+          "home propia; con Chromium, perfil chromium-navegador y la escala como flag")
+    check(wa.source() == ("Wiki", True) and "window.__tcnav" in wa.script and wa.version in wa.script, "en el menú, los sitios; el script con su versión")
+
+    class FakeNavPage:
+        """La página con nav.js simulada: anota los comandos y se comporta como un campo de texto."""
+
+        def __init__(self, log):
+            self.log, self.ctx, self.value, self.text_next, self.gobox = log, "page", "", False, False
+
+        async def evaluate(self, expr, timeout=10.0):
+            m = re.search(r'cmd\("([a-zA-Z]+)", (\[.*\])\)', expr)
+            name, args = m.group(1), json.loads(m.group(2))
+            self.log.append("web:" + name + ("" if not args else ":" + ":".join(map(str, args))))
+            if name == "ctx":
+                return {"ctx": self.ctx, "gobox": self.gobox, "url": "https://x.example/p"}
+            if name == "activate":
+                if self.text_next:
+                    self.ctx, self.text_next = "text", False
+                    return {"text": True, "label": "buscar"}
+                return {"x": 10, "y": 20, "label": "Link"}
+            if name == "type":
+                self.value = (self.value[:-1] if args[1] else self.value) + args[0]
+                return {"ok": True}
+            if name == "submit":
+                if self.gobox:
+                    self.ctx, self.gobox, v = "page", False, self.value
+                    return {"go": v}
+                return {"enter": True}
+            if name == "back":
+                self.ctx, self.gobox = "page", False
+                return {"done": "blur"}
+            if name == "go":
+                self.ctx, self.gobox, self.value = "text", True, ""
+                return {"ok": True}
+            if name == "clear":
+                self.value = ""
+                return {"ok": True}
+            if name == "playPause":
+                return {"none": True}
+            return {}
+
+        async def navigate(self, url):
+            self.log.append("web:navigate:" + url)
+
+        async def key_press(self, name):
+            self.log.append("web:key:" + name)
+
+        async def mouse_click(self, x, y):
+            self.log.append(f"web:click:{x},{y}")
+
+        async def reload(self):
+            self.log.append("web:reload")
+
+        async def bring_to_front(self):
+            pass
+
+        async def close(self):
+            pass
+
+    class FakeWeb(nav_mod.WebActivity):
+        def __init__(self, log):
+            super().__init__({"profile": str(tmp / "nav-perfil"), "bookmarks": [
+                {"name": "Wiki", "url": "https://es.wikipedia.org"}, {"name": "Clarín", "url": "https://www.clarin.com"}]},
+                {"engine": "firefox"})
+            self.log, self.on, self.fake = log, False, FakeNavPage(log)
+
+        def installed(self):
+            return True
+
+        def running(self):
+            return self.on
+
+        async def active(self):
+            return self.on
+
+        async def open(self, url=None):
+            if url is None:
+                url, self.want_url = self.want_url, None
+            self.log.append("navegador:open" + (f":{url}" if url and url != self.home_url() else ""))
+            self.on, self.page = True, self.fake
+            return True
+
+        async def close(self):
+            self.log.append("navegador:close")
+            self.on, self.page = False, None
+
+        async def _ensure_page(self):
+            return self.on
+
+    wf = FakeWeb(log)
+    ctl.activities["navegador"] = wf
+    await ctl.run_action("app:navegador")
+    check(ctl.current_app() == "navegador" and await ctl.context() == "navegador" and wf.page is wf.fake,
+          "app:navegador abre el Navegador (contexto 'navegador')")
+    out = await press("DOWN", "RIGHT", "SELECT", "EXIT", "F1_BLUE", "CHANNEL_DOWN", "NUMBER2", "PAUSE_PLAY_FUNCTION")
+    check(out == ["web:ctx", "web:nav:down", "web:ctx", "web:nav:right", "web:ctx", "web:activate", "web:click:10,20", "web:ctx",
+                  "web:back", "web:ctx", "web:navigate:" + wf.home_url(), "web:ctx", "web:scroll:down", "web:ctx",
+                  "ov:toast:Clarín", "web:navigate:https://www.clarin.com", "web:ctx", "web:playPause:",
+                  "ov:toast:No hay ningún video en esta página"],
+          f"flechas = moverse, OK = clic de verdad, Atrás, azul = inicio, Canal− = página abajo, 2 = sitio 2, ⏯: {out}")
+    wf.fake.text_next = True
+    out = await press("SELECT")
+    check(out[-2:] == ["web:activate", "ov:toast:" + ctl_web.TEXT_HINT] and await ctl.context() == "navegador_text",
+          f"OK en un campo de texto: entra a escribir (contexto 'navegador_text'): {out}")
+    out = await press("NUMBER2", "NUMBER2", "NUMBER6", "NUMBER0", "F2_RED", "NUMBER4")
+    check(wf.fake.value == "bm g" and "web:type:a:False:abcáä2:0" in out and "web:type:b:True:abcáä2:1" in out
+          and "web:key:Backspace" in out, f"los números escriben (T9), rojo borra: «{wf.fake.value}» {out}")
+    out = await press("F4_YELLOW", "NUMBER2", "F3_GREEN")
+    check("ov:toast:ABC · MAYÚSCULAS" in out and "web:type:A:False:ABCÁÄ2:0" in out and "web:clear" in out and wf.fake.value == "",
+          f"amarillo = mayúsculas, verde = borrar todo: {out}")
+    wf.t9.next_mode(); wf.t9.next_mode()  # de vuelta a abc
+    out = await press("SELECT", "EXIT")
+    check(out[-3:] == ["web:submit", "web:key:Enter", "web:ctx"] or "web:key:Enter" in out, f"OK escribiendo = Enter: {out}")
+    check(await ctl.context() == "navegador" and "web:back" in out, "Atrás sale del campo")
+    out = await press("NUMBER0", "NUMBER3", "NUMBER3", "SELECT")
+    check("web:go:" in out and not wf.fake.gobox and out[-1] == "web:navigate:https://www.google.com/search?q=e",
+          f"0 abre «Ir a», se escribe con los números y OK busca (o abre la dirección): {out}")
+    rows = dict((d, k) for k, d in help_rows(ctl, "navegador_text"))
+    check(("navegador", "Navegador · recorriendo la página") in help_mod_nav.pages(ctl.cfg, {"navegador"})
+          and not any(c == "navegador" for c, _t in help_mod_nav.pages(ctl.cfg, {"netflix"}))
+          and rows.get("Escribir: cada número, sus letras (seguido = la siguiente)", "").startswith("0"),
+          f"la ayuda: dos páginas del Navegador, con los números juntos: {list(rows)[:4]}")
+
+    # el menú: el botoncito «Sitios», la lista, y el amarillo desde el Navegador
+    items_before, cols_before = ctl.cfg.menu.get("items"), ctl._menu_columns
+    ctl.cfg.menu["items"] = ["netflix", "navegador", "fotos"]
+    ctl._menu_columns = 2
+    try:
+        await ctl.menu_open()
+        row = next(i for i in ctl.overlay.items if i["id"] == "navegador")
+        check(row.get("action") == "Sitios" and row["current"], f"en el menú, Navegador con el botoncito «Sitios»: {row}")
+        await ctl._menu_options(ctl.overlay.items.index(row))
+        check(ctl._menu_mode == "sites" and [i["name"] for i in ctl.overlay.items]
+              == ["Wiki", "Clarín", "Escribir una dirección o buscar"], f"la lista de sitios: {[i['name'] for i in ctl.overlay.items]}")
+        start = len(log)
+        await ctl.a_menu("pick:2")
+        check(log[start:] == ["ov:select:1", "web:navigate:https://www.clarin.com", "ov:hide"] and not ctl._menu_open,
+              f"elegir uno lo abre y cierra el menú: {log[start:]}")
+        await ctl.a_web("sites")
+        check(ctl._menu_open and ctl._menu_mode == "sites" and ctl._sites_back_closes, "amarillo en el Navegador: la lista encima")
+        out = await press("EXIT")
+        check(out == ["ov:hide"] and not ctl._menu_open, f"Atrás vuelve a la página: {out}")
+        await ctl.a_web("sites")
+        await ctl.a_menu("pick:3")
+        check(not ctl._menu_open and log[-1] == "web:go:", f"«Escribir una dirección» abre el cuadro «Ir a»: {log[-3:]}")
+        await ctl.run_action("app:tidal")
+        check(not wf.on and "navegador:close" in log[-6:], "abrir otra app cierra el Navegador")
+        switched_w: list = []
+
+        async def fake_switch_w(item):
+            switched_w.append(item)
+            wf.on = True  # como si abriera
+        real_menu_switch_w = ctl._menu_switch
+        ctl._menu_switch = fake_switch_w  # type: ignore[method-assign]
+        try:
+            await ctl.menu_open(select_id="navegador")
+            await ctl._menu_options(ctl._menu_sel)
+            check([i["name"] for i in ctl.overlay.items] == ["Wiki", "Clarín"], "cerrado: la lista sin «Escribir una dirección»")
+            await ctl.a_menu("pick:1")
+            await ctl._macro_task
+            check(switched_w and switched_w[0]["id"] == "navegador" and wf.want_url == "https://es.wikipedia.org",
+                  f"cerrado: elegir un sitio abre el Navegador en él: {switched_w} {wf.want_url}")
+        finally:
+            ctl._menu_switch = real_menu_switch_w  # type: ignore[method-assign]
+            ctl._switching = False
+            wf.want_url, wf.on = None, False
+    finally:
+        ctl.cfg.menu["items"], ctl._menu_columns = items_before, cols_before
+        ctl._menu_open = False
+        del ctl.activities["navegador"]
+    await ctl.run_action("app:tidal")
 
     print("YouTube con Chromium")
     ych = activities_mod.YouTubeActivity({}, {"engine": "chromium"})

@@ -26,6 +26,7 @@ GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar · • (punto)
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
 SOUND_HINT = "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida · Atrás volver"
 RADIO_HINT = "▲ ▼ o 1 – 9 elegir · OK escuchar · Atrás volver"
+SITES_HINT = "▲ ▼ o 1 – 9 elegir · OK abrir · Atrás volver"
 VOLUME_STEP = 5        # % por cada ◀ ▶ en la fila «Volumen»
 SOUND_FIRST = 2        # en Sonido, las salidas empiezan después de las filas «Volumen» y «Temporizador»
 BT_SCAN_SECONDS = 25   # cuánto se buscan parlantes y auriculares Bluetooth al abrir «Sonido»
@@ -217,6 +218,7 @@ class MenuMixin:
         self._picker_stack: list[tuple[Path | None, int]] = []
         # Lista de juegos: si se abrió desde el juego (menú cerrado), Atrás vuelve al juego en vez de al menú.
         self._games_back_closes = False
+        self._sites_back_closes = False  # la lista de sitios abierta desde el Navegador (amarillo): Atrás vuelve a él
         # Ayuda (desde el menú, con • o con la tecla Ayuda): páginas por app y desde dónde se abrió.
         self._menu_from_ctx = "offline"
         self._help_pages: list[tuple[str, str]] = []
@@ -294,6 +296,8 @@ class MenuMixin:
             item["action"] = "Conectar" if isinstance(act, activities_mod.AndroidActivity) else "Carpetas"
         elif self._menu_columns > 1 and isinstance(act, activities_mod.RadioActivity) and len(act.stations) > 1:
             item["action"] = "Radios"  # OK pone la última que sonó; el botoncito, la lista para elegir otra
+        elif self._menu_columns > 1 and isinstance(act, activities_mod.WebActivity) and act.bookmarks:
+            item["action"] = "Sitios"  # OK abre la página de inicio; el botoncito, la lista de sitios guardados
         if ident != cur and ident in KEEP_PLAYING.get(cur or "", set()) and act.running():
             item["badge"] = "sonando"  # p. ej. Tidal de fondo mientras pasan las fotos
             item["background"] = True  # _menu_playback la corrige si en realidad está en pausa
@@ -357,7 +361,7 @@ class MenuMixin:
         espera a que aparezcan los Bluetooth; al vincular un celular, a que lea el QR o se escriba el código)."""
         if self._menu_mode.startswith("android"):
             return max(self._menu_timeout, 180.0)
-        return max(self._menu_timeout, 60.0) if self._menu_mode in ("help", "sound", "radio", "games", "map") else self._menu_timeout
+        return max(self._menu_timeout, 60.0) if self._menu_mode in ("help", "sound", "radio", "sites", "games", "map") else self._menu_timeout
 
     async def _menu_autoclose(self) -> None:
         wait = self._menu_wait()
@@ -492,6 +496,8 @@ class MenuMixin:
             await self._sound_open()
         elif isinstance(act, activities_mod.RadioActivity) and act.stations:
             await self._radio_open()
+        elif isinstance(act, activities_mod.WebActivity) and act.bookmarks:
+            await self._sites_open()
         else:
             return False
         return True
@@ -518,6 +524,9 @@ class MenuMixin:
             return
         if self._menu_mode == "radio":
             await self._radio_choose(index)
+            return
+        if self._menu_mode == "sites":
+            await self._sites_choose(index)
             return
         if self._menu_mode == "games":
             await self._games_choose(index)
@@ -670,13 +679,18 @@ class MenuMixin:
             elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] == "juegos":
                 self._menu_act_sel = self._menu_sel
                 await self.games_open()
-            elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] == "radio":
+            elif self._menu_mode == "activities" and self._menu_items[self._menu_sel]["id"] in ("radio", "navegador"):
                 await self._menu_options(self._menu_sel)
             else:
                 self._menu_restart_timer()
         elif sub in ("left", "back") and self._menu_mode == "games":
             if self._games_back_closes:
                 await self.menu_close()  # se había abierto desde el juego: seguir jugando
+            else:
+                await self.menu_open(self._menu_act_sel)
+        elif sub in ("left", "back") and self._menu_mode == "sites":
+            if self._sites_back_closes:
+                await self.menu_close()  # se había abierto desde el Navegador (amarillo): seguir ahí
             else:
                 await self.menu_open(self._menu_act_sel)
         elif sub == "left":
@@ -932,6 +946,63 @@ class MenuMixin:
         self._switching = True
         await self.overlay.busy(f"Abriendo {st['name']}…")
         self._macro_task = asyncio.create_task(self._menu_switch({"id": "radio", "name": r.name}))
+
+    # ---------------------------------------------------------------- Navegador: los sitios guardados
+    async def _sites_open(self, from_app: bool = False) -> None:
+        """[apps.navegador] bookmarks en el panel (desde el menú, o con el amarillo desde el Navegador). OK abre."""
+        w = self.activities["navegador"]
+        assert isinstance(w, activities_mod.WebActivity)
+        cur = await w.current_url() if w.running() else ""
+        items = []
+        for i, b in enumerate(w.bookmarks):
+            host = b["url"].split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
+            items.append({"id": f"_site{i}", "url": b["url"], "name": b["name"], "icon": w.icon, "enabled": True,
+                          "sub": host, "current": bool(cur) and cur.rstrip("/").startswith(b["url"].rstrip("/"))})
+        if w.running():
+            items.append({"id": "_site_go", "url": "", "name": "Escribir una dirección o buscar", "icon": "edit-find",
+                          "sub": "con los números del control (0 en el Navegador)", "enabled": True, "current": False})
+        sel = next((i for i, it in enumerate(items) if it["current"]), 0)
+        self._sites_back_closes = from_app
+        self._menu_mode, self._menu_items, self._menu_sel = "sites", items, sel
+        await self.overlay.show(items, sel, title=f"{w.name} · sitios", hint=SITES_HINT, numbers=True)
+        log.info("Menú: sitios: %s", " · ".join(b["name"] for b in w.bookmarks))
+        self._menu_restart_timer()
+
+    async def sites_open_from_app(self) -> None:
+        """Amarillo en el Navegador: la lista de sitios encima de la página; Atrás vuelve a la página."""
+        if self._menu_open or self._switching:
+            return
+        self._menu_from_ctx = self._ctx
+        self._menu_act_sel = 0
+        self._menu_open = True
+        await self._sites_open(from_app=True)
+
+    async def _sites_choose(self, index: int) -> None:
+        if index != self._menu_sel:
+            self._menu_sel = index
+            await self.overlay.select(index)
+        w = self.activities["navegador"]
+        assert isinstance(w, activities_mod.WebActivity)
+        item = self._menu_items[index]
+        if item["id"] == "_site_go":
+            await self.menu_close()
+            await self.a_web("go")
+            return
+        if w.running():
+            log.info("Menú: Navegador: %s", item["name"])
+            await w.navigate(item["url"])
+            if self.current_app() == "navegador":
+                await self.menu_close()
+                return
+        else:
+            w.want_url = item["url"]
+        log.info("Menú: elijo el Navegador en %s", item["name"])
+        if self._menu_timer:
+            self._menu_timer.cancel()
+            self._menu_timer = None
+        self._switching = True
+        await self.overlay.busy(f"Abriendo {item['name']}…")
+        self._macro_task = asyncio.create_task(self._menu_switch({"id": "navegador", "name": w.name}))
 
     # ---------------------------------------------------------------- salida de sonido
     # La lista aparece enseguida con lo que ya se conoce (HDMI, Bluetooth emparejados…) y, mientras tanto, se buscan

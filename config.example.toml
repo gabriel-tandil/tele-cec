@@ -46,6 +46,16 @@
 #   { name = "Pipí Cucú", url = "https://comodin.uy/radio/8000/320.mp3" },
 # ]
 
+# [apps.navegador]            # Navegador: cualquier página con el control remoto (Firefox aparte, perfil propio)
+# scale = 1.5                 # todo un 50 % más grande, para leer desde el sillón
+# search = "https://www.google.com/search?q={q}"
+# extensions = ["~/Descargas/ublock_origin.xpi"]   # uBlock Origin saca la publicidad (lo más pesado)
+# bookmarks = [               # la página de inicio, el botoncito «Sitios» y las teclas 1 – 9
+#   { name = "Google", url = "https://www.google.com" },
+#   { name = "Wikipedia", url = "https://es.wikipedia.org" },
+#   { name = "Infobae", url = "https://www.infobae.com" },
+# ]
+
 # [apps.fotos]                # Fotos con feh
 # folders = ["/media/*/*", "~/Imágenes"]
 # delay_s = 5                 # segundos por foto

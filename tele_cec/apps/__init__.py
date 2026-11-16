@@ -12,6 +12,7 @@ está abierta, de dónde va a sacar el contenido (para la línea secundaria del 
     android.py    scrcpy (pantalla del celular)
     mame.py       Juegos: las ROMs de MAME
     netflix/      navegador + script inyectado     youtube/   YouTube para TV
+    navegador/    el Navegador: cualquier página con el control (nav.js, t9.py)
     tidal/        High Tide (MPRIS, parche y canal de control)
     webprofile.py perfiles de Firefox y Chromium (los usan Netflix y YouTube)
 """
@@ -35,20 +36,21 @@ from .radio import RadioActivity
 from .tidal import TidalActivity
 from .videos import VideosActivity
 from .youtube import YouTubeActivity
+from .navegador import WebActivity
 
 if TYPE_CHECKING:
     from ..controller import Controller
 
 __all__ = ["AndroidActivity", "MameActivity", "BUILTIN", "Activity", "CommandActivity", "ProcActivity", "MediaActivity",
            "MpvMediaActivity", "MusicActivity", "NetflixActivity", "PhotosActivity", "RadioActivity", "AUDIO_EXT",
-           "TidalActivity", "VideosActivity", "YouTubeActivity", "IMAGE_EXT", "VIDEO_EXT", "build", "count_media",
+           "TidalActivity", "VideosActivity", "WebActivity", "YouTubeActivity", "IMAGE_EXT", "VIDEO_EXT", "build", "count_media",
            "describe_folder", "expand_folders", "find_media_folder", "list_media", "list_subfolders", "scan_media",
            "_custom_command"]
 
 log = logging.getLogger("actividades")
 
 # Las actividades propias (las de [activities.<id>] son las demás).
-BUILTIN = ("netflix", "youtube", "tidal", "videos", "musica", "radio", "fotos", "android", "juegos")
+BUILTIN = ("netflix", "youtube", "navegador", "tidal", "videos", "musica", "radio", "fotos", "android", "juegos")
 
 
 def build(ctl: Controller, cfg: Any) -> dict[str, Activity]:
@@ -58,6 +60,7 @@ def build(ctl: Controller, cfg: Any) -> dict[str, Activity]:
         "netflix": NetflixActivity(ctl, apps.get("netflix")),
         "tidal": TidalActivity(ctl, apps.get("tidal")),
         "youtube": YouTubeActivity(apps.get("youtube"), cfg.browser),
+        "navegador": WebActivity(apps.get("navegador"), cfg.browser),
         "videos": VideosActivity(apps.get("videos")),
         "musica": MusicActivity(apps.get("musica")),
         "radio": RadioActivity(apps.get("radio")),

@@ -18,6 +18,8 @@ PAGES: list[tuple[str, str]] = [
     ("browse", "Netflix · inicio y fichas"),
     ("player", "Netflix · viendo un título"),
     ("youtube", "YouTube"),
+    ("navegador", "Navegador · recorriendo la página"),
+    ("navegador_text", "Navegador · escribiendo (los números son letras)"),
     ("tidal_nav", "Tidal · recorrer la interfaz (así arranca)"),
     ("tidal", "Tidal · controles (después de 0)"),
     ("videos", "Videos"),
@@ -100,6 +102,13 @@ SUB_ACTIONS = {
                "pause": "Pausa", "stop": "Pausa", "next": "Tema siguiente", "previous": "Tema anterior",
                "shuffle": "Mezclar / volver al orden", "loop": "Repetir: la lista, el tema o nada",
                "back": "Dejar de buscar (sin saltar)"},
+    "web": {"nav": "Moverse entre los enlaces y botones", "ok": "Abrir (en un campo de texto: escribir ahí)",
+            "back": "Volver atrás (escribiendo: salir del campo)", "home": "La página de inicio (los sitios)",
+            "reload": "Recargar la página", "go": "Escribir una dirección o qué buscar",
+            "submit": "Aceptar: ir / buscar (Enter)", "t9": "Escribir: cada número, sus letras (seguido = la siguiente)",
+            "key": "Tecla", "clear": "Borrar todo", "scroll": "Página arriba / abajo",
+            "play_pause": "Play / pausa del video de la página", "play": "Play", "pause": "Pausa",
+            "sites": "Los sitios guardados", "site": "Ese sitio de la lista", "url": "Abrir esa dirección"},
     "radio": {"play_pause": "Pausa / seguir (después de un rato: en vivo otra vez)", "ok": "Pausa / seguir",
               "play": "Seguir", "pause": "Pausa", "stop": "Pausa", "next": "Radio siguiente",
               "previous": "Radio anterior", "station": "Esa radio de la lista"},
@@ -150,6 +159,11 @@ def describe(action: Any, ctx: str, cfg: Config) -> str:
         return "Salir del juego" if sub in ("quit", "salir") else "Lista de juegos (OK sobre el actual: seguir)"
     if name == "android" and sub == "keyevent":
         return f"Tecla de Android {rest}"
+    if name == "web" and sub == "key":
+        return {"Backspace": "Borrar una letra", "ArrowLeft": "Mover el cursor", "ArrowRight": "Mover el cursor",
+                "Enter": "Enter"}.get(rest, f"Tecla {rest}")
+    if name == "web" and sub == "t9" and rest.lower() == "mode":
+        return "Mayúsculas / minúsculas / números (abc → ABC → 123)"
     if name in SUB_ACTIONS:
         if name == "music" and sub == "page":
             return {"inicio": "Ir a Inicio", "explorar": "Ir a Explorar"}.get(rest, "Ir a Colección")
@@ -252,6 +266,7 @@ def rows(cfg: Config, ctx: str) -> list[tuple[str, str]]:
 def pages(cfg: Config, installed: set[str]) -> list[tuple[str, str]]:
     """Páginas que tienen sentido: las de las apps instaladas (installed = ids de actividades)."""
     needs = {"browse": "netflix", "player": "netflix", "youtube": "youtube", "tidal": "tidal", "tidal_nav": "tidal",
+             "navegador": "navegador", "navegador_text": "navegador",
              "videos": "videos", "musica": "musica", "radio": "radio", "fotos": "fotos", "fotos_zoom": "fotos", "android": "android", "juegos": "juegos"}
     out = []
     for ctx, title in PAGES:

@@ -9,6 +9,7 @@ No convierte el control en un teclado, como hace [cec-mini-kb](https://github.co
 - **Navegación espacial** con las flechas por perfiles, filas de títulos, fichas y menús, con un **resaltado bien visible** del elemento enfocado. OK = clic, Atrás = volver.
 - **Menú de actividades**: el botón **Menú** abre un menú en el centro de la pantalla, encima de lo que esté abierto, para elegir **Netflix, YouTube, Tidal, Videos y música, Radio, Fotos, Juegos (MAME), Android** u otros programas. Elegir una cierra la que estaba abierta. Ver [Menú de actividades](#menú-de-actividades).
 - **YouTube para TV**: la versión de YouTube de los Smart TV, hecha para manejarse con flechas, OK y Atrás (ver [YouTube](#youtube)).
+- **Navegador**: cualquier página web con el control remoto: las flechas van al enlace más cercano, OK lo abre y los números escriben como en un celular viejo (ver [Navegador](#navegador)).
 - **Control desde el celular**: una página en `http://raspberrypi.local:8765/` con el mismo menú de actividades de la TV, buscar en Netflix y YouTube, tu Tidal y tu música local (biblioteca, búsqueda y cola), lo que está sonando y la salida de sonido (ver [Control desde el celular](#control-desde-el-celular)).
 - **Android**: la pantalla del celular en la TV, por USB o Wi‑Fi, con su sonido, y manejable con el control (ver [Android](#android)).
 - **Videos, música y fotos** de un pendrive o de una carpeta local, en pantalla completa y con el control: mpv para los videos y la música (con una barra para la TV que, al buscar, muestra una miniatura del punto elegido) y una presentación con mpv para las fotos.
@@ -197,7 +198,7 @@ Las flechas, los ±10 s y el volumen se repiten mientras mantenés el botón, si
 
 ## Menú de actividades
 
-El botón **Menú** del control abre un menú en el centro de la pantalla para elegir qué usar: **Netflix**, **YouTube**, **Tidal**, **Videos y música**, **Fotos**, **Juegos**, **Android** y los programas que agregues. **Videos y música** es una fila que abre otra lista con **Videos** y **Música** (Atrás vuelve al menú); cada una tiene su botoncito **Carpetas**. Aparece encima de lo que esté abierto, aunque esté en pantalla completa.
+El botón **Menú** del control abre un menú en el centro de la pantalla para elegir qué usar: **Netflix**, **YouTube**, **Tidal**, **Videos y música**, **Radio**, **Fotos**, **Navegador**, **Juegos**, **Android** y los programas que agregues. **Videos y música** es una fila que abre otra lista con **Videos** y **Música** (Atrás vuelve al menú); cada una tiene su botoncito **Carpetas**. Aparece encima de lo que esté abierto, aunque esté en pantalla completa.
 
 Es la pantalla de inicio: **aparece sola al prender la Pi** (`[menu] open_on_start`) y al volver del reposo. Sin nada abierto no se cierra sola; con una app abierta se cierra a los 10 s sin teclas (`timeout_s`).
 
@@ -408,6 +409,42 @@ profile = ""                  # "" = ~/.config/firefox-youtube o ~/.config/chrom
 force_h264 = true
 ```
 
+## Navegador
+
+**Navegador** abre cualquier página web en la TV y se maneja entera con el control remoto. Es un **Firefox aparte** (o Chromium: `[apps.navegador] engine`), en pantalla completa, con su propio perfil (`~/.config/firefox-navegador`), lanzado y controlado igual que el de Netflix pero por otro puerto (`debug_port = 9223`): tele-cec le inyecta un script en cada página (`tele_cec/apps/navegador/nav.js`) y con eso las flechas van al enlace o botón **más cercano en esa dirección**, con un marco blanco y azul, igual que en Netflix.
+
+- **La página de inicio** es una propia, con los **sitios** de `bookmarks` en cuadros grandes y numerados (sin la lista, vienen Google, Wikipedia, YouTube y Mercado Libre de muestra). **1 – 9** abren ese sitio desde cualquier página, el **azul** vuelve al inicio y el **amarillo** (o el botoncito **Sitios ▸** del menú) muestra la lista en el panel. `home` cambia la página de inicio por cualquier dirección.
+- **Escribir**: en un campo de texto (el buscador de Google, un formulario) **OK** entra a escribir y los **números escriben como en un celular viejo**: 2 = a b c á, 3 = d e é f, 6 = m n ñ o ó…, apretado seguido pasa a la letra siguiente (arriba se ven las letras de la tecla con la elegida marcada), **0** es el espacio y **1** los signos (. , ? ! ' - @ / :). **Rojo** borra una letra, **verde** borra todo, **amarillo** pasa de minúsculas a MAYÚSCULAS y a números, ◀ ▶ mueven el cursor, **OK** acepta (busca) y **Atrás** sale del campo. Desde el celular es más cómodo: escribís en su teclado (ver [Control desde el celular](#control-desde-el-celular)).
+- **Ir a una dirección o buscar**: **0** (o el rojo) abre un cuadro «Ir a» arriba de la página: lo que escribís, si parece una dirección (`clarin.com`) se abre, y si no se busca en Google (`search` cambia el buscador, con `{q}` en lugar del texto).
+- **Rendimiento en la Pi**: las mismas preferencias que Netflix (sin animaciones, sin trabajo en segundo plano, sin avisos ni ventanas nuevas: los enlaces «en otra ventana» van en la misma), las páginas al **150 %** (`scale`, para leer desde el sillón; `1.0` = como una PC) y protección contra rastreadores estricta (menos cosas que cargar). Lo que más pesa en las páginas es la publicidad: con `extensions = ["~/Descargas/ublock_origin.xpi"]` tele-cec copia **uBlock Origin** (bajado de addons.mozilla.org) al perfil y queda habilitado solo.
+
+| Tecla | Recorriendo la página (`navegador`) | Escribiendo en un campo (`navegador_text`) |
+|---|---|---|
+| ▲ ▼ ◀ ▶ | Al enlace o botón más cercano (al llegar al borde, baja la página) | ▲ ▼ salen del campo · ◀ ▶ mueven el cursor |
+| OK | Abrir (en un campo de texto: escribir ahí) | Aceptar: buscar / ir (Enter) |
+| Atrás | Página anterior | Salir del campo (cierra «Ir a») |
+| 0 | Escribir una dirección o qué buscar | Espacio |
+| 1 – 9 | Ese sitio de la lista | Las letras de cada número (1 = signos) |
+| 🔴 Rojo · 🟢 Verde | Escribir una dirección · recargar | Borrar una letra · borrar todo |
+| 🟡 Amarillo | La lista de sitios | abc → ABC → 123 |
+| 🔵 Azul | La página de inicio | — |
+| Canal ± · ⏪ ⏩ | Una página entera arriba o abajo | Igual |
+| ⏯ · Play · Pausa | El video de la página | Igual |
+
+```toml
+[apps.navegador]
+engine = ""                   # "" = el de Netflix; o "firefox" / "chromium"
+profile = ""                  # "" = ~/.config/firefox-navegador
+home = ""                     # "" = la página propia con los sitios
+search = "https://www.google.com/search?q={q}"
+scale = 1.5
+extensions = []               # .xpi para copiar al perfil (uBlock Origin…)
+bookmarks = [
+  { name = "Google", url = "https://www.google.com" },
+  { name = "Wikipedia", url = "https://es.wikipedia.org" },
+]
+```
+
 ## Juegos (MAME)
 
 **Juegos** lista las ROMs de MAME con su nombre de verdad («Bubble Bobble», «Wonder Boy»), con el año y el fabricante, y abre la que elijas en pantalla completa.
@@ -506,6 +543,7 @@ La página es el mismo **menú de actividades** de la TV, con sus mismos colores
 - **El botoncito de la derecha**, como «Carpetas ▸» / «Conectar ▸» en la TV:
   - **Videos y música**: abre una página con Videos y Música. **Videos, Fotos** · *Carpetas*: elegir carpeta, entrando en las subcarpetas (en Fotos, también «♥ Favoritas» y «Un día como hoy»). Solo las configuradas: no se puede abrir cualquier carpeta de la Pi.
   - **Radio** · *Radios*: la lista de emisoras, con la que suena (y el tema) o la última marcada; tocar una la pone. Tocar la fila pone la última que sonó, como OK en la TV (la primera vez, la lista). Con Fotos en la TV, tocar su fila también ofrece **♥ Guardar esta foto en Favoritas**.
+  - **Navegador** · *Sitios*: arriba, un cuadro para escribir **una dirección o qué buscar** (se abre en la TV; si el Navegador está cerrado, lo abre ahí), y abajo los sitios guardados, con el que está abierto marcado. Con el Navegador en la TV y un campo de texto enfocado (OK sobre él), lo que escribís en el cuadro de texto del celular va a ese campo.
   - **Música** · *Explorar*: tu música local, como Tidal (ver abajo).
   - **Juegos** · *Juegos*: elegir el juego, o «Salir del juego».
   - **Android** · *Conectar*: tocar un celular para verlo en la TV, o «Dejar de compartir la pantalla». Vincular uno nuevo por Wi‑Fi sigue siendo desde el menú de la TV (el QR).

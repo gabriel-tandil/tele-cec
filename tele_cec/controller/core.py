@@ -38,9 +38,9 @@ BUSY_TEXT = {
     "smart_skip": "Un momento…",
 }
 BUSY_DEFAULT = "Un momento…"
-QUIET = REPEATABLE | {"none", "toast", "wait", "nav_mode", "mute", "subtitles", "audio", "pause", "app", "menu", "help"}
+QUIET = REPEATABLE | {"none", "toast", "wait", "nav_mode", "mute", "subtitles", "audio", "pause", "app", "menu", "help", "web"}
 # Acciones que no necesitan el navegador.
-OFFLINE_OK = {"launch", "wait", "none", "macro", "app", "music", "menu", "video", "musica", "radio", "fotos", "toast", "help", "yt", "android", "juegos"}
+OFFLINE_OK = {"launch", "wait", "none", "macro", "app", "music", "menu", "video", "musica", "radio", "fotos", "toast", "help", "yt", "android", "juegos", "web"}
 
 
 class CoreMixin:
@@ -160,7 +160,12 @@ class CoreMixin:
             if cur == "tidal":
                 return "tidal_nav" if self._tidal_nav else "tidal"
             self._tidal_nav = self.music.start_in_nav  # la próxima vez que se abra, arranca así
-            return self.activities[cur].context if cur else "offline"
+            if cur is None:
+                return "offline"
+            act = self.activities[cur]
+            if hasattr(act, "key_context"):  # el Navegador: le pregunta a la página si se está escribiendo
+                return await act.key_context()
+            return act.context
         try:
             r = await self.js("ctx")
             return r.get("ctx", "browse")

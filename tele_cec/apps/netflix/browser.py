@@ -48,6 +48,7 @@ class Browser:
         self.hide_webdriver = self.firefox and bool(self.fx.get("hide_webdriver", True))
         self.pending_url: str | None = None
         self.port = int(cfg.get("debug_port", 9222))
+        self.unit = str(cfg.get("unit") or f"netflix-{self.engine}")  # el scope de systemd en que se lanza
         self.proc: subprocess.Popen | None = None
         self._last_launch = 0.0
         self._failed = 0
@@ -207,7 +208,7 @@ class Browser:
         # servicio no cierra el navegador.
         log.info("Abriendo %s: %s", self.name, " ".join(args))
         try:
-            self.proc = await spawn_scoped(args, f"netflix-{self.engine}", env)
+            self.proc = await spawn_scoped(args, self.unit, env)
         except OSError as exc:
             log.error("No pude abrir %s: %s", self.name, exc)
             return False

@@ -148,8 +148,8 @@ class ActivitiesMixin:
                 ok = await act.open(Path(folder))
             elif folder is not None and isinstance(act, activities_mod.MameActivity):
                 ok = await act.open(str(folder))  # el juego elegido
-            elif folder is not None and isinstance(act, activities_mod.YouTubeActivity):
-                ok = await act.open(str(folder))  # una dirección (la búsqueda, desde el celular)
+            elif folder is not None and isinstance(act, (activities_mod.YouTubeActivity, activities_mod.WebActivity)):
+                ok = await act.open(str(folder))  # una dirección (la búsqueda desde el celular, un sitio del menú)
             else:
                 ok = await act.open()
             if ok:

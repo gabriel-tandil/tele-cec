@@ -58,6 +58,8 @@ class MenuWeb:
             return "android", "Conectar"
         if isinstance(act, activities_mod.RadioActivity):
             return ("radio", "Radios") if len(act.stations) > 1 else ("", "")
+        if isinstance(act, activities_mod.WebActivity):
+            return "sites", "Sitios"
         if isinstance(act, activities_mod.TidalActivity) or ident == "tidal":
             return "tidal", "Explorar"
         if ident in ("netflix", "youtube"):
@@ -193,6 +195,17 @@ class MenuWeb:
                 it["sub"] = "la última que sonó"
             items.append(it)
         return {"title": f"{act.name} · elegir emisora", "playing": playing, "items": items}
+
+    # ---------------------------------------------------------------- Navegador: los sitios
+    async def sites(self) -> dict[str, Any]:
+        """Los sitios guardados, con el que está abierto marcado; tocar uno lo abre (y abre el Navegador si hace falta)."""
+        act = self.ctl.activities.get("navegador")
+        if not isinstance(act, activities_mod.WebActivity):
+            return {"error": "no hay Navegador"}
+        cur = await act.current_url() if act.running() else ""
+        items = [{"url": b["url"], "name": b["name"], "sub": b["url"].split("//", 1)[-1].split("/", 1)[0].removeprefix("www."),
+                  "current": bool(cur) and cur.rstrip("/").startswith(b["url"].rstrip("/"))} for b in act.bookmarks]
+        return {"title": f"{act.name} · sitios", "running": act.running(), "url": cur, "items": items}
 
     def allowed_station(self, index: Any) -> int | None:
         act = self.ctl.activities.get("radio")

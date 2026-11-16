@@ -429,6 +429,46 @@ function openOption(it) {
   else if (it.option === "search") show(searchPage(it));
   else if (it.option === "sound") show(SOUND);
   else if (it.option === "radio") show(radioPage(it));
+  else if (it.option === "sites") show(sitesPage(it));
+}
+
+// Navegador: escribir una dirección o qué buscar, y los sitios guardados
+function sitesPage(app) {
+  return {
+    title: app.name,
+    async render(body, page) {
+      body.replaceChildren(note("Cargando…"));
+      const r = await get("/api/sites");
+      if (stack[stack.length - 1] !== page) return;
+      if (r.error) { body.replaceChildren(note(r.error)); return; }
+      retitle(page, r.title);
+      const form = el("form", "bar");
+      const input = el("input");
+      input.type = "text"; input.placeholder = "Una dirección o qué buscar"; input.autocomplete = "off";
+      input.enterKeyHint = "go";
+      const go = el("button", "go", "Ir");
+      form.append(input, go);
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        input.blur(); buzz();
+        toast("Abriendo…", 15000);
+        const x = await post("/api/search", {app: app.id, text});
+        if (x.ok) { toast(x.message || "En la TV"); refreshMenu(); }
+      });
+      const rows = el("div", "rows");
+      r.items.forEach((s) => {
+        rows.appendChild(row({name: s.name, sub: s.sub, current: s.current, icon: app.icon}, async () => {
+          const x = await openApp(app, {url: s.url});
+          if (x.ok) back();
+        }));
+      });
+      const hint = el("div", "hint", r.running && r.url ? `En la TV: ${r.url.replace(/^https?:\/\//, "").slice(0, 80)}`
+        : "Tocar un sitio lo abre en la TV. Los sitios se cambian en config.toml ([apps.navegador] bookmarks).");
+      body.replaceChildren(form, rows, hint);
+    },
+  };
 }
 
 // Radio: elegir la emisora (tocar la fila pone la última que sonó, como OK en la TV)

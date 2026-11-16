@@ -112,6 +112,9 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #  Videos: video:play_pause|play|pause|next|previous|stop  video:seek:+10|-10  video:volume:+|-
 #    video:subtitles  video:audio
 #  Radio: radio:ok|play|pause|next|previous (otra radio)  radio:station:N  radio:volume:+|-
+#  Navegador: web:nav:up|down|left|right  web:ok  web:back  web:home  web:reload  web:go (dirección o búsqueda)
+#    web:submit  web:t9:0-9 (escribir)  web:t9:mode (abc/ABC/123)  web:key:Backspace|ArrowLeft|ArrowRight  web:clear
+#    web:scroll:up|down  web:play_pause|play|pause  web:sites (la lista)  web:site:N  web:url:<dirección>
 #  Fotos: fotos:next  fotos:previous  fotos:pause  fotos:rotate  fotos:random  fotos:info  fotos:filename  fotos:mode
 #    fotos:date (la fecha en una esquina)  fotos:favorite (guardar en Favoritas, o sacarla)
 #    fotos:zoom_in  fotos:zoom_out  fotos:fit (sin zoom)  fotos:scroll:left|right|up|down
@@ -293,6 +296,63 @@ FAST_FORWARD = "yt:seek:+10"
 REWIND = "yt:seek:-10"
 FORWARD = ""
 F1_BLUE = ""
+
+[keys.navegador]              # Navegador: las flechas van al enlace o botón más cercano (con un marco), OK lo abre
+UP = "web:nav:up"
+DOWN = "web:nav:down"
+LEFT = "web:nav:left"
+RIGHT = "web:nav:right"
+SELECT = "web:ok"             # un campo de texto: OK entra a escribir (ver [keys.navegador_text])
+ENTER = "web:ok"
+EXIT = "web:back"             # Atrás: la página anterior
+AN_RETURN = "web:back"
+F1_BLUE = "web:home"          # azul = la página de inicio (los sitios guardados)
+F2_RED = "web:go"             # rojo (o 0) = escribir una dirección o qué buscar
+F3_GREEN = "web:reload"
+F4_YELLOW = "web:sites"       # amarillo = la lista de sitios ([apps.navegador] bookmarks)
+CHANNEL_UP = "web:scroll:up"  # Canal ± y ⏪ ⏩: una página entera arriba o abajo
+CHANNEL_DOWN = "web:scroll:down"
+REWIND = "web:scroll:up"
+FAST_FORWARD = "web:scroll:down"
+PLAY = "web:play"             # el video de la página
+PAUSE = "web:pause"
+PAUSE_PLAY_FUNCTION = "web:play_pause"
+STOP = "web:pause"
+FORWARD = ""
+BACKWARD = ""
+NUMBER0 = "web:go"
+NUMBER1 = "web:site:1"        # 1 – 9: ese sitio de la lista
+NUMBER2 = "web:site:2"
+NUMBER3 = "web:site:3"
+NUMBER4 = "web:site:4"
+NUMBER5 = "web:site:5"
+NUMBER6 = "web:site:6"
+NUMBER7 = "web:site:7"
+NUMBER8 = "web:site:8"
+NUMBER9 = "web:site:9"
+
+[keys.navegador_text]         # Navegador, escribiendo en un campo: los números son letras, como en un celular viejo
+NUMBER0 = "web:t9:0"          # 0 = espacio · 1 = . , ? ! ' - @ / : _ · 2 = a b c á · 3 = d e é f … (seguido: la siguiente)
+NUMBER1 = "web:t9:1"
+NUMBER2 = "web:t9:2"
+NUMBER3 = "web:t9:3"
+NUMBER4 = "web:t9:4"
+NUMBER5 = "web:t9:5"
+NUMBER6 = "web:t9:6"
+NUMBER7 = "web:t9:7"
+NUMBER8 = "web:t9:8"
+NUMBER9 = "web:t9:9"
+SELECT = "web:submit"         # OK = ir / buscar (Enter)
+ENTER = "web:submit"
+EXIT = "web:back"             # Atrás = salir del campo (y cerrar el cuadro «Ir a»)
+AN_RETURN = "web:back"
+F2_RED = "web:key:Backspace"  # rojo = borrar una letra
+CLEAR = "web:key:Backspace"
+BACKWARD = "web:key:Backspace"
+F3_GREEN = "web:clear"        # verde = borrar todo
+F4_YELLOW = "web:t9:mode"     # amarillo = abc → ABC → 123
+LEFT = "web:key:ArrowLeft"    # ◀ ▶ mueven el cursor; ▲ ▼ salen del campo y siguen por la página
+RIGHT = "web:key:ArrowRight"
 
 [keys.juegos]                 # Juegos (MAME): el joystick es del juego
 EXIT = "juegos:list"          # Atrás: la lista de juegos (OK sobre el actual sigue jugando)
@@ -520,7 +580,7 @@ RS_RIGHT = ""
 
 # Menú de actividades.
 [menu]
-items = ["netflix", "youtube", "tidal", "local", "radio", "fotos", "juegos", "android"]   # orden; las no instaladas no aparecen. Las de
+items = ["netflix", "youtube", "tidal", "local", "radio", "fotos", "navegador", "juegos", "android"]   # orden; las no instaladas no aparecen. Las de
                                                   # [activities.<id>] se agregan al final si no están acá.
                                                   # Un nombre de [menu.groups] es una «carpeta» con otras adentro.
 columns = 2                   # en dos columnas (sin desplazar): ◀ ▶ cambian de columna. OK abre de una; Videos,
@@ -570,6 +630,22 @@ profile = ""                         # "" = ~/.config/firefox-youtube o ~/.confi
 force_h264 = true                    # como h264ify: la Pi decodifica H.264 por hardware (VP9/AV1 van por CPU)
 user_agent = ""                      # "" = el de una TV (YouTube muestra la versión para TV solo a TVs)
 open_wait_s = 10                     # el navegador tarda en abrir: el menú muestra «Abriendo YouTube…» este tiempo
+
+[apps.navegador]                     # Navegador: cualquier página, con el control remoto (perfil propio, pantalla completa)
+engine = ""                          # "" = el mismo que Netflix (browser.engine); o "firefox" / "chromium"
+profile = ""                         # "" = ~/.config/firefox-navegador o ~/.config/chromium-navegador
+debug_port = 9223                    # puerto de control (como el de Netflix, pero otro); solo en 127.0.0.1
+home = ""                            # la página de inicio: "" = una propia con los sitios de abajo en cuadros grandes
+search = "https://www.google.com/search?q={q}"   # dónde buscar lo que se escribe en «Ir a» si no es una dirección
+scale = 1.5                          # todo un 50 % más grande (para leer desde el sillón); 1.0 = como en una PC
+t9_ms = 1200                         # escribiendo: cuánto espera para pasar a la letra siguiente de la misma tecla
+extensions = []                      # .xpi de Firefox para copiar al perfil, p. ej. uBlock Origin (saca la publicidad,
+                                     # lo más pesado de las páginas): ["~/Descargas/ublock_origin.xpi"]
+# bookmarks = [                      # los sitios: la página de inicio, el botoncito «Sitios» y las teclas 1 – 9
+#   { name = "Google", url = "https://www.google.com" },
+#   { name = "Wikipedia", url = "https://es.wikipedia.org" },
+# ]
+# prefs = { }                        # otras preferencias de Firefox para este perfil
 
 [apps.videos]                        # Videos con mpv: la carpeta entera (y sus subcarpetas) en pantalla completa
 # Se usa la primera carpeta que tenga videos: los pendrives van primero. (sudo apt install mpv mpv-mpris)

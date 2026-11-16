@@ -242,6 +242,9 @@ def _check_activities(cfg: config_mod.Config) -> None:
             else:
                 _check(None, f"{act.name}: ningún celular conectado por adb"
                              + (f" (Wi‑Fi {act._target()}: se conecta al abrirlo)" if act._target() else ""))
+        elif isinstance(act, activities_mod.WebActivity):
+            _check(True, f"{act.name}: en {act.binary()} (perfil {act.profile}, {len(act.bookmarks)} sitios, "
+                         f"control en el puerto {act.browser.port})")
         elif isinstance(act, activities_mod.YouTubeActivity):
             _check(True, f"{act.name}: en {act.binary()} (perfil {act.profile}"
                          f"{', H.264' if act.cfg.get('force_h264', True) else ''})")

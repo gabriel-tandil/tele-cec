@@ -9,6 +9,7 @@ El Controller junta varias partes (mixins), cada una en su archivo con su estado
     menu.py        menú de actividades, selector de carpetas y ayuda
     android.py     «Android · conectar»: elegir el celular y vincularlo por Wi‑Fi (QR o código)
     media.py       acciones de Videos, YouTube, Fotos y Tidal
+    web.py         acciones del Navegador (flechas por la página, escribir con los números, sitios)
     sleep.py       reposo: guardar, cerrar y volver
 """
 
@@ -32,10 +33,11 @@ from .media import MediaMixin
 from .menu import MenuMixin
 from .netflix import NetflixMixin
 from .sleep import SleepMixin
+from .web import WebMixin
 
 
 class Controller(CoreMixin, BrowserMixin, NetflixMixin, ActivitiesMixin, MenuMixin, AndroidMenuMixin, GamesMenuMixin,
-                 MediaMixin, SleepMixin):
+                 MediaMixin, WebMixin, SleepMixin):
     def __init__(self, cfg: Config, browser: Browser):
         self.cfg = cfg
         self.browser = browser
