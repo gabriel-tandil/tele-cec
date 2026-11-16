@@ -1041,14 +1041,32 @@ async def main() -> int:
         check(tm.key_press(dot) is None, "dos toques separados (más de 1 s) no cuentan")
         tm.key_press(0x01)
         check(tm.key_press(dot) is None, "otra tecla en el medio, tampoco")
-        txt = await tm.key_text("show")
-        check(txt == "Temporizador · Sin temporizador\n• otra vez: en 15 minutos" and tm.panel_visible()
+        txt, ms = await tm.key_text("show")
+        check(txt == "Temporizador · Sin temporizador\n• otra vez: en 15 minutos" and ms == 4000 and tm.panel_visible()
               and tm.key_press(0x01) is None and tm.key_press(dot) == "step",
               f"con el aviso a la vista, el toque siguiente cambia la opción: {txt}")
-        txt = await tm.key_text("step")
+        txt, _ = await tm.key_text("step")
         check(tm.choice == 15 and txt.startswith("Temporizador · Se apaga en 15 min"), f"15 min: {txt}")
+        seen = [(await tm.key_text("step"))[0].split("\n")[1] for _ in range(4)]
+        check(tm.choice == 90 and seen[-1] == "• otra vez: apagarlo",
+              f"sin nada sonando, después de 1 h y media no ofrece «al terminar este tema»: apagarlo: {seen}")
+        txt, ms = await tm.key_text("step")
+        check(txt == "Temporizador apagado" and not tm.active() and not tm.panel_visible() and tm.key_press(dot) is None,
+              f"el recorrido termina apagado: el aviso se va y el próximo toque vuelve a ser la Ayuda: {txt}")
+        playing.append(np_st.Track("mpv", "Playing", "Tema cuatro", length=200.0, position=10.0))
+        await tm.set(90)
+        txt, _ = await tm.key_text("show")
+        check(txt.endswith("• otra vez: al terminar este tema o video"), f"con algo sonando, sí lo ofrece: {txt}")
+        txt, _ = await tm.key_text("step")
+        check(tm.choice == "track" and txt.endswith("• otra vez: apagarlo"), f"y después, apagarlo: {txt}")
+        txt, _ = await tm.key_text("step")
+        check(txt == "Temporizador apagado" and not tm.active(), f"apagado: {txt}")
+        playing.clear()
+        await tm.set(120)  # desde el celular, algo que no está en la lista
+        check(tm._key_next(False) == 0 and (await tm.set(20)) and tm._key_next(False) == 30,
+              "un tiempo puesto desde el celular sigue con el siguiente más largo (o apagado)")
         await tm.set(0)
-        tm._panel_until = 0.0
+        tm._panel_until = tm._key_last = 0.0
 
         # el último minuto: cuenta regresiva, y una tecla lo retrasa
         st_log.clear()

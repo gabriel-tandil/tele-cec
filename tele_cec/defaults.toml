@@ -539,7 +539,7 @@ warn_seconds = 60             # cuenta regresiva en pantalla antes (cualquier te
 timer_postpone_minutes = 15   # temporizador para apagar: una tecla en su último minuto lo retrasa tanto
 timer_key = "DOT"             # esa tecla dos veces seguidas: el temporizador desde cualquier pantalla (un toque solo
                               # sigue siendo lo de siempre; "" = sin tecla). Mientras se ve el aviso, cada toque lo
-                              # cambia: 15 → 30 → 45 → 60 → 90 min → al terminar el tema → sin temporizador
+                              # cambia: 15 → 30 → 45 → 60 → 90 min → al terminar el tema → apagado
 timer_double_press_ms = 1000  # cuánto puede pasar entre los dos toques
 tv_standby = true             # apagar también la TV por CEC
 wake_on_tv = true             # en reposo: volver cuando se prende la TV (sin cambiarle la entrada)

@@ -8,8 +8,8 @@ El último minuto la TV muestra una cuenta regresiva: cualquier tecla del contro
 mientras baja el volumen, que vuelve a como estaba). Esa tecla no le llega a la app.
 
 Desde cualquier pantalla: el punto (•) dos veces seguidas muestra cuánto falta y, mientras se ve ese aviso, cada
-toque del punto pasa a la opción siguiente (15 → 30 → 45 → 60 → 90 min → al terminar el tema → sin temporizador),
-como el botón Sleep de las teles. Un toque solo sigue siendo la Ayuda. [power] timer_key y timer_double_press_ms.
+toque del punto pasa a la opción siguiente (15 → 30 → 45 → 60 → 90 min → al terminar el tema → apagado), como el
+botón Sleep de las teles; «apagado» termina el recorrido. Un toque solo sigue siendo la Ayuda. [power] timer_key y timer_double_press_ms.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ TRACK_POLL_S = 1.0
 TIMER_KEY = "DOT"       # la tecla que, apretada dos veces seguidas, abre el temporizador ([power] timer_key)
 DOUBLE_PRESS_MS = 1000  # cuánto puede pasar entre los dos toques ([power] timer_double_press_ms)
 KEY_PANEL_S = 4.0       # cuánto se ve el aviso del temporizador (mientras se ve, cada toque lo cambia)
+KEY_CYCLE: list[int | str] = [15, 30, 45, 60, 90, "track", 0]   # el recorrido con la tecla: termina apagado
 
 
 def choice_text(choice: int | str) -> str:
@@ -110,22 +111,35 @@ class SleepTimer:
         self._key_last = now
         return None
 
-    async def key_text(self, what: str) -> str:
-        """El aviso para la tecla: «show» dice cómo está; «step» pasa a la opción siguiente y dice cuál quedó."""
+    async def key_text(self, what: str) -> tuple[str, int]:
+        """El aviso para la tecla y cuánto dura: «show» dice cómo está; «step» pasa a la opción siguiente
+        (15 → 30 → 45 → 60 → 90 min → al terminar el tema → apagado). Al llegar a «apagado» el recorrido termina:
+        el aviso se va y el próximo toque vuelve a ser lo de siempre (para empezar de nuevo, otra vez dos toques)."""
+        playing = await self._playing() is not None
         if what == "step":
-            ok, msg = await self.step(+1)
-            now = msg if ok else self.text()
-        else:
-            now = self.text()
+            ok, _msg = await self.set(self._key_next(playing))
+            if not ok:  # «al terminar este tema» y justo dejó de sonar: apagado
+                await self.set(0)
+            if not self.active():
+                self._panel_until = self._key_last = 0.0
+                return "Temporizador apagado", 2500
         self._panel_until = time.monotonic() + KEY_PANEL_S
-        nxt = self._next_choice()
-        return f"Temporizador · {now}\n• otra vez: {choice_text(nxt).lower()}"
+        nxt = self._key_next(playing)
+        hint = "apagarlo" if not nxt else choice_text(nxt).lower()
+        return f"Temporizador · {self.text()}\n• otra vez: {hint}", int(KEY_PANEL_S * 1000)
 
-    def _next_choice(self) -> int | str:
-        """Lo que dejaría un toque más (si toca «al terminar este tema» y no suena nada, step() la saltea)."""
+    def _key_next(self, playing: bool) -> int | str:
+        """Lo que deja un toque más: la opción siguiente de KEY_CYCLE («al terminar este tema» solo si suena
+        algo); después de la última, 0 (apagado)."""
         cur = self.choice if self.active() else 0
-        i = CHOICES.index(cur) if cur in CHOICES else 0
-        return CHOICES[(i + 1) % len(CHOICES)]
+        seq = [c for c in KEY_CYCLE if playing or c != "track"]
+        if not cur:
+            return seq[0]
+        if cur == "track":
+            return 0
+        if cur in seq:
+            return seq[seq.index(cur) + 1]
+        return next((c for c in seq if isinstance(c, int) and c > int(cur)), 0)   # p. ej. 120 min puestos desde el celular
 
     def panel_visible(self) -> bool:
         return time.monotonic() < self._panel_until

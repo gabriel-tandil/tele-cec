@@ -16,7 +16,6 @@ from ..apps.library import fold
 from ..system import audio
 from ..system.procs import LOG_DIR
 from ..ui import help as help_mod
-from . import sleeptimer
 from .activities import KEEP_PLAYING
 
 log = logging.getLogger("tele")
@@ -1058,9 +1057,8 @@ class MenuMixin:
                 await self.menu_open(self._menu_act_sel)
             else:
                 await self.menu_close()
-        text = await self.sleep_timer.key_text(what)
+        text, ms = await self.sleep_timer.key_text(what)
         log.info("Temporizador (tecla): %s", text.replace("\n", " · "))
-        ms = int(sleeptimer.KEY_PANEL_S * 1000)
         if self._menu_open:
             if self._in_sound():
                 await self._sound_render(1)  # la fila del temporizador, al día
