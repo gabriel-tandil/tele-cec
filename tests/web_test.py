@@ -816,6 +816,12 @@ async def main() -> int:
 
         print("Navegador: sitios, direcciones y búsquedas desde el celular")
         from tele_cec.apps import navegador as nav_mod
+        from tele_cec.apps.navegador import favicons as fav_mod
+        real_fav = (fav_mod.LOG_DIR, fav_mod.ensure)
+        fav_mod.LOG_DIR = tmp_r / "cache-fav"
+        fav_mod.ensure = lambda urls: None  # type: ignore[assignment]
+        (tmp_r / "cache-fav" / "favicons").mkdir(parents=True)
+        (tmp_r / "cache-fav" / "favicons" / "es.wikipedia.org.png").write_bytes(b"\x89PNGicono")
 
         class FakeNavPage:
             def __init__(self):
@@ -868,6 +874,13 @@ async def main() -> int:
             r = json.loads(body)
             check(r["title"] == "Navegador · sitios" and [i["name"] for i in r["items"]] == ["Wikipedia", "Clarín"]
                   and not r["running"] and not any(i["current"] for i in r["items"]), f"/api/sites: los sitios: {r}")
+            check(r["items"][0]["img"] == "/api/favicon?h=es.wikipedia.org" and r["items"][1]["img"] == "",
+                  f"con su ícono si ya se bajó: {[i['img'] for i in r['items']]}")
+            st, h, body = await http(port, "GET", r["items"][0]["img"])
+            check(st == 200 and h["Content-Type"] == "image/png" and body == b"\x89PNGicono", "y se sirve")
+            for bad in ("www.clarin.com", "../../etc/passwd", ""):
+                st, _, _ = await http(port, "GET", f"/api/favicon?h={bad}")
+                check(st == 404, f"solo los íconos bajados, por nombre de sitio ({bad!r})")
             ctl.log.clear()
             _, _, body = await http(port, "POST", "/api/app", {"id": "navegador", "url": "https://www.clarin.com"}, H)
             check(json.loads(body)["ok"] and ("switch", "navegador", False, "https://www.clarin.com") in ctl.log,
@@ -915,6 +928,7 @@ async def main() -> int:
         finally:
             del ctl.activities["navegador"]
             ctl.cur, ctl._menu_open = cur_before, menu_before
+            fav_mod.LOG_DIR, fav_mod.ensure = real_fav
 
         print("Fotos: guardar la foto que se ve en Favoritas desde el celular")
         from tele_cec.apps.photos import PhotosActivity

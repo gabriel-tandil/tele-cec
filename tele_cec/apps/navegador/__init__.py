@@ -8,8 +8,11 @@ página de inicio es un archivo propio con los sitios de [apps.navegador] bookma
 abren directo.
 
 Para que vaya rápido en la Pi: las mismas preferencias que Netflix (sin animaciones, sin trabajo de fondo), las
-páginas más grandes (scale: todo al 150 %, para leer desde el sillón), sin ventanas nuevas ni avisos, y las
-extensiones que se le copien (extensions: p. ej. uBlock Origin, que saca la publicidad, lo más pesado).
+páginas más grandes (scale: todo al 150 %, para leer desde el sillón), sin ventanas nuevas ni avisos, uBlock
+Origin (ublock: se copia el que tenga el Firefox de siempre; saca la publicidad, lo más pesado de las páginas) y las
+extensiones que se le agreguen (extensions).
+
+Cada sitio guardado se muestra con su ícono (favicons.py), en el menú, en el celular y en la página de inicio.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from ..netflix.browser import Browser
 from ..netflix import bidi
 from ..netflix.cdp import CDPClosed, CDPError, ContextLost, SessionBusy
 from ..webprofile import NAMES
+from . import favicons
 from .t9 import T9
 
 log = logging.getLogger("actividades")
@@ -43,10 +47,12 @@ CONNECT_TIMEOUT_S = 90      # Firefox en la Pi acepta la sesión de control reci
 DEFAULT_SEARCH = "https://www.google.com/search?q={q}"
 DEFAULT_BOOKMARKS = [
     {"name": "Google", "url": "https://www.google.com"},
+    {"name": "DuckDuckGo", "url": "https://duckduckgo.com"},
     {"name": "Wikipedia", "url": "https://es.wikipedia.org"},
-    {"name": "YouTube", "url": "https://www.youtube.com"},
-    {"name": "Mercado Libre", "url": "https://www.mercadolibre.com.ar"},
 ]
+UBLOCK_XPI = "uBlock0@raymondhill.net.xpi"
+# Dónde guarda las extensiones el Firefox de siempre (Firefox 147+ usa ~/.config/mozilla; antes, ~/.mozilla).
+USER_PROFILES = ("~/.config/mozilla/firefox/*/extensions", "~/.mozilla/firefox/*/extensions")
 # Enlaces y botones por los que se mueven las flechas, y lo que no (lo invisible lo filtra el script).
 FOCUSABLE = ('a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="tab"], '
              '[role="menuitem"], [role="option"], [role="checkbox"], [role="switch"], [tabindex]:not([tabindex="-1"]), '
@@ -67,6 +73,7 @@ NAV_PREFS: dict[str, Any] = {
     "browser.contentblocking.category": "strict",
     "extensions.autoDisableScopes": 0,              # las extensiones copiadas al perfil quedan habilitadas solas
     "extensions.enabledScopes": 5,
+    "extensions.startupScanScopes": 1,             # y se buscan al arrancar (si no, una nueva puede no verse)
     "browser.fullscreen.autohide": True,
     "full-screen-api.ignore-widgets": True,
     "browser.tabs.closeWindowWithLastTab": False,
@@ -154,6 +161,7 @@ class WebActivity(Activity):
         self.home = str(cfg.get("home") or "")
         self.bookmarks = bookmarks_from(cfg)
         self.extensions = [os.path.expanduser(str(x)) for x in (cfg.get("extensions") or [])]
+        self.ublock = bool(cfg.get("ublock", True))
         self.t9 = T9(int(cfg.get("t9_ms", 1200) or 1200))
         fx = browser_cfg.get("firefox") or {}
         binary = str(cfg.get("binary") or (fx.get("binary") if self.firefox else browser_cfg.get("binary")) or "")
@@ -202,8 +210,14 @@ class WebActivity(Activity):
         return self.running() or await self.browser.alive()
 
     def source(self) -> tuple[str, bool]:
+        favicons.ensure([b["url"] for b in self.bookmarks])  # de fondo: para cuando se abra la lista de sitios
         names = [b["name"] for b in self.bookmarks]
         return (" · ".join(names[:4]) + (" …" if len(names) > 4 else "")) or NAMES[self.engine], True
+
+    # ------------------------------------------------------------ los íconos de los sitios
+    def favicon(self, url: str) -> Path | None:
+        """El ícono ya bajado del sitio de esa dirección (o None: se usa el genérico)."""
+        return favicons.path_for(favicons.host_of(url))
 
     # ------------------------------------------------------------ la página de inicio
     def home_url(self) -> str:
@@ -223,7 +237,9 @@ class WebActivity(Activity):
         tiles = []
         for i, b in enumerate(self.bookmarks):
             n = f"<small>{i + 1}</small>" if i < 9 else ""
-            tiles.append(f'<a href="{html.escape(b["url"], quote=True)}">{n}<span>{html.escape(b["name"])}</span>'
+            ico = self.favicon(b["url"])
+            img = f'<img src="{html.escape(ico.as_uri(), quote=True)}" alt="">' if ico else ""
+            tiles.append(f'<a href="{html.escape(b["url"], quote=True)}">{n}{img}<span>{html.escape(b["name"])}</span>'
                          f'<i>{html.escape(urllib.parse.urlparse(b["url"]).netloc.removeprefix("www."))}</i></a>')
         body = "\n".join(tiles) or "<p>No hay sitios: agregalos en [apps.navegador] bookmarks (config.toml)</p>"
         return f"""<!doctype html>
@@ -238,6 +254,7 @@ a{{display:flex;flex-direction:column;justify-content:center;min-height:150px;pa
   background:#1c1c22;color:#fff;text-decoration:none;position:relative;border:3px solid transparent}}
 a span{{font-size:1.35em;font-weight:700}} a i{{font-style:normal;color:#999;margin-top:.3em;font-size:.85em}}
 a small{{position:absolute;top:12px;right:16px;color:#2f7cf6;font-size:.9em;font-weight:700}}
+a img{{width:56px;height:56px;margin-bottom:10px;border-radius:12px}}
 </style></head><body><main>
 <h1>{html.escape(self.name)}</h1>
 <p class="h">0 = escribir una dirección o buscar · 1 – 9 = estos sitios · flechas y OK · Atrás vuelve · azul = esta página</p>
@@ -247,12 +264,29 @@ a small{{position:absolute;top:12px;right:16px;color:#2f7cf6;font-size:.9em;font
 """
 
     # ------------------------------------------------------------ abrir y cerrar
+    def user_ublock(self) -> Path | None:
+        """El uBlock Origin del Firefox de siempre (el más nuevo, si hay varios perfiles), o None."""
+        found = []
+        for pattern in USER_PROFILES:
+            base = Path(os.path.expanduser(pattern))
+            found += [p for p in Path(base.anchor).glob(str(base.relative_to(base.anchor)) + "/" + UBLOCK_XPI)
+                      if p.is_file() and self.profile not in p.parents]
+        return max(found, key=lambda p: p.stat().st_mtime, default=None)
+
     def _copy_extensions(self) -> None:
-        """Los .xpi de [apps.navegador] extensions, al perfil (Firefox los habilita solo: autoDisableScopes = 0)."""
-        if not self.firefox or not self.extensions:
+        """Los .xpi de [apps.navegador] extensions (y uBlock, si está en el Firefox de siempre), al perfil: Firefox
+        los habilita solo (autoDisableScopes = 0). Se vuelven a copiar si el original es más nuevo."""
+        if not self.firefox:
             return
+        sources = list(self.extensions)
+        if self.ublock and not any(Path(s).name == UBLOCK_XPI for s in sources):
+            ub = self.user_ublock()
+            if ub is not None:
+                sources.append(str(ub))
+            else:
+                log.info("Navegador: no encontré uBlock Origin en el Firefox de siempre (instalalo ahí, o ver extensions)")
         dest = self.profile / "extensions"
-        for src in self.extensions:
+        for src in sources:
             p = Path(src)
             if not p.is_file():
                 log.warning("Navegador: no existe la extensión %s", src)
@@ -278,6 +312,7 @@ a small{{position:absolute;top:12px;right:16px;color:#2f7cf6;font-size:.9em;font
                 await self.navigate(url)
                 await self.bring_front()
                 return True
+        await asyncio.to_thread(lambda: (t := favicons.ensure([b["url"] for b in self.bookmarks])) and t.join(6))
         await asyncio.to_thread(self.start_page)
         await asyncio.to_thread(self._copy_extensions)
         if not await self.browser.launch(url):

@@ -956,7 +956,9 @@ class MenuMixin:
         items = []
         for i, b in enumerate(w.bookmarks):
             host = b["url"].split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
-            items.append({"id": f"_site{i}", "url": b["url"], "name": b["name"], "icon": w.icon, "enabled": True,
+            ico = w.favicon(b["url"])
+            items.append({"id": f"_site{i}", "url": b["url"], "name": b["name"], "enabled": True,
+                          "icon": str(ico) if ico else w.icon,
                           "sub": host, "current": bool(cur) and cur.rstrip("/").startswith(b["url"].rstrip("/"))})
         if w.running():
             items.append({"id": "_site_go", "url": "", "name": "Escribir una dirección o buscar", "icon": "edit-find",

@@ -413,10 +413,10 @@ force_h264 = true
 
 **Navegador** abre cualquier página web en la TV y se maneja entera con el control remoto. Es un **Firefox aparte** (o Chromium: `[apps.navegador] engine`), en pantalla completa, con su propio perfil (`~/.config/firefox-navegador`), lanzado y controlado igual que el de Netflix pero por otro puerto (`debug_port = 9223`): tele-cec le inyecta un script en cada página (`tele_cec/apps/navegador/nav.js`) y con eso las flechas van al enlace o botón **más cercano en esa dirección**, con un marco blanco y azul, igual que en Netflix.
 
-- **La página de inicio** es una propia, con los **sitios** de `bookmarks` en cuadros grandes y numerados (sin la lista, vienen Google, Wikipedia, YouTube y Mercado Libre de muestra). **1 – 9** abren ese sitio desde cualquier página, el **azul** vuelve al inicio y el **amarillo** (o el botoncito **Sitios ▸** del menú) muestra la lista en el panel. `home` cambia la página de inicio por cualquier dirección.
+- **La página de inicio** es una propia, con los **sitios** de `bookmarks` en cuadros grandes y numerados (sin la lista, vienen Google, DuckDuckGo y Wikipedia). Cada sitio se muestra con **su ícono** (favicon), también en la lista del menú y en el celular: se le pide al sitio mismo (el más grande que declare, o `/apple-touch-icon.png`, o `/favicon.ico`) y queda en `~/.cache/tele-cec/favicons`; si un sitio no tiene, va el globo. **1 – 9** abren ese sitio desde cualquier página, el **azul** vuelve al inicio y el **amarillo** (o el botoncito **Sitios ▸** del menú) muestra la lista en el panel. `home` cambia la página de inicio por cualquier dirección.
 - **Escribir**: en un campo de texto (el buscador de Google, un formulario) **OK** entra a escribir y los **números escriben como en un celular viejo**: 2 = a b c á, 3 = d e é f, 6 = m n ñ o ó…, apretado seguido pasa a la letra siguiente (arriba se ven las letras de la tecla con la elegida marcada), **0** es el espacio y **1** los signos (. , ? ! ' - @ / :). **Rojo** borra una letra, **verde** borra todo, **amarillo** pasa de minúsculas a MAYÚSCULAS y a números, ◀ ▶ mueven el cursor, **OK** acepta (busca) y **Atrás** sale del campo. Desde el celular es más cómodo: escribís en su teclado (ver [Control desde el celular](#control-desde-el-celular)).
 - **Ir a una dirección o buscar**: **0** (o el rojo) abre un cuadro «Ir a» arriba de la página: lo que escribís, si parece una dirección (`clarin.com`) se abre, y si no se busca en Google (`search` cambia el buscador, con `{q}` en lugar del texto).
-- **Rendimiento en la Pi**: las mismas preferencias que Netflix (sin animaciones, sin trabajo en segundo plano, sin avisos ni ventanas nuevas: los enlaces «en otra ventana» van en la misma), las páginas al **150 %** (`scale`, para leer desde el sillón; `1.0` = como una PC) y protección contra rastreadores estricta (menos cosas que cargar). Lo que más pesa en las páginas es la publicidad: con `extensions = ["~/Descargas/ublock_origin.xpi"]` tele-cec copia **uBlock Origin** (bajado de addons.mozilla.org) al perfil y queda habilitado solo.
+- **Rendimiento en la Pi**: las mismas preferencias que Netflix (sin animaciones, sin trabajo en segundo plano, sin avisos ni ventanas nuevas: los enlaces «en otra ventana» van en la misma), las páginas al **150 %** (`scale`, para leer desde el sillón; `1.0` = como una PC) y protección contra rastreadores estricta (menos cosas que cargar). Lo que más pesa en las páginas es la publicidad: si el Firefox de siempre tiene **uBlock Origin**, tele-cec lo copia al perfil del Navegador y queda habilitado solo (y se actualiza cuando se actualice ese; `ublock = false` lo evita). Otras extensiones: `extensions = ["~/Descargas/algo.xpi"]`.
 
 | Tecla | Recorriendo la página (`navegador`) | Escribiendo en un campo (`navegador_text`) |
 |---|---|---|
@@ -438,7 +438,8 @@ profile = ""                  # "" = ~/.config/firefox-navegador
 home = ""                     # "" = la página propia con los sitios
 search = "https://www.google.com/search?q={q}"
 scale = 1.5
-extensions = []               # .xpi para copiar al perfil (uBlock Origin…)
+ublock = true                 # copiar el uBlock Origin del Firefox de siempre
+extensions = []               # otros .xpi para copiar al perfil
 bookmarks = [
   { name = "Google", url = "https://www.google.com" },
   { name = "Wikipedia", url = "https://es.wikipedia.org" },

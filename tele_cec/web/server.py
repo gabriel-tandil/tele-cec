@@ -228,6 +228,11 @@ class WebRemote:
                 return _json(await self.menu.radio())
             if path == "/api/sites":
                 return _json(await self.menu.sites())
+            if path == "/api/favicon":  # el ícono de un sitio guardado (solo los ya bajados, por nombre de sitio)
+                ico = activities_mod.navegador.favicons.path_for(query.get("h", ""))
+                if ico is None:
+                    return 404, b"", "text/plain", {}
+                return 200, ico.read_bytes(), "image/png", {"Cache-Control": "max-age=86400"}
             if path == "/api/android":
                 return _json(await self.menu.android())
             if path == "/api/tidal/library":

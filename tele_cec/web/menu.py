@@ -203,8 +203,13 @@ class MenuWeb:
         if not isinstance(act, activities_mod.WebActivity):
             return {"error": "no hay Navegador"}
         cur = await act.current_url() if act.running() else ""
-        items = [{"url": b["url"], "name": b["name"], "sub": b["url"].split("//", 1)[-1].split("/", 1)[0].removeprefix("www."),
-                  "current": bool(cur) and cur.rstrip("/").startswith(b["url"].rstrip("/"))} for b in act.bookmarks]
+        activities_mod.navegador.favicons.ensure([b["url"] for b in act.bookmarks])
+        items = []
+        for b in act.bookmarks:
+            host = activities_mod.navegador.favicons.host_of(b["url"])
+            items.append({"url": b["url"], "name": b["name"], "sub": host.removeprefix("www."),
+                          "img": f"/api/favicon?h={host}" if act.favicon(b["url"]) else "",
+                          "current": bool(cur) and cur.rstrip("/").startswith(b["url"].rstrip("/"))})
         return {"title": f"{act.name} · sitios", "running": act.running(), "url": cur, "items": items}
 
     def allowed_station(self, index: Any) -> int | None:

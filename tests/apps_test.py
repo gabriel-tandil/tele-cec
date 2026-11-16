@@ -1350,6 +1350,10 @@ async def main() -> int:
 
     print("Navegador")
     from tele_cec.apps import navegador as nav_mod
+    from tele_cec.apps.navegador import favicons as fav_mod
+    real_fav = (fav_mod.LOG_DIR, fav_mod.ensure, fav_mod._fetch)
+    fav_mod.LOG_DIR = tmp / "cache-fav"
+    fav_mod.ensure = lambda urls: None  # type: ignore[assignment]  (sin salir a internet en las pruebas)
     from tele_cec.apps.navegador.t9 import T9
     t9 = T9(1000)
     seq = [t9.press(k, now=1.0 + i * 0.2) for i, k in enumerate(("2", "2", "2", "6", "0"))]
@@ -1371,7 +1375,7 @@ async def main() -> int:
           "desde el celular solo páginas web (http, https)")
     bms = nav_mod.bookmarks_from({"bookmarks": ["infobae.com", {"name": "Wiki", "url": "https://es.wikipedia.org"}, {"name": "sin"}]})
     check(bms == [{"name": "infobae.com", "url": "https://infobae.com"}, {"name": "Wiki", "url": "https://es.wikipedia.org"}]
-          and [b["name"] for b in nav_mod.bookmarks_from({})] == ["Google", "Wikipedia", "YouTube", "Mercado Libre"],
+          and [b["name"] for b in nav_mod.bookmarks_from({})] == ["Google", "DuckDuckGo", "Wikipedia"],
           f"los sitios: una dirección sola sirve; sin url se saltea; sin la lista, unos de muestra: {bms}")
     wa = nav_mod.WebActivity({"profile": str(tmp / "nav-perfil"), "bookmarks": [{"name": "Wiki", "url": "https://es.wikipedia.org"}]},
                              {"engine": "firefox", "reduce_effects": True})
@@ -1396,6 +1400,70 @@ async def main() -> int:
                   nav_mod.WebActivity({"profile": str(tmp / "nav-ch")}, {"engine": "chromium"}).browser.args("https://x")),
           "home propia; con Chromium, perfil chromium-navegador y la escala como flag")
     check(wa.source() == ("Wiki", True) and "window.__tcnav" in wa.script and wa.version in wa.script, "en el menú, los sitios; el script con su versión")
+
+    # el ícono de cada sitio (favicon)
+    import io as io_mod
+    from PIL import Image as PILImage
+
+    def png_bytes(w, h, color=(255, 0, 0, 255), fmt="PNG"):
+        b = io_mod.BytesIO()
+        PILImage.new("RGBA", (w, h), color).save(b, fmt)
+        return b.getvalue()
+    page_links = ('<link rel="icon" href="/a.svg"><link rel="shortcut icon" href="/f.ico">'
+                  '<link rel="apple-touch-icon" sizes="180x180" href="t.png"><link rel="mask-icon" href="/m.png">'
+                  '<meta itemprop="image" content="/logo128.png">')
+    check(fav_mod.icon_links(page_links, "https://x.example/p/") == ["https://x.example/p/t.png", "https://x.example/f.ico"]
+          and fav_mod.meta_images(page_links, "https://x.example/") == ["https://x.example/logo128.png"],
+          "los íconos que declara la página: el más grande primero, sin SVG ni mask-icon; y el logo de <meta itemprop>")
+    small, side = fav_mod.to_png(png_bytes(32, 32))
+    check(side == 32 and PILImage.open(io_mod.BytesIO(small)).size == (128, 128) and fav_mod.to_png(b"no") is None
+          and fav_mod.to_png(png_bytes(8, 8)) is None and fav_mod.to_png(png_bytes(300, 100), square=True) is None
+          and fav_mod.to_png(png_bytes(64, 32))[1] == 64, "a PNG de 128 px (las chicas se agrandan); una imagen que no es "
+          "cuadrada no vale como logo; una diminuta o algo que no es imagen, no")
+    ico = io_mod.BytesIO()
+    PILImage.new("RGBA", (48, 48), (0, 0, 255, 255)).save(ico, "ICO", sizes=[(16, 16), (48, 48)])
+    check(fav_mod.to_png(ico.getvalue())[1] == 48, "de un .ico, el tamaño más grande")
+    fetched_fav: list = []
+    site_files = {"https://sitio.example/": (page_links.encode(), "https://sitio.example/"),
+                  "https://sitio.example/p/t.png": (png_bytes(40, 40), ""), "https://sitio.example/f.ico": (png_bytes(32, 32), ""),
+                  "https://sitio.example/apple-touch-icon.png": (png_bytes(120, 120), "")}
+
+    def fake_fav_fetch(url):
+        fetched_fav.append(url)
+        if url not in site_files:
+            raise OSError("404")
+        return site_files[url]
+    fav_mod._fetch = fake_fav_fetch  # type: ignore[assignment]
+    got_fav = fav_mod.fetch("https://sitio.example/algo")
+    check(got_fav == tmp / "cache-fav" / "favicons" / "sitio.example.png" and fav_mod.path_for("sitio.example") == got_fav
+          and fetched_fav[-1] == "https://sitio.example/apple-touch-icon.png",
+          f"se queda con el más grande (y deja de buscar al encontrar uno de 96 px o más): {fetched_fav}")
+    fetched_fav.clear()
+    check(fav_mod.fetch("https://sitio.example/") == got_fav and not fetched_fav, "la segunda vez, de la caché")
+    check(fav_mod.fetch("https://nada.example/") is None and fav_mod._failed_recently("nada.example")
+          and fav_mod.fetch("https://nada.example/") is None and fetched_fav.count("https://nada.example/") == 1,
+          "sin ícono: se recuerda y no se vuelve a pedir enseguida")
+    check(fav_mod.path_for("../etc") is None and fav_mod.host_of("javascript:x") == "", "solo nombres de sitio")
+    wfav = nav_mod.WebActivity({"profile": str(tmp / "nav-perfil"), "bookmarks": [{"name": "S", "url": "https://sitio.example/x"}]}, {})
+    check(wfav.favicon("https://sitio.example/x") == got_fav and got_fav.as_uri() in wfav.start_page_html(),
+          "en la página de inicio, cada sitio con su ícono")
+    # uBlock: el del Firefox de siempre
+    real_profiles = nav_mod.USER_PROFILES
+    (tmp / "ffuser" / "abc.default-release" / "extensions").mkdir(parents=True)
+    (tmp / "ffuser" / "abc.default-release" / "extensions" / nav_mod.UBLOCK_XPI).write_bytes(b"xpi")
+    nav_mod.USER_PROFILES = (str(tmp / "ffuser" / "*" / "extensions"),)
+    try:
+        wub = nav_mod.WebActivity({"profile": str(tmp / "nav-ub")}, {})
+        check(wub.user_ublock() == tmp / "ffuser" / "abc.default-release" / "extensions" / nav_mod.UBLOCK_XPI,
+              "encuentra el uBlock del Firefox de siempre")
+        wub._copy_extensions()
+        check((tmp / "nav-ub" / "extensions" / nav_mod.UBLOCK_XPI).read_bytes() == b"xpi"
+              and wub.prefs().get("extensions.startupScanScopes") == 1, "y lo copia al perfil del Navegador (habilitado solo)")
+        wno = nav_mod.WebActivity({"profile": str(tmp / "nav-noub"), "ublock": False}, {})
+        wno._copy_extensions()
+        check(not (tmp / "nav-noub" / "extensions").exists(), "ublock = false: no")
+    finally:
+        nav_mod.USER_PROFILES = real_profiles
 
     class FakeNavPage:
         """La página con nav.js simulada: anota los comandos y se comporta como un campo de texto."""
@@ -1525,9 +1593,13 @@ async def main() -> int:
         await ctl.menu_open()
         row = next(i for i in ctl.overlay.items if i["id"] == "navegador")
         check(row.get("action") == "Sitios" and row["current"], f"en el menú, Navegador con el botoncito «Sitios»: {row}")
+        (tmp / "cache-fav" / "favicons" / "es.wikipedia.org.png").write_bytes(png_bytes(128, 128))
         await ctl._menu_options(ctl.overlay.items.index(row))
         check(ctl._menu_mode == "sites" and [i["name"] for i in ctl.overlay.items]
               == ["Wiki", "Clarín", "Escribir una dirección o buscar"], f"la lista de sitios: {[i['name'] for i in ctl.overlay.items]}")
+        check(ctl.overlay.items[0]["icon"] == str(tmp / "cache-fav" / "favicons" / "es.wikipedia.org.png")
+              and ctl.overlay.items[1]["icon"] == "navegador.svg",
+              f"cada sitio con su ícono (si ya se bajó; si no, el genérico): {[i['icon'] for i in ctl.overlay.items]}")
         start = len(log)
         await ctl.a_menu("pick:2")
         check(log[start:] == ["ov:select:1", "web:navigate:https://www.clarin.com", "ov:hide"] and not ctl._menu_open,
@@ -1564,6 +1636,7 @@ async def main() -> int:
         ctl.cfg.menu["items"], ctl._menu_columns = items_before, cols_before
         ctl._menu_open = False
         del ctl.activities["navegador"]
+        fav_mod.LOG_DIR, fav_mod.ensure, fav_mod._fetch = real_fav
     await ctl.run_action("app:tidal")
 
     print("YouTube con Chromium")

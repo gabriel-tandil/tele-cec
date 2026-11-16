@@ -639,11 +639,12 @@ home = ""                            # la página de inicio: "" = una propia con
 search = "https://www.google.com/search?q={q}"   # dónde buscar lo que se escribe en «Ir a» si no es una dirección
 scale = 1.5                          # todo un 50 % más grande (para leer desde el sillón); 1.0 = como en una PC
 t9_ms = 1200                         # escribiendo: cuánto espera para pasar a la letra siguiente de la misma tecla
-extensions = []                      # .xpi de Firefox para copiar al perfil, p. ej. uBlock Origin (saca la publicidad,
-                                     # lo más pesado de las páginas): ["~/Descargas/ublock_origin.xpi"]
+ublock = true                        # uBlock Origin (saca la publicidad, lo más pesado de las páginas): se copia el
+                                     # que tenga instalado el Firefox de siempre
+extensions = []                      # otros .xpi de Firefox para copiar al perfil: ["~/Descargas/algo.xpi"]
 # bookmarks = [                      # los sitios: la página de inicio, el botoncito «Sitios» y las teclas 1 – 9
-#   { name = "Google", url = "https://www.google.com" },
-#   { name = "Wikipedia", url = "https://es.wikipedia.org" },
+#   { name = "Google", url = "https://www.google.com" },     (sin la lista: Google, DuckDuckGo y Wikipedia,
+#   { name = "Wikipedia", url = "https://es.wikipedia.org" },  cada uno con su ícono)
 # ]
 # prefs = { }                        # otras preferencias de Firefox para este perfil
 

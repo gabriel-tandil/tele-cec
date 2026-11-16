@@ -459,7 +459,7 @@ function sitesPage(app) {
       });
       const rows = el("div", "rows");
       r.items.forEach((s) => {
-        rows.appendChild(row({name: s.name, sub: s.sub, current: s.current, icon: app.icon}, async () => {
+        rows.appendChild(row({name: s.name, sub: s.sub, current: s.current, img: s.img, icon: s.img ? "" : app.icon}, async () => {
           const x = await openApp(app, {url: s.url});
           if (x.ok) back();
         }));
