@@ -199,7 +199,7 @@ class MediaMixin:
             if info:
                 text = f.describe_photo(info)
                 log.info("Fotos: %s", text.replace("\n", " · "))
-                if f.cfg.get("map", True) and await asyncio.to_thread(photodates.exif_gps, info["path"]):
+                if f.cfg.get("map", True) and await asyncio.to_thread(photodates.gps_of, info["path"]):
                     text += "\nVerde: dónde se sacó (mapa)"
                 await self.toast(text, 6000)
             else:
@@ -262,7 +262,7 @@ class MediaMixin:
             await self.toast("Para el mapa falta Pillow (sudo apt install python3-pil)", 3500)
             return
         info = await f.photo_info()
-        gps = await asyncio.to_thread(photodates.exif_gps, info["path"]) if info else None
+        gps = await asyncio.to_thread(photodates.gps_of, info["path"]) if info else None
         if not gps:
             await self.toast("Esta foto no tiene la ubicación (GPS)", 2500)
             return

@@ -260,7 +260,12 @@ def rows(cfg: Config, ctx: str) -> list[tuple[str, str]]:
         labels.sort(key=order)
         out.append((min(order(x) for x in labels), _keys_text(labels), desc))
     out.sort(key=lambda r: r[0])
-    return [(k, d) for _o, k, d in out] + NOTES.get(ctx, [])
+    extra = []
+    timer_key = str((cfg.raw.get("power") or {}).get("timer_key", "DOT") or "")
+    if timer_key and parse_key(timer_key) is not None:
+        label = KEY_LABELS.get(key_name(parse_key(timer_key)), timer_key)
+        extra.append((f"{label} {label} (dos veces)", "Temporizador para apagar (otra vez: cambiarlo)"))
+    return [(k, d) for _o, k, d in out] + extra + NOTES.get(ctx, [])
 
 
 def pages(cfg: Config, installed: set[str]) -> list[tuple[str, str]]:

@@ -6,6 +6,10 @@ desde Sonido en el menú de la TV o desde el celular; el menú y el celular mues
 
 El último minuto la TV muestra una cuenta regresiva: cualquier tecla del control lo retrasa 15 minutos (también
 mientras baja el volumen, que vuelve a como estaba). Esa tecla no le llega a la app.
+
+Desde cualquier pantalla: el punto (•) dos veces seguidas muestra cuánto falta y, mientras se ve ese aviso, cada
+toque del punto pasa a la opción siguiente (15 → 30 → 45 → 60 → 90 min → al terminar el tema → sin temporizador),
+como el botón Sleep de las teles. Un toque solo sigue siendo la Ayuda. [power] timer_key y timer_double_press_ms.
 """
 
 from __future__ import annotations
@@ -27,6 +31,9 @@ FADE_S = 15.0           # cuánto tarda en bajar el volumen antes de pausar
 WARN_S = 60             # cuenta regresiva en la TV el último minuto
 POSTPONE_MIN = 15       # cuánto lo retrasa una tecla durante la cuenta regresiva ([power] timer_postpone_minutes)
 TRACK_POLL_S = 1.0
+TIMER_KEY = "DOT"       # la tecla que, apretada dos veces seguidas, abre el temporizador ([power] timer_key)
+DOUBLE_PRESS_MS = 1000  # cuánto puede pasar entre los dos toques ([power] timer_double_press_ms)
+KEY_PANEL_S = 4.0       # cuánto se ve el aviso del temporizador (mientras se ve, cada toque lo cambia)
 
 
 def choice_text(choice: int | str) -> str:
@@ -60,6 +67,14 @@ class SleepTimer:
         except AttributeError:
             power = {}
         self.postpone_min = max(1, int(power.get("timer_postpone_minutes", POSTPONE_MIN) or POSTPONE_MIN))
+        from ..keys import parse_key  # noqa: PLC0415
+        key = str(power.get("timer_key", TIMER_KEY) or "").strip()
+        self.key_code: int | None = parse_key(key) if key else None   # None = sin tecla para el temporizador
+        if key and self.key_code is None:
+            log.warning("[power] timer_key = %r: no conozco esa tecla (usá tele-cec aprender)", key)
+        self.double_s = max(0.2, float(power.get("timer_double_press_ms", DOUBLE_PRESS_MS) or DOUBLE_PRESS_MS) / 1000)
+        self._key_last = 0.0         # cuándo fue el último toque de esa tecla (para reconocer el doble toque)
+        self._panel_until = 0.0      # hasta cuándo se ve el aviso (mientras tanto, un toque cambia la opción)
 
     def note_key(self) -> bool:
         """Se tocó el control. Durante la cuenta regresiva: lo retrasa (POSTPONE_MIN) y devuelve True (la tecla no
@@ -77,6 +92,43 @@ class SleepTimer:
             old.cancel()
         loop.create_task(self.ctl.overlay.toast(f"{minutes} minutos más · se apaga {left_text(minutes * 60)}", 3000))
         return True
+
+    # ------------------------------------------------------------ la tecla (• dos veces)
+    def key_press(self, code: int) -> str | None:
+        """Una tecla del control. Con la tecla del temporizador: "show" (el segundo toque seguido: mostrar cuánto
+        falta), "step" (con el aviso a la vista: la opción siguiente) o None (el primer toque: lo de siempre, la
+        Ayuda). Con otra tecla, None (y se olvida el primer toque)."""
+        if self.key_code is None or code != self.key_code:
+            self._key_last = 0.0
+            return None
+        now = time.monotonic()
+        if now < self._panel_until:
+            return "step"
+        if now - self._key_last <= self.double_s:
+            self._key_last = 0.0
+            return "show"
+        self._key_last = now
+        return None
+
+    async def key_text(self, what: str) -> str:
+        """El aviso para la tecla: «show» dice cómo está; «step» pasa a la opción siguiente y dice cuál quedó."""
+        if what == "step":
+            ok, msg = await self.step(+1)
+            now = msg if ok else self.text()
+        else:
+            now = self.text()
+        self._panel_until = time.monotonic() + KEY_PANEL_S
+        nxt = self._next_choice()
+        return f"Temporizador · {now}\n• otra vez: {choice_text(nxt).lower()}"
+
+    def _next_choice(self) -> int | str:
+        """Lo que dejaría un toque más (si toca «al terminar este tema» y no suena nada, step() la saltea)."""
+        cur = self.choice if self.active() else 0
+        i = CHOICES.index(cur) if cur in CHOICES else 0
+        return CHOICES[(i + 1) % len(CHOICES)]
+
+    def panel_visible(self) -> bool:
+        return time.monotonic() < self._panel_until
 
     # ------------------------------------------------------------ estado
     def active(self) -> bool:

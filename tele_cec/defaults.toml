@@ -532,6 +532,10 @@ tv_off_minutes = 15           # si la TV avisó por CEC que se apagó (standby):
 menu_idle_minutes = 10        # sin ninguna actividad abierta (solo el menú en pantalla) y sin teclas (0 = idle_minutes)
 warn_seconds = 60             # cuenta regresiva en pantalla antes (cualquier tecla la cancela)
 timer_postpone_minutes = 15   # temporizador para apagar: una tecla en su último minuto lo retrasa tanto
+timer_key = "DOT"             # esa tecla dos veces seguidas: el temporizador desde cualquier pantalla (un toque solo
+                              # sigue siendo lo de siempre; "" = sin tecla). Mientras se ve el aviso, cada toque lo
+                              # cambia: 15 → 30 → 45 → 60 → 90 min → al terminar el tema → sin temporizador
+timer_double_press_ms = 1000  # cuánto puede pasar entre los dos toques
 tv_standby = true             # apagar también la TV por CEC
 wake_on_tv = true             # en reposo: volver cuando se prende la TV (sin cambiarle la entrada)
 resume_apps = false           # al volver: false = el menú de actividades; true = reabrir lo que estaba abierto, en pausa
@@ -683,6 +687,7 @@ on_this_day = true                   # «Un día como hoy» en Carpetas: las fot
 today_shuffle = true                 # «Un día como hoy» al azar (false = del año más viejo al más nuevo)
 show_date = false                    # la fecha de cada foto en una esquina, hasta que se toque 1 (después se
                                      # recuerda lo último elegido)
+show_location = true                 # con la fecha: un globo terráqueo si la foto o el video sabe dónde se sacó
 map = true                           # verde = dónde se sacó la foto (con GPS): un mapa de OpenStreetMap
 map_tiles = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"   # de dónde salen los mosaicos del mapa
 scroll_step = 150                    # píxeles que se mueve la foto con zoom por cada flecha

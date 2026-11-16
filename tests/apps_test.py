@@ -655,6 +655,32 @@ async def main() -> int:
               and [int(v // 256) for v in photomap_mod.to_pixels(-34.60374, -58.38157, 15)] == [11069, 19744],
               "de latitud y longitud al mapa: el Obelisco cae en el mosaico 15/11069/19744, como en OpenStreetMap")
 
+    print("Temporizador: el punto (•) dos veces, desde cualquier pantalla")
+    ctl.sleep_timer.cancel()
+    ctl.sleep_timer._panel_until = 0.0
+    out = await press("DOT")
+    check(ctl._menu_open and ctl._menu_mode == "help", f"un toque: la Ayuda, como siempre: {out}")
+    out = await press("DOT")
+    check(not ctl._menu_open and "ov:hide" in out
+          and out[-1] == "ov:toast:Temporizador · Sin temporizador\n• otra vez: en 15 minutos",
+          f"el segundo toque seguido: se va la Ayuda y dice cómo está el temporizador: {out}")
+    out = await press("DOT")
+    check(ctl.sleep_timer.choice == 15 and ctl.sleep_timer.active()
+          and out[-1] == "ov:toast:Temporizador · Se apaga en 15 min\n• otra vez: en 30 minutos"
+          and not ctl._menu_open, f"con el aviso a la vista, cada toque pasa a la opción siguiente: {out}")
+    await press("DOT")
+    check(ctl.sleep_timer.choice == 30 and await ctl.context() == "fotos", "30 minutos, y las fotos siguen ahí")
+    ctl.sleep_timer._panel_until = 0.0  # se fue el aviso
+    out = await press("DOT")
+    check(ctl._menu_mode == "help" and ctl.sleep_timer.choice == 30, f"después, un toque es la Ayuda otra vez: {out}")
+    await press("EXIT")
+    ctl.sleep_timer._key_last = 0.0
+    out = await press("DOT", "RIGHT")
+    check(not any(x.startswith("ov:toast:Temporizador") for x in out), f"• y otra tecla: nada del temporizador: {out}")
+    await press("EXIT")
+    ctl.sleep_timer.cancel()
+    ctl.sleep_timer._panel_until = ctl.sleep_timer._key_last = 0.0
+
     print("Fotos: modos (▼)")
     fotos.current_folder = fotos.current_folder or Path("/mnt/fotosRemotas")
     out = await press("DOWN")
@@ -994,6 +1020,21 @@ async def main() -> int:
         await tm.set(60)
         await tm.set(0)
         check(not tm.active() and tm.status() is None and tm.text() == "Sin temporizador", "sacarlo")
+        dot = tm.key_code
+        check(dot == 0x2A and tm.key_press(dot) is None and tm.key_press(dot) == "show" and tm.key_press(dot) is None,
+              "la tecla: el primer toque es lo de siempre, el segundo seguido muestra el temporizador")
+        tm._key_last = time_mod.monotonic() - 2
+        check(tm.key_press(dot) is None, "dos toques separados (más de 1 s) no cuentan")
+        tm.key_press(0x01)
+        check(tm.key_press(dot) is None, "otra tecla en el medio, tampoco")
+        txt = await tm.key_text("show")
+        check(txt == "Temporizador · Sin temporizador\n• otra vez: en 15 minutos" and tm.panel_visible()
+              and tm.key_press(0x01) is None and tm.key_press(dot) == "step",
+              f"con el aviso a la vista, el toque siguiente cambia la opción: {txt}")
+        txt = await tm.key_text("step")
+        check(tm.choice == 15 and txt.startswith("Temporizador · Se apaga en 15 min"), f"15 min: {txt}")
+        await tm.set(0)
+        tm._panel_until = 0.0
 
         # el último minuto: cuenta regresiva, y una tecla lo retrasa
         st_log.clear()
@@ -3124,6 +3165,49 @@ echo '</mame>'
         await ph._mpv_file(str(hoy / "2009" / "11" / "DSC02815.JPG"))
         check(corner and corner[-1][3] == "domingo 15 de noviembre de 2009", f"un día como hoy + fecha: {corner}")
         ph._show_year = False
+        print("Fotos: un globo junto a la fecha si la foto o el video tiene la ubicación")
+
+        def box(kind: bytes, body: bytes) -> bytes:
+            return (8 + len(body)).to_bytes(4, "big") + kind + body
+        xyz = box(b"udta", box(b"\xa9xyz", (18).to_bytes(2, "big") + b"\x15\xc7-34.6037-058.3816/"))
+        mp4 = box(b"ftyp", b"isom\0\0\2\0isom") + box(b"mdat", b"\0" * 4000) + box(b"moov", box(b"mvhd", b"\0" * 20) + xyz)
+        loci = box(b"loci", b"\0\0\0\0\x15\xc7\0\0" + int(-58.3816 * 65536).to_bytes(4, "big", signed=True)
+                   + int(-34.6037 * 65536).to_bytes(4, "big", signed=True) + b"\0\0\0\0earth\0\0")
+        apple = (box(b"keys", b"\0" * 8 + box(b"mdta", b"com.apple.quicktime.location.ISO6709"))
+                 + box(b"ilst", box(b"\0\0\0\1", box(b"data", b"\0\0\0\1\0\0\0\0+40.7128-074.0060+010.000/"))))
+        vdir = hoy / "2017" / "11"
+        vdir.mkdir(parents=True, exist_ok=True)
+        (vdir / "VID_20171115_200000.mp4").write_bytes(mp4)
+        (vdir / "VID_20171115_200001.mp4").write_bytes(box(b"moov", box(b"udta", loci)) + box(b"mdat", b"\0" * 100))
+        (vdir / "IMG_2001.MOV").write_bytes(box(b"ftyp", b"qt  ") + box(b"moov", box(b"meta", apple)))
+        (vdir / "VID_20171115_200002.mp4").write_bytes(box(b"ftyp", b"isom") + box(b"moov", box(b"mvhd", b"\0" * 20)))
+        gps = photodates_mod.video_gps
+        check(gps(str(vdir / "VID_20171115_200000.mp4")) == (-34.6037, -58.3816)
+              and gps(str(vdir / "VID_20171115_200001.mp4")) == (-34.603699, -58.381592)
+              and gps(str(vdir / "IMG_2001.MOV")) == (40.7128, -74.006)
+              and gps(str(vdir / "VID_20171115_200002.mp4")) is None and gps(str(hoy / "2009" / "11" / "DSC02815.JPG")) is None,
+              "la ubicación de un video: ©xyz (Android, con el índice al final), loci (3GPP) e ISO6709 (iPhone)")
+        corner.clear()
+        await ph._mpv_file(str(vdir / "VID_20171115_200000.mp4"))
+        check(corner and corner[-1][2] == "show" and corner[-1][3] == "miércoles 15 de noviembre de 2017"
+              and corner[-1][-1] == "globe",
+              f"con la fecha prendida y ubicación: el globo al lado: {corner}")
+        corner.clear()
+        await ph._mpv_file(str(vdir / "VID_20171115_200002.mp4"))
+        check(corner and corner[-1][-1] != "globe" and corner[-1][3].endswith("2017"), f"sin ubicación, sin globo: {corner}")
+        ph.cfg["show_location"] = False
+        corner.clear()
+        await ph._mpv_file(str(vdir / "VID_20171115_200000.mp4"))
+        check(corner and corner[-1][-1] != "globe", f"[apps.fotos] show_location = false lo apaga: {corner}")
+        ph.cfg.pop("show_location")
+        ph.show_date = False
+        corner.clear()
+        await ph._mpv_file(str(vdir / "VID_20171115_200000.mp4"))
+        check(not any(c[-1] == "globe" for c in corner), f"con la fecha apagada, tampoco: {corner}")
+        ph.show_date = True
+        for f in vdir.glob("VID_20171115_20000[12].mp4"):
+            f.unlink()
+        (vdir / "IMG_2001.MOV").unlink()
         corner.clear()
         off = await ph.toggle_date()
         check(off is False and corner == [("script-message-to", "tele_cec_corner", "clear")]

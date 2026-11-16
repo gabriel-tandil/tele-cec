@@ -194,6 +194,11 @@ class CoreMixin:
         if self._switching:
             log.info("Tecla %s ignorada: cambiando de actividad", label)
             return
+        timer = self.sleep_timer.key_press(code)  # • dos veces seguidas: el temporizador, desde cualquier pantalla
+        if timer:
+            self._last_key, self._released = (code, time.monotonic()), False
+            await self.timer_key(timer)
+            return
         self._ctx = await self.context()
         found = self.cfg.action_for(self._ctx, code)
         if not found:

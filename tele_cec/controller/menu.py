@@ -16,6 +16,7 @@ from ..apps.library import fold
 from ..system import audio
 from ..system.procs import LOG_DIR
 from ..ui import help as help_mod
+from . import sleeptimer
 from .activities import KEEP_PLAYING
 
 log = logging.getLogger("tele")
@@ -1048,6 +1049,25 @@ class MenuMixin:
         return {"id": "_timer", "name": "Temporizador para apagar", "icon": "temporizador.svg",
                 "sub": t.text() + (" · ◀ ▶ cambiarlo" if t.active() else " · ◀ ▶ elegir"), "enabled": True,
                 "current": False, **({"badge": "prendido"} if t.active() else {})}
+
+    async def timer_key(self, what: str) -> None:
+        """• dos veces seguidas («show»), y cada toque mientras se ve el aviso («step»): el temporizador para apagar,
+        en un aviso encima de lo que esté en pantalla (la app no se entera de esas teclas)."""
+        if self._menu_open and self._menu_mode == "help":  # el primer toque abrió la Ayuda: se va
+            if self._help_from_menu:
+                await self.menu_open(self._menu_act_sel)
+            else:
+                await self.menu_close()
+        text = await self.sleep_timer.key_text(what)
+        log.info("Temporizador (tecla): %s", text.replace("\n", " · "))
+        ms = int(sleeptimer.KEY_PANEL_S * 1000)
+        if self._menu_open:
+            if self._in_sound():
+                await self._sound_render(1)  # la fila del temporizador, al día
+            self._menu_restart_timer()
+            await self.overlay.toast(text.replace("\n", " · "), ms)  # en la línea de abajo del menú
+        else:
+            await self.overlay.toast(text, ms)  # el panel: encima de todo (como la cuenta regresiva del final)
 
     async def _timer_step(self, delta: int) -> None:
         ok, msg = await self.sleep_timer.step(delta)

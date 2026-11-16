@@ -175,6 +175,88 @@ def exif_gps(path: str) -> tuple[float, float] | None:
     return got if isinstance(got, tuple) else None
 
 
+# ---------------------------------------------------------------- ubicación de los videos (MP4 / MOV)
+VIDEO_GPS_EXT = (".mp4", ".mov", ".m4v", ".3gp")
+MOOV_MAX = 32 * 1024 * 1024   # el índice de un video («moov») casi nunca pasa de unos pocos MB
+# ISO 6709, como lo guardan los celulares: «+34.0522-118.2437/» (Android, ©xyz) o «+34.0522-118.2437+050.000/»
+# (iPhone, com.apple.quicktime.location.ISO6709). Algunos usan en cambio la caja «loci» de 3GPP (números binarios).
+_ISO6709 = re.compile(rb"([+-]\d{1,2}\.\d+)([+-]\d{1,3}\.\d+)(?:[+-]\d+(?:\.\d+)?)?/")
+
+
+def _ok_gps(lat: float, lon: float) -> tuple[float, float] | None:
+    if (lat, lon) != (0, 0) and abs(lat) <= 90 and abs(lon) <= 180:
+        return round(lat, 6), round(lon, 6)
+    return None
+
+
+def _loci_gps(moov: bytes) -> tuple[float, float] | None:
+    """La caja «loci» de 3GPP: versión, idioma, nombre (terminado en 0), rol, y longitud y latitud en punto fijo
+    16.16 con signo."""
+    i = moov.find(b"loci")
+    if i < 0:
+        return None
+    j = i + 4 + 4 + 2
+    end = moov.find(b"\0", j)
+    if end < 0 or end + 10 > len(moov):
+        return None
+    j = end + 2  # el 0 del nombre y el rol
+    lon = int.from_bytes(moov[j:j + 4], "big", signed=True) / 65536
+    lat = int.from_bytes(moov[j + 4:j + 8], "big", signed=True) / 65536
+    return _ok_gps(lat, lon)
+
+
+def _moov_gps(moov: bytes) -> tuple[float, float] | None:
+    for tag in (b"\xa9xyz", b"com.apple.quicktime.location.ISO6709"):
+        i = moov.find(tag)
+        if i < 0:
+            continue
+        m = _ISO6709.search(moov, i)
+        if m and (got := _ok_gps(float(m.group(1)), float(m.group(2)))):
+            return got
+    return _loci_gps(moov)
+
+
+def video_gps(path: str) -> tuple[float, float] | None:
+    """(latitud, longitud) de dónde se filmó un video de celular (MP4/MOV), o None. Recorre las cajas de arriba del
+    archivo saltando de una a otra (sin leer el video) hasta el «moov», que puede estar al principio o al final."""
+    if os.path.splitext(path)[1].lower() not in VIDEO_GPS_EXT:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            size = os.fstat(fh.fileno()).st_size
+            pos = 0
+            for _ in range(64):
+                if pos + 8 > size:
+                    return None
+                fh.seek(pos)
+                head = fh.read(16)
+                if len(head) < 8:
+                    return None
+                n, kind, hlen = int.from_bytes(head[:4], "big"), head[4:8], 8
+                if n == 1 and len(head) == 16:
+                    n, hlen = int.from_bytes(head[8:16], "big"), 16
+                elif n == 0:
+                    n = size - pos
+                if n < hlen:
+                    return None
+                if kind == b"moov":
+                    if n > MOOV_MAX:
+                        return None
+                    fh.seek(pos + hlen)
+                    return _moov_gps(fh.read(n - hlen))
+                pos += n
+    except OSError:
+        return None
+    return None
+
+
+@functools.lru_cache(maxsize=4096)
+def gps_of(path: str) -> tuple[float, float] | None:
+    """Dónde se sacó la foto (GPS del EXIF de un JPEG) o se filmó el video (MP4/MOV), o None. Se recuerda: la
+    esquina lo pregunta en cada foto de la presentación."""
+    return exif_gps(path) or video_gps(path)
+
+
 def photo_date(path: str) -> str | None:
     """La fecha de una foto: del nombre o, si no, de la foto."""
     return name_date(path) or exif_date(path)

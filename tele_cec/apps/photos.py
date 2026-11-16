@@ -464,27 +464,31 @@ class PhotosActivity(MediaActivity):
     async def _update_corner(self, path: str) -> None:
         """La esquina de abajo a la derecha (tele_cec_corner.lua): con la fecha prendida, la de la foto con lo que se
         sepa («sábado 20 de diciembre de 2008 · hace 17 años», «diciembre de 2008», «2008»); en «Un día como hoy»,
-        el año («2014 · hace 11 años»). Si la foto está en Favoritas, un ♥ adelante (aunque la fecha esté apagada)."""
+        el año («2014 · hace 11 años»). Si la foto está en Favoritas, un ♥ adelante (aunque la fecha esté apagada); con
+        la fecha prendida, un globo terráqueo a la derecha si la foto o el video tiene la ubicación (GPS)."""
         self._corner_path = path
         heart = "♥" if self.is_favorite(path) else ""
         if not self._corner_on():
             await self._corner(heart, "")
             return
         full = await asyncio.to_thread(photodates.dates().date_of, path)
+        # Con la fecha prendida, un globito si la foto (o el video) dice dónde se sacó: el verde muestra el mapa.
+        where = bool(self.show_date and self.cfg.get("show_location", True)
+                     and await asyncio.to_thread(photodates.gps_of, path))
         if self._corner_path != path:
             return  # ya pasó a otra foto mientras se leía la fecha
         parts = photodates.date_parts(path, full)
         if not parts:
-            await self._corner(heart, "")
+            await self._corner(heart, "", where)
             return
         if not self.show_date:  # solo «Un día como hoy»: el año
             parts = (parts[0], None, None, parts[3])
         big, ago = photodates.date_text(parts)
-        await self._corner(f"{heart} {big}".strip(), ago)
+        await self._corner(f"{heart} {big}".strip(), ago, where)
 
-    async def _corner(self, big: str, small: str) -> None:
-        if big:
-            await self.mpv.command("script-message-to", CORNER, "show", big, small)
+    async def _corner(self, big: str, small: str, globe: bool = False) -> None:
+        if big or globe:
+            await self.mpv.command("script-message-to", CORNER, "show", big, small, *(("globe",) if globe else ()))
         else:
             await self.mpv.command("script-message-to", CORNER, "clear")
 
