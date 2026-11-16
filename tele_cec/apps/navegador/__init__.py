@@ -30,6 +30,7 @@ from typing import Any
 from ...system.procs import graphical_env
 from ..base import Activity
 from ..netflix.browser import Browser
+from ..netflix import bidi
 from ..netflix.cdp import CDPClosed, CDPError, ContextLost, SessionBusy
 from ..webprofile import NAMES
 from .t9 import T9
@@ -161,6 +162,7 @@ class WebActivity(Activity):
             "engine": engine, "binary": binary, "debug_port": int(cfg.get("debug_port", 9223) or 9223),
             "kiosk": bool(cfg.get("kiosk", True)), "reduce_effects": self.reduce_effects,
             "user_data_dir": str(self.profile), "start_url": "about:blank", "unit": f"navegador-{engine}",
+            "direct_start": True,  # la página pedida de entrada (no la negra): se ve mientras se conecta el control
             "extra_args": (["--password-store=basic", f"--force-device-scale-factor={self.scale:g}"] + list(extra)
                            if not self.firefox else []),
             "firefox": {"profile": str(self.profile), "binary": binary, "prefs": self.prefs(),
@@ -282,24 +284,51 @@ a small{{position:absolute;top:12px;right:16px;color:#2f7cf6;font-size:.9em;font
             self.fail_text = f"No pude abrir {NAMES[self.engine]}"
             return False
         self.browser.notify_connected()
-        if not await self._connect(CONNECT_TIMEOUT_S):
-            log.warning("Navegador: %s abrió pero no acepta el control todavía (las teclas no van a andar)",
-                        NAMES[self.engine])
-            return True
-        pending, self.browser.pending_url = self.browser.pending_url, None
-        await self.navigate(pending or url)
+        # La página ya se ve (direct_start). La conexión de control, de fondo: en la Pi Firefox la acepta recién
+        # cuando terminó de abrir la ventana (más de medio minuto); mientras tanto, las teclas esperan.
+        self._start_connecting(CONNECT_TIMEOUT_S)
         return True
 
+    def _start_connecting(self, timeout: float) -> None:
+        if self._connecting is not None and not self._connecting.done():
+            return
+        self._connecting = asyncio.get_running_loop().create_task(self._connect_bg(timeout))
+
+    async def _connect_bg(self, timeout: float) -> bool:
+        ok = await self._connect(timeout)
+        if not ok:
+            log.warning("Navegador: %s abrió pero no acepta el control (las teclas no van a andar)",
+                        NAMES[self.engine])
+        return ok
+
     async def _connect(self, timeout: float) -> bool:
-        deadline = time.monotonic() + timeout
+        t0 = time.monotonic()
+        deadline = t0 + timeout
+        told = 0.0
+        restarted = False
         while time.monotonic() < deadline:
+            if not self.running() and not await self.browser.alive():
+                return False  # se cerró mientras tanto
             try:
                 page = await self.browser.connect()
             except SessionBusy:
-                log.warning("Navegador: la sesión de control está tomada (¿otro cliente?)")
-                return False
+                if bidi.late_session_pending():
+                    page = None  # es la nuestra: Firefox la está terminando de crear y se cierra sola
+                elif restarted:
+                    log.warning("Navegador: la sesión de control sigue tomada después de reiniciar %s", NAMES[self.engine])
+                    return False
+                else:
+                    # Un servicio anterior (o una prueba) murió sin soltarla: Firefox no la libera nunca. La única
+                    # salida es reabrirlo (vuelve a la página de inicio).
+                    log.warning("Navegador: %s tiene la sesión de control tomada: lo reabro", NAMES[self.engine])
+                    restarted = True
+                    if not await self.browser.restart():
+                        return False
+                    continue
             except (CDPError, OSError, asyncio.TimeoutError) as exc:
-                log.debug("Navegador: todavía no conecta (%s)", exc)
+                if time.monotonic() - told > 15:
+                    told = time.monotonic()
+                    log.info("Navegador: todavía no acepta el control (%s), sigo probando", str(exc)[:80] or type(exc).__name__)
                 page = None
             if page is not None:
                 self.page = page
@@ -307,20 +336,31 @@ a small{{position:absolute;top:12px;right:16px;color:#2f7cf6;font-size:.9em;font
                     await page.setup_page(self.script)
                 except CDPError as exc:
                     log.warning("Navegador: no pude instalar el script (%s)", exc)
-                log.info("Navegador: conectado a %s (puerto %d)", NAMES[self.engine], self.browser.port)
+                log.info("Navegador: conectado a %s (puerto %d) en %.0f s", NAMES[self.engine], self.browser.port,
+                         time.monotonic() - t0)
                 return True
             await asyncio.sleep(1.0)
         return False
 
     async def _ensure_page(self) -> bool:
-        """La conexión con la página (si se perdió, se vuelve a abrir, rápido)."""
+        """La conexión con la página: si se está conectando, la espera (hasta un rato); si se perdió, la reabre."""
         if self.page is not None:
             return True
+        task = self._connecting
+        if task is not None and not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), 20)
+            except asyncio.TimeoutError:
+                return False
+            return self.page is not None
         if not await self.browser.alive():
             return False
         return await self._connect(8)
 
     async def close(self) -> None:
+        if self._connecting is not None and not self._connecting.done():
+            self._connecting.cancel()
+        self._connecting = None
         await self._drop_page()
         if self.running() or await self.browser.alive():
             await self.browser.close()
@@ -386,8 +426,9 @@ a small{{position:absolute;top:12px;right:16px;color:#2f7cf6;font-size:.9em;font
 
     async def key_context(self) -> str:
         """Qué teclas valen ahora: escribiendo (un campo de texto con el foco) o recorriendo la página."""
-        if self.page is None and not await self.browser.alive():
-            return self.context
+        if self.page is None and (self._connecting is not None and not self._connecting.done()
+                                  or not await self.browser.alive()):
+            return self.context  # todavía conectando (o sin navegador): sin preguntarle a la página
         try:
             r = await self.js("ctx", timeout=3.0)
         except CDPError:

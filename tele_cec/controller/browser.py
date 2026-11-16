@@ -165,6 +165,17 @@ class BrowserMixin:
         return True
 
     async def disconnect(self) -> None:
+        """Al detener el servicio: soltar las sesiones de control (Netflix y el Navegador); si no, Firefox las deja
+        tomadas y el servicio siguiente no puede manejarlo."""
+        web = self.activities.get("navegador") if hasattr(self, "activities") else None
+        if web is not None and getattr(web, "page", None) is not None:
+            try:
+                await web._drop_page()
+            except Exception:  # noqa: BLE001
+                pass
+        await self._disconnect_netflix()
+
+    async def _disconnect_netflix(self) -> None:
         if self.page:
             page, self.page = self.page, None
             await page.close()

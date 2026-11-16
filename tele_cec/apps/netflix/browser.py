@@ -67,7 +67,11 @@ class Browser:
         return url.startswith("file:") and url.split("?")[0].endswith("/" + BLANK.name)
 
     def _first_page(self, url: str) -> str:
-        """Primera página al abrir: la negra vacía; el controller navega a `url` después."""
+        """Primera página al abrir: la negra vacía; el controller navega a `url` después. Con direct_start (el
+        Navegador), la página pedida directamente: se ve enseguida, sin esperar la conexión de control."""
+        if self.cfg.get("direct_start"):
+            self.pending_url = None
+            return url
         self.pending_url = url
         return BLANK.as_uri() if BLANK.is_file() else "about:blank"
 
