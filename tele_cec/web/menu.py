@@ -251,28 +251,10 @@ class MenuWeb:
     async def close(self, ident: str) -> dict[str, Any]:
         """Cerrar una app (dejar de compartir el celular, salir del juego…). Si no queda nada, vuelve el menú."""
         ctl = self.ctl
-        act = ctl.activities.get(ident)
-        if act is None:
-            return {"ok": False, "error": "esa app no existe"}
-        if not act.running():
-            return {"ok": True, "message": f"{act.name} ya estaba cerrado"}
-        if ctl._switching:
-            return {"ok": False, "error": "Esperá: está cambiando de app"}
-        log.info("Celular: cierro %s", act.name)
-        ctl.power.note_key()
-        ctl._switching = True
+        if ident in ctl.activities and ctl.activities[ident].running():
+            log.info("Celular: cierro %s", ctl.activities[ident].name)
+            ctl.power.note_key()
         try:
-            if ctl._menu_open:
-                await ctl.menu_close()
-            await ctl.overlay.busy(f"Cerrando {act.name}…")
-            if ctl._foreground == ident:
-                ctl._foreground = None  # se cierra a propósito: que no parezca que se cerró sola
-            await act.close()
+            return await ctl.close_activity(ident)
         finally:
-            ctl._switching = False
-            ctl._switch_until = time.monotonic() + 3
-            await ctl.overlay.hide()
             self.invalidate()
-        if ctl.current_app() is None and not ctl.page:
-            await ctl.menu_open()
-        return {"ok": True, "message": f"{act.name} cerrado"}

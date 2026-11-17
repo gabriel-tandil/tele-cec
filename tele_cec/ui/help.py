@@ -66,11 +66,12 @@ KEY_LABELS = {
     "FORWARD": "⏭", "BACKWARD": "⏮", "FAST_FORWARD": "⏩", "REWIND": "⏪",
     "CHANNEL_UP": "Canal +", "CHANNEL_DOWN": "Canal −", "VOLUME_UP": "Vol +", "VOLUME_DOWN": "Vol −",
     "MUTE": "Silencio", "SUB_PICTURE": "CC", "HELP": "Ayuda", "DISPLAY_INFORMATION": "Info", "DOT": "•", "CLEAR": "Borrar",
+    "RECORD": "●",
     **{f"NUMBER{i}": str(i) for i in range(10)},
 }
 # Orden en que se listan (lo más usado primero).
 KEY_ORDER = ["▲", "▼", "◀", "▶", "OK", "Atrás", "⏯", "Play", "Pausa", "Stop", "⏭", "⏮", "⏩", "⏪",
-             "Canal +", "Canal −", "Vol +", "Vol −", "Silencio", "CC", "Rojo", "Amarillo", "Azul", "Verde",
+             "Canal +", "Canal −", "Vol +", "Vol −", "Silencio", "CC", "●", "Rojo", "Amarillo", "Azul", "Verde",
              *[str(i) for i in range(10)], "Borrar", "Menú", "•", "Info", "Ayuda"]
 
 # Descripción de cada acción. Las que tienen la misma descripción se agrupan en una fila.
@@ -82,7 +83,7 @@ ACTIONS = {
     "next_episode": "Siguiente episodio", "nav_mode": "Recorrer los controles con las flechas",
     "type": "Escribir el número", "fullscreen": "Pantalla completa", "launch": "Abrir Netflix", "reload": "Recargar",
     "help": "Esta ayuda", "toast": "Aviso",
-    "menu": "Menú de actividades",
+    "menu": "Menú de actividades", "close": "Cerrar y volver al menú",
 }
 SUB_ACTIONS = {
     "menu": {"": "Abrir el menú (abierto: volver atrás o cerrarlo)", "up": "Moverse", "down": "Moverse", "ok": "Abrir",
@@ -149,8 +150,8 @@ def describe(action: Any, ctx: str, cfg: Config) -> str:
                     "Return": "Elegir / OK", "Escape": "Volver"}.get(rest, f"Tecla {rest}")
         if sub == "seek":
             return _plus_minus("seek", rest or "+")
-        return {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa",
-                "subtitles": "Subtítulos"}.get(sub, str(action))
+        return {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "next": "Video siguiente",
+                "previous": "Video anterior", "subtitles": "Subtítulos"}.get(sub, str(action))
     if name == "android" and sub == "key":
         if rest.isdigit():
             return "Escribir el número (p. ej. el PIN)"
@@ -196,7 +197,8 @@ def _plus_minus(kind: str, arg: str) -> str:
     if kind == "volume":
         return "Subir volumen" if not arg.startswith("-") else "Bajar volumen"
     sec = arg.lstrip("+-") or "10"
-    return f"Adelantar {sec} s" if not arg.startswith("-") else f"Atrasar {sec} s"
+    amount = f"{int(sec) // 60} min" if sec.isdigit() and int(sec) >= 60 and int(sec) % 60 == 0 else f"{sec} s"
+    return f"Adelantar {amount}" if not arg.startswith("-") else f"Atrasar {amount}"
 
 
 def _keys_text(labels: list[str]) -> str:

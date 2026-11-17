@@ -49,6 +49,16 @@ SUBTITLES_JS = """(() => {
 })()"""
 
 
+# Canal ±: el video siguiente / anterior de la lista (el reproductor de YouTube tiene nextVideo y previousVideo).
+STEP_JS = """((dir) => {
+  const p = document.querySelector('.html5-video-player');
+  const fn = p && p[dir > 0 ? 'nextVideo' : 'previousVideo'];
+  if (typeof fn !== 'function') return JSON.stringify({error: 'noplayer'});
+  fn.call(p);
+  return JSON.stringify({ok: true});
+})(%d)"""
+
+
 class NotConnected(Exception):
     """YouTube no tiene el canal de control (lo abrió una versión anterior, o debug_port = 0)."""
 
@@ -227,6 +237,18 @@ class YouTubeActivity(ProcActivity):
                 return await page.evaluate(expression, timeout)
             finally:
                 await page.close()
+
+    async def step(self, direction: int) -> bool:
+        """Canal ±: el video siguiente (1) o el anterior (-1). Por el reproductor; si no hay canal, por MPRIS."""
+        try:
+            raw = await self.js(STEP_JS % (1 if direction > 0 else -1))
+            r = json.loads(raw) if isinstance(raw, str) else dict(raw or {})
+            if r.get("ok"):
+                return True
+            log.info("YouTube: sin reproductor para pasar de video (%s)", r)
+        except (NotConnected, cdp.CDPError, OSError, asyncio.TimeoutError, ValueError, TypeError) as exc:
+            log.info("YouTube: paso de video por MPRIS (%s)", exc)
+        return await self.mpris.ctl("next" if direction > 0 else "previous")
 
     async def toggle_subtitles(self) -> str:
         """CC: prende o apaga los subtítulos del video. Devuelve el aviso para la pantalla."""

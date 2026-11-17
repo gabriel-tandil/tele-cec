@@ -100,7 +100,7 @@ local function render(force)
     if count > 1 then
         local n = (mp.get_property_number("playlist-pos", 0) or 0) + 1
         out[#out + 1] = text(W - 120, H - 80, 6, 34, string.format("Radio %d de %d", n, count), "BBBBBB")
-        hint = "⏮ ⏭ otra radio  ·  " .. hint
+        hint = "◀ ▶ otra radio  ·  " .. hint
     end
     out[#out + 1] = text(120, H - 80, 4, 34, hint, "888888")
 

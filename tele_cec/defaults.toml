@@ -136,13 +136,8 @@ HELP = "help"                 # ayuda: qué hace cada tecla (también está al f
 DOT = "help"                  # el punto (•): muchas TVs no mandan Ayuda ni Info por CEC, y esta sí
 EXIT = "back"
 AN_RETURN = "back"
-F1_BLUE = "home"
 # F2_RED (rojo), F3_GREEN (verde) y F4_YELLOW (amarillo) quedan para cada app (o libres: muchas TVs
 # usan el verde para sus propias funciones).
-FORWARD = "smart_skip"
-PLAY = "play"                 # en la lista o en una ficha: reproduce el título resaltado
-PAUSE = "pause"
-PAUSE_PLAY_FUNCTION = "play_pause"
 
 [keys.browse]
 UP = "nav:up"
@@ -154,6 +149,11 @@ ENTER = "ok"
 NUMBER0 = "profiles"          # "¿Quién está viendo?"
 F2_RED = "continue_watching"  # rojo = retomar lo último de «Seguir viendo»
 F4_YELLOW = "my_list"         # amarillo = Mi lista
+F1_BLUE = "home"              # azul = el inicio de Netflix
+PLAY = "play"                 # en la lista o en una ficha: reproduce el título resaltado
+PAUSE = "pause"
+PAUSE_PLAY_FUNCTION = "play_pause"
+FORWARD = "smart_skip"
 
 [keys.profiles]
 NUMBER1 = "profile:1"
@@ -167,8 +167,8 @@ SELECT = "play_pause"
 ENTER = "play_pause"
 LEFT = "seek:-10"
 RIGHT = "seek:+10"
-REWIND = "seek:-10"
-FAST_FORWARD = "seek:+10"
+REWIND = "seek:-60"           # ⏪ ⏩: de a 1 minuto (◀ ▶: de a 10 s)
+FAST_FORWARD = "seek:+60"
 BACKWARD = "seek:-10"
 UP = "volume:+"
 DOWN = "volume:-"
@@ -179,9 +179,13 @@ SUB_PICTURE = "subtitles"     # CC = subtítulos (algunas TVs mandan así su tec
 F1_BLUE = "profiles"          # azul = «¿Quién está viendo?» (cambiar de perfil)
 F2_RED = "audio"
 F4_YELLOW = "smart_skip"      # amarillo = botón inteligente (para controles sin la tecla ⏭)
-CHANNEL_UP = "next_episode"
+CHANNEL_UP = "next_episode"   # Canal +: el episodio siguiente
+PLAY = "play"
+PAUSE = "pause"
+PAUSE_PLAY_FUNCTION = "play_pause"
+FORWARD = "smart_skip"
 NUMBER0 = "nav_mode"          # fuerza navegación con flechas dentro del reproductor (otra vez = volver)
-STOP = "back"
+STOP = "back"                 # ■ = salir del video (vuelve a la lista)
 
 [keys.player_menu]
 SUB_PICTURE = "subtitles"
@@ -244,17 +248,20 @@ PLAY = "music:play"
 PAUSE = "music:pause"
 PAUSE_PLAY_FUNCTION = "music:play_pause"
 STOP = "music:pause"
-LEFT = "music:previous"
-RIGHT = "music:next"
+LEFT = "music:seek:-10"       # ◀ ▶: de a 10 s, como en Música y Videos
+RIGHT = "music:seek:+10"
 BACKWARD = "music:previous"
 FORWARD = "music:next"
-REWIND = "music:seek:-10"
-FAST_FORWARD = "music:seek:+10"
+REWIND = "music:seek:-60"     # ⏪ ⏩: de a 1 minuto
+FAST_FORWARD = "music:seek:+60"
+CHANNEL_UP = "music:next"     # Canal ±: tema siguiente / anterior (también recorriendo la interfaz)
+CHANNEL_DOWN = "music:previous"
 UP = "music:volume:+"
 DOWN = "music:volume:-"
 VOLUME_UP = "music:volume:+"
 VOLUME_DOWN = "music:volume:-"
-F1_BLUE = "music:like"        # azul = me gusta (agregar/quitar de favoritos)
+RECORD = "music:like"         # ● = me gusta (agregar/quitar de favoritos)
+F1_BLUE = ""                  # azul: libre
 SUB_PICTURE = "music:lyrics"  # CC = mostrar las letras (otra vez = volver al reproductor)
 F2_RED = "music:shuffle"      # rojo = mezclar / volver al orden
 F4_YELLOW = "music:my_tracks" # amarillo = Mis canciones
@@ -267,16 +274,14 @@ AN_RETURN = ""
 
 [keys.tidal_nav]              # las flechas mueven el foco por la interfaz de Tidal y OK aprieta (así arranca)
 # Las flechas van tal cual: el parche que tele-cec le carga a High Tide las lleva al elemento más cercano en esa
-# dirección (sin el parche, GTK solo mueve el foco dentro de cada bloque). Canal + y − saltan al elemento
-# siguiente o anterior (Tab / Shift+Tab), por si algo se traba. El resto de las teclas, como en [keys.tidal].
+# dirección (sin el parche, GTK solo mueve el foco dentro de cada bloque). El resto de las teclas, como en
+# [keys.tidal] (Canal ± cambian de tema; music:tab / music:tab:back saltan con Tab / Shift+Tab si se necesita).
 # music:move:<Flecha> (experimental) sigue el foco por accesibilidad, pero escuchar esos eventos puede cerrar
 # High Tide (error de GTK 4): por eso no se usa.
 UP = "music:key:Up"
 DOWN = "music:key:Down"
 LEFT = "music:key:Left"
 RIGHT = "music:key:Right"
-CHANNEL_UP = "music:tab"
-CHANNEL_DOWN = "music:tab:back"
 SELECT = "music:key:Return"
 ENTER = "music:key:Return"
 EXIT = "music:back"
@@ -294,9 +299,11 @@ AN_RETURN = "yt:key:Escape"
 PLAY = "yt:play"
 PAUSE = "yt:pause"
 PAUSE_PLAY_FUNCTION = "yt:play_pause"
-STOP = "yt:pause"
-FAST_FORWARD = "yt:seek:+10"
-REWIND = "yt:seek:-10"
+STOP = "yt:key:Escape"        # ■ = salir del video (vuelve a la lista)
+FAST_FORWARD = "yt:seek:+60"  # ⏪ ⏩: de a 1 minuto
+REWIND = "yt:seek:-60"
+CHANNEL_UP = "yt:next"        # Canal ±: el video siguiente / anterior de la lista
+CHANNEL_DOWN = "yt:previous"
 FORWARD = ""
 F1_BLUE = ""
 SUB_PICTURE = "yt:subtitles"  # CC = prender o apagar los subtítulos
@@ -382,6 +389,8 @@ PAUSE_PLAY_FUNCTION = "android:play_pause"
 STOP = "android:stop"
 FORWARD = "android:next"
 BACKWARD = "android:previous"
+CHANNEL_UP = "android:next"         # Canal ±: tema siguiente / anterior (en el celular)
+CHANNEL_DOWN = "android:previous"
 FAST_FORWARD = "android:fast_forward"
 REWIND = "android:rewind"
 NUMBER0 = "android:key:0"           # los números se escriben (p. ej. el PIN para desbloquear)
@@ -402,7 +411,7 @@ ENTER = "video:ok"
 PLAY = "video:play"
 PAUSE = "video:pause"
 PAUSE_PLAY_FUNCTION = "video:ok"
-STOP = "video:pause"
+STOP = "close:videos"         # ■ = cerrar (guarda por dónde ibas) y volver al menú
 LEFT = "video:seek:-10"       # ◀ ▶: buscar de a 10 s (la barra muestra a dónde, con una miniatura; salta al soltar)
 RIGHT = "video:seek:+10"
 REWIND = "video:seek:-60"     # ⏪ ⏩: de a 1 minuto
@@ -428,7 +437,7 @@ ENTER = "musica:ok"
 PLAY = "musica:play"
 PAUSE = "musica:pause"
 PAUSE_PLAY_FUNCTION = "musica:ok"
-STOP = "musica:pause"
+STOP = "close:musica"         # ■ = cerrar y volver al menú
 LEFT = "musica:seek:-10"
 RIGHT = "musica:seek:+10"
 REWIND = "musica:seek:-60"
@@ -441,8 +450,8 @@ FORWARD = "musica:next"       # ⏭ ⏮ · Canal ±: tema siguiente / anterior
 BACKWARD = "musica:previous"
 CHANNEL_UP = "musica:next"
 CHANNEL_DOWN = "musica:previous"
-F4_YELLOW = "musica:shuffle"  # amarillo = mezclar / volver al orden
-F3_GREEN = "musica:loop"      # verde = repetir: toda la lista → este tema → no repetir
+F2_RED = "musica:shuffle"     # rojo = mezclar / volver al orden (como en Tidal)
+F4_YELLOW = "musica:loop"     # amarillo = repetir: toda la lista → este tema → no repetir
 EXIT = "musica:back"
 AN_RETURN = "musica:back"
 
@@ -452,7 +461,7 @@ ENTER = "radio:ok"
 PLAY = "radio:play"
 PAUSE = "radio:pause"
 PAUSE_PLAY_FUNCTION = "radio:ok"
-STOP = "radio:pause"
+STOP = "close:radio"          # ■ = cerrar y volver al menú
 UP = "radio:volume:+"
 DOWN = "radio:volume:-"
 VOLUME_UP = "radio:volume:+"
@@ -488,6 +497,7 @@ ENTER = "fotos:pause"
 PLAY = "fotos:media_play_pause"
 PAUSE = "fotos:media_play_pause"
 PAUSE_PLAY_FUNCTION = "fotos:media_play_pause"
+STOP = "close:fotos"          # ■ = cerrar y volver al menú (la música de fondo sigue)
 EXIT = ""
 AN_RETURN = ""
 F1_BLUE = "fotos:info"        # azul = qué foto es: carpeta, archivo y número (en el panel)
@@ -497,7 +507,7 @@ F3_GREEN = "fotos:map"        # verde = dónde se sacó la foto (un mapa, si tie
 UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
 DOWN = "fotos:mode"           # ▼ = solo fotos → fotos y videos → solo videos (sigue desde la foto que se veía)
 SUB_PICTURE = "fotos:date"    # CC = la fecha de cada foto en una esquina (el día, el mes o el año: lo que se sepa)
-NUMBER1 = "fotos:favorite"    # 1 = guardar la foto en Favoritas (otra vez: sacarla); se ven desde Carpetas ▸
+RECORD = "fotos:favorite"     # ● = guardar la foto en Favoritas (otra vez: sacarla); se ven desde Carpetas ▸
 
 [keys.fotos_zoom]             # Fotos con zoom: las flechas mueven la foto, OK acerca y Atrás aleja
 UP = "fotos:scroll:up"
@@ -672,7 +682,7 @@ shuffle = false
 volume_step = 0.05
 command = []
 
-[apps.radio]                         # Radio por internet con mpv. ⏮ ⏭ cambian de radio; 1 – 9 eligen una
+[apps.radio]                         # Radio por internet con mpv. ◀ ▶ o Canal ± cambian de radio; 1 – 9 eligen una
 volume_step = 0.05
 covers = true                        # buscar en línea (iTunes) la tapa del disco del tema que suena, para la TV y el
                                      # celular: sale de la casa solo «Artista - Tema», lo que mandó la emisora

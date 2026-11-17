@@ -1,7 +1,7 @@
 """Radio por internet con mpv: las emisoras de [apps.radio] stations, en vivo.
 
 En la TV, una pantalla propia (mpv_scripts/tele_cec_radio.lua): la emisora, «En vivo» y el tema que suena (lo manda
-la emisora), con la tapa del disco si se encuentra en línea (covers.py). ⏮ ⏭ (o Canal ±) cambian de radio, OK pausa
+la emisora), con la tapa del disco si se encuentra en línea (covers.py). ◀ ▶ (o Canal ±) cambian de radio, OK pausa
 y ▲▼ el volumen. Se acuerda de la última radio que sonó: OK en el menú la pone de una, y el botoncito «Radios» (o ▶)
 abre la lista para elegir otra. Puede quedar sonando de fondo mientras pasan las fotos, como la música.
 

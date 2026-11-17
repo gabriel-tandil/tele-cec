@@ -13,6 +13,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tele_cec.system import audio  # noqa: E402
+from tele_cec.controller.activities import ActivitiesMixin  # noqa: E402
 from tele_cec.web import nowplaying, server  # noqa: E402
 
 OK = 0
@@ -136,6 +137,8 @@ class FakeCtl:
     def _wake(self, by_key):
         self.log.append(("wake", by_key))
         self.power.asleep = False
+
+    close_activity = ActivitiesMixin.close_activity  # la real: la usan el ■ del control y «Cerrar» en el celular
 
     async def menu_close(self):
         self._menu_open = False

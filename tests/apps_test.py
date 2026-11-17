@@ -533,9 +533,12 @@ async def main() -> int:
     check(out == ["cycle:my_tracks", "cycle:collection", "cycle:home", "cycle:my_tracks"],
           f"con el canal, el amarillo cicla Mis canciones → Colección → Inicio: {out}")
     ctl.music.channel = False
-    out = await press("SELECT", "FORWARD", "BACKWARD", "UP", "DOWN", "F1_BLUE")
+    out = await press("SELECT", "FORWARD", "BACKWARD", "UP", "DOWN", "RECORD", "F1_BLUE")
     check(out == ["mpris:play-pause", "mpris:next", "mpris:previous", "mpris:volume+", "mpris:volume-",
-                  "like"], f"OK, ⏭, ⏮, ▲, ▼, azul: {out}")
+                  "like"], f"OK, ⏭, ⏮, ▲, ▼, ● (me gusta); azul libre: {out}")
+    out = await press("CHANNEL_UP", "CHANNEL_DOWN", "RIGHT", "LEFT", "FAST_FORWARD", "REWIND")
+    check(out == ["mpris:next", "mpris:previous", "mpris:seek+10", "mpris:seek-10", "mpris:seek+60", "mpris:seek-60"],
+          f"Canal ± = tema, ◀ ▶ = 10 s, ⏪ ⏩ = 1 min (como en Música y Videos): {out}")
     out = await press("EXIT", "F3_GREEN")
     check(out == [], f"Atrás y verde no hacen nada en Tidal: {out}")
     out = await press("SUB_PICTURE", "F2_RED")
@@ -545,9 +548,9 @@ async def main() -> int:
     out = await press("DOWN", "LEFT", "SELECT", "EXIT")
     check(out == ["wtype:Down", "wtype:Left", "wtype:Return", "go:back"],
           f"en modo navegación: flechas, OK y Atrás van tal cual a la app (sin seguir el foco): {out}")
-    out = await press("FORWARD", "BACKWARD", "CHANNEL_UP", "CHANNEL_DOWN")
-    check(out == ["mpris:next", "mpris:previous", "tab", "tab:back"],
-          f"⏭ ⏮ siguen cambiando de tema; Canal ± saltan al elemento siguiente / anterior: {out}")
+    out = await press("FORWARD", "BACKWARD", "CHANNEL_UP", "CHANNEL_DOWN", "RECORD")
+    check(out == ["mpris:next", "mpris:previous", "mpris:next", "mpris:previous", "like"],
+          f"⏭ ⏮ y Canal ± cambian de tema también recorriendo la interfaz; ● = me gusta: {out}")
     out = await press("NUMBER3", "NUMBER1")
     check(out == ["go:collection", "go:home"], f"3 = Colección, 1 = Inicio: {out}")
     out = await press("ROOT_MENU")
@@ -596,14 +599,15 @@ async def main() -> int:
     out = await press("RIGHT", "LEFT", "SELECT", "EXIT")
     check(out == ["feh:next", "feh:previous", "feh:h"], f"▶, ◀, OK (Atrás nada): {out}")
     check(fotos.paused, "queda en pausa")
-    out = await press("NUMBER1")
-    check(out == ["ov:toast:♥ Guardada en Favoritas (1) · 1 otra vez la saca"]
+    out = await press("RECORD")
+    check(out == ["ov:toast:♥ Guardada en Favoritas (1) · ● otra vez la saca"]
           and fotos.favorites() == ["/mnt/fotos-red/2017/07/IMG_0001.jpg"],
-          f"1 guarda la foto que se ve en Favoritas (también con feh): {out}")
-    out = await press("NUMBER1")
-    check(out == ["ov:toast:Sacada de Favoritas (0)"] and fotos.favorites() == [], f"otra vez 1 la saca: {out}")
-    check(ctl.cfg.action_for("fotos_zoom", parse_key("NUMBER1"))[0] == "fotos:favorite"
-          and ctl.cfg.action_for("fotos", parse_key("NUMBER2")) is None, "también con zoom; el 2 queda libre")
+          f"● guarda la foto que se ve en Favoritas (también con feh): {out}")
+    out = await press("RECORD")
+    check(out == ["ov:toast:Sacada de Favoritas (0)"] and fotos.favorites() == [], f"otra vez ● la saca: {out}")
+    check(ctl.cfg.action_for("fotos_zoom", parse_key("RECORD"))[0] == "fotos:favorite"
+          and ctl.cfg.action_for("fotos", parse_key("NUMBER1")) is None
+          and ctl.cfg.action_for("fotos", parse_key("NUMBER2")) is None, "también con zoom; el 1 y el 2 quedan libres")
     await press("SELECT")
     fotos.current_folder = Path("/mnt/fotos-red")
     out = await press("F2_RED", "F4_YELLOW", "F1_BLUE")
@@ -1413,8 +1417,11 @@ async def main() -> int:
     out = await ctl.run_action("app:youtube") or log[-3:]
     check(ctl.current_app() == "youtube" and await ctl.context() == "youtube", "app:youtube abre YouTube (contexto 'youtube')")
     out = await press("DOWN", "RIGHT", "SELECT", "EXIT", "PAUSE_PLAY_FUNCTION", "FAST_FORWARD", "F1_BLUE")
-    check(out == ["wtype:Down", "wtype:Right", "wtype:Return", "wtype:Escape", "firefox:play-pause", "firefox:seek+10"],
-          f"flechas, OK y Atrás van tal cual a YouTube; ⏯ y ⏩ por MPRIS; azul nada: {out}")
+    check(out == ["wtype:Down", "wtype:Right", "wtype:Return", "wtype:Escape", "firefox:play-pause", "firefox:seek+60"],
+          f"flechas, OK y Atrás van tal cual a YouTube; ⏯ y ⏩ (1 min) por MPRIS; azul nada: {out}")
+    out = await press("CHANNEL_UP", "CHANNEL_DOWN", "STOP")
+    check(out == ["firefox:next", "firefox:previous", "wtype:Escape"],
+          f"Canal ± = video siguiente / anterior (sin canal de control, por MPRIS); ■ = salir del video: {out}")
     rows = dict((d, k) for k, d in help_rows(ctl, "youtube"))
     check("Elegir / OK" in rows and "Volver" in rows, f"la ayuda tiene página de YouTube: {list(rows)[:5]}")
     await ctl.run_action("app:tidal")
@@ -1845,8 +1852,10 @@ async def main() -> int:
     out = await press("UP", "RIGHT", "SELECT", "NUMBER4", "CLEAR")
     check(out == ["wtype:Up", "wtype:Right", "wtype:Return", "wtype:4", "wtype:BackSpace"],
           f"flechas, OK, números y Borrar van a la ventana de scrcpy: {out}")
-    out = await press("EXIT", "F1_BLUE", "F2_RED", "PAUSE_PLAY_FUNCTION", "FORWARD", "FAST_FORWARD", "STOP")
-    check(out == ["adb:back", "adb:home", "adb:apps", "adb:play_pause", "adb:next", "adb:fast_forward", "adb:stop"],
+    out = await press("EXIT", "F1_BLUE", "F2_RED", "PAUSE_PLAY_FUNCTION", "FORWARD", "FAST_FORWARD", "STOP",
+                      "CHANNEL_UP", "CHANNEL_DOWN")
+    check(out == ["adb:back", "adb:home", "adb:apps", "adb:play_pause", "adb:next", "adb:fast_forward", "adb:stop",
+                  "adb:next", "adb:previous"],
           f"Atrás, azul (Inicio), rojo (recientes) y las multimedia van por adb (⏭ no es el botón inteligente): {out}")
     out = await press("F4_YELLOW", "F4_YELLOW")
     check(out == ["adbsh:cmd statusbar expand-notifications", "adbsh:cmd statusbar collapse"],
@@ -2734,12 +2743,12 @@ echo '</mame>'
         check("musica:open" in out and ctl.current_app() == "musica" and not ctl._menu_open,
               f"▶ también la abre; elegir Música la abre: {[x for x in out if not x.startswith('ov:')]}")
         check(await ctl.context() == "musica", "contexto «musica»")
-        out = await press("SELECT", "RIGHT", "FORWARD", "F4_YELLOW")
+        out = await press("SELECT", "RIGHT", "FORWARD", "F2_RED", "F3_GREEN", "F1_BLUE")
         check(out == ["mpv:ok", "mpv:seek+10", "mpv:next", "mpv:shuffle", "ov:toast:Mezclado"],
-              f"en Música: OK, ▶ (buscar), ⏭ (tema siguiente), amarillo (mezclar): {out}")
-        out = await press("F3_GREEN", "F3_GREEN", "F3_GREEN")
+              f"en Música: OK, ▶ (buscar), ⏭ (tema siguiente), rojo (mezclar, como en Tidal); verde y azul nada: {out}")
+        out = await press("F4_YELLOW", "F4_YELLOW", "F4_YELLOW")
         check(out == ["mpv:loop", "ov:toast:Repetir toda la lista", "mpv:loop", "ov:toast:Repetir este tema",
-                      "mpv:loop", "ov:toast:Sin repetir"], f"verde: repetir la lista, el tema, nada: {out}")
+                      "mpv:loop", "ov:toast:Sin repetir"], f"amarillo: repetir la lista, el tema, nada: {out}")
         await press("ROOT_MENU")
         grp = next(it for it in ctl.overlay.items if it.get("group") == "local")
         check(grp["current"] and ctl.overlay.items[ctl.overlay.sel] is grp,
@@ -2758,6 +2767,15 @@ echo '</mame>'
         await fotos._set_video(True)
         await fotos._set_video(False)
         check(log == ["mpv:pause=True", "mpv:pause=False"], f"un video de Fotos la pausa y al terminar sigue: {log}")
+        out = await press("STOP")
+        check(not fotos.on and musica.on and ctl._menu_open and "ov:busy:Cerrando Fotos…" in out,
+              f"■ cierra Fotos (la música de fondo sigue) y muestra el menú: {out}")
+        await press("EXIT")
+        check(await ctl.context() == "musica", "Atrás cierra el menú y queda la Música")
+        out = await press("STOP")
+        check(not musica.on and ctl._menu_open and ctl._foreground is None and "ov:busy:Cerrando Música…" in out,
+              f"■ en Música la cierra y muestra el menú (no parece que se cerró sola): {out}")
+        await press("EXIT")
         await fotos.close()
     finally:
         ctl.cfg.menu["items"] = items_before
@@ -3328,7 +3346,7 @@ echo '</mame>'
         _, its = ctl._picker_entries("fotos", None)
         row = its[-1]
         check(row.get("mode") == "favorites" and row["name"] == "▶ ♥ Favoritas" and row["enabled"]
-              and row["sub"] == "1 foto y 1 video guardadas con 1 · otra vez 1 las saca" and row["path"] == its[0]["path"]
+              and row["sub"] == "1 foto y 1 video guardadas con ● · otra vez ● las saca" and row["path"] == its[0]["path"]
               and its[0]["kind"] == "dir",
               f"en Carpetas ▸ (la lista de carpetas), al final: «♥ Favoritas» con cuántas hay: {row}")
         _, its = ctl._picker_entries("fotos", hoy)

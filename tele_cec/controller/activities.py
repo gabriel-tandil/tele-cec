@@ -85,6 +85,43 @@ class ActivitiesMixin:
             return False
         return not any(act.running() for act in self.activities.values())
 
+    async def close_activity(self, ident: str, show_menu: bool = False) -> dict:
+        """Cierra una actividad a propósito (■, o «Cerrar» en el celular). Después aparece el menú: siempre con
+        show_menu, o si no quedó nada abierto."""
+        act = self.activities.get(ident)
+        if act is None:
+            return {"ok": False, "error": "esa app no existe"}
+        if not act.running():
+            return {"ok": True, "message": f"{act.name} ya estaba cerrado"}
+        if self._switching:
+            return {"ok": False, "error": "Esperá: está cambiando de app"}
+        log.info("Cierro %s", act.name)
+        self._switching = True
+        try:
+            if self._menu_open:
+                await self.menu_close()
+            await self.overlay.busy(f"Cerrando {act.name}…")
+            if self._foreground == ident:
+                self._foreground = None  # se cierra a propósito: que no parezca que se cerró sola
+            await act.close()
+        finally:
+            self._switching = False
+            self._switch_until = time.monotonic() + 3
+            await self.overlay.hide()
+        if show_menu or (self.current_app() is None and not self.page):
+            await self.menu_open()
+        return {"ok": True, "message": f"{act.name} cerrado"}
+
+    async def a_close(self, arg: str) -> None:
+        """close:<actividad> (■): la cierra y muestra el menú. Videos guarda por dónde iba."""
+        ident = arg.strip().lower()
+        if ident not in self.activities:
+            log.warning("close:%s desconocida (válidas: %s)", arg, ", ".join(self.activities))
+            return
+        r = await self.close_activity(ident, show_menu=True)
+        if not r.get("ok"):
+            await self.toast(r.get("error") or "No pude cerrarla", 2000)
+
     async def a_app(self, arg: str) -> None:
         """app:<actividad>: la abre (cerrando la actual) o, si ya está abierta, hace su on_reselect."""
         want = arg.strip().lower()

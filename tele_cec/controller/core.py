@@ -38,9 +38,9 @@ BUSY_TEXT = {
     "smart_skip": "Un momento…",
 }
 BUSY_DEFAULT = "Un momento…"
-QUIET = REPEATABLE | {"none", "toast", "wait", "nav_mode", "mute", "subtitles", "audio", "pause", "app", "menu", "help", "web"}
+QUIET = REPEATABLE | {"none", "toast", "wait", "nav_mode", "mute", "subtitles", "audio", "pause", "app", "menu", "help", "web", "close"}
 # Acciones que no necesitan el navegador.
-OFFLINE_OK = {"launch", "wait", "none", "macro", "app", "music", "menu", "video", "musica", "radio", "fotos", "toast", "help", "yt", "android", "juegos", "web"}
+OFFLINE_OK = {"launch", "wait", "none", "macro", "app", "music", "menu", "video", "musica", "radio", "fotos", "toast", "help", "yt", "android", "juegos", "web", "close"}
 
 
 class CoreMixin:

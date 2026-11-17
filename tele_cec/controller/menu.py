@@ -161,7 +161,7 @@ def _today_item(act: activities_mod.PhotosActivity, path: Path) -> dict | None:
 
 
 def _favorites_item(act: activities_mod.PhotosActivity, path: Path) -> dict:
-    """«♥ Favoritas»: las fotos guardadas con 1 (de todas las carpetas), en el orden en que se guardaron."""
+    """«♥ Favoritas»: las fotos guardadas con ● (de todas las carpetas), en el orden en que se guardaron."""
     files = act.favorite_files()
     item = {"kind": "play", "mode": activities_mod.photos.FAVORITES, "path": str(path), "icon": "media-playback-start",
             "name": "▶ ♥ Favoritas", "enabled": bool(files), "current": False}
@@ -171,9 +171,9 @@ def _favorites_item(act: activities_mod.PhotosActivity, path: Path) -> dict:
         parts = [_plural(photos, act.unit)] if photos else []
         if videos:
             parts.append(_plural(videos, ("video", "videos")))
-        item["sub"] = " y ".join(parts) + " guardadas con 1 · otra vez 1 las saca"
+        item["sub"] = " y ".join(parts) + " guardadas con ● · otra vez ● las saca"
     else:
-        item["sub"] = "Todavía no hay: 2 guarda la foto que se está viendo"
+        item["sub"] = "Todavía no hay: ● (grabar) guarda la foto que se está viendo"
     return item
 
 
@@ -750,7 +750,7 @@ class MenuMixin:
                               "icon": "folder", "sub": "predeterminada" if root == default else "",
                               "enabled": True, "current": False})
             if isinstance(act, activities_mod.PhotosActivity) and not act.command and items:
-                items.append(_favorites_item(act, Path(items[0]["path"])))  # las guardadas con 1
+                items.append(_favorites_item(act, Path(items[0]["path"])))  # las guardadas con ●
             return f"{act.name} · elegir carpeta", items
         pick = act.pick_files and not act.command  # los archivos, para elegir uno (Videos, Música)
         subfolders = activities_mod.list_subfolders(path)
