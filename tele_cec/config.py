@@ -97,8 +97,10 @@ DEFAULT_SELECTORS: dict[str, Any] = {
     "profile_link": 'a.profile-link, [data-uia="action-select-profile+primary"], [data-uia="profile-link"], [data-uia^="profile-selector+tile-"]',
     "profile_exclude": '.addProfileIcon, .profile-button, [data-uia*="add-profile"], [data-uia*="manage-profile"], [data-uia="profile-selector+add"], [data-uia="profile-gate-screen+manage"], .account-dropdown-button, .account-menu-item',
     # "Seguir viendo".
-    "cw_row": '[data-list-context="continueWatching"]',
-    "cw_text": "seguir viendo|continuar viendo|continue watching|keep watching",
+    "cw_row": '[data-list-context="continueWatching"], [data-list-context*="ontinueWatching"]',
+    # En los perfiles infantiles la fila se llama «¿Seguimos, <perfil>?» (en inglés, «Continue watching for…»).
+    "cw_text": "seguir viendo|continuar viendo|seguir mirando|continuar mirando|segu[ií] viendo|continu[aá] viendo|"
+               "¿?seguimos, |continue watching|keep watching",
     # Botón inteligente: se prueba en este orden.
     "skip": [
         ['[data-uia="player-skip-intro"]', "Saltar intro"],

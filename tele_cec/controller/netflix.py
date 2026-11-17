@@ -17,6 +17,11 @@ def loading_text(title: str) -> str:
     return f"Cargando «{title}»…" if title else "Cargando el video…"
 
 
+def is_home(path: str) -> bool:
+    """El inicio de Netflix: /browse, o /Kids en los perfiles infantiles."""
+    return path.rstrip("/").lower() in ("", "/browse", "/kids")
+
+
 class NetflixMixin:
     def _init_netflix(self) -> None:
         self._smart_none_at = 0.0
@@ -247,6 +252,7 @@ class NetflixMixin:
             await self.busy("Cargando Netflix…", until="page")
 
     async def a_continue_watching(self, arg: str) -> None:
+        """Rojo: lo último de «Seguir viendo» (en los perfiles infantiles, «¿Seguimos, …?»)."""
         start_url = self.cfg.browser.get("start_url")
         default_profile = int(self.cfg.netflix.get("default_profile", 0) or 0)
         ctx = await self.context()
@@ -254,11 +260,12 @@ class NetflixMixin:
             await self.toast("Elegí un perfil (números o flechas + OK)", 2500)
             return
         if ctx != "profiles" and (ctx in ("player", "player_menu")
-                                  or urlparse((await self.js("ctx")).get("url", "")).path.rstrip("/") != "/browse"):
+                                  or not is_home(urlparse((await self.js("ctx")).get("url", "")).path)):
             await self.navigate(start_url)
 
         deadline = time.monotonic() + 20
         attempt = 0
+        last: dict = {}
         while time.monotonic() < deadline:
             ctx = await self.context()
             if ctx == "profiles":
@@ -272,7 +279,7 @@ class NetflixMixin:
                     log.info("Perfil por defecto: %s", r.get("name", default_profile))
                     await self.wait_ctx(unwanted={"profiles"}, timeout=10)
                     continue
-            r = await self.js("cw", attempt >= 4)
+            r = await self.js("cw", attempt >= 2)  # las filas de más abajo aparecen al bajar
             if r.get("href"):
                 title = r.get("title") or ""
                 log.info("Seguir viendo: %s", title or r["href"])
@@ -287,7 +294,12 @@ class NetflixMixin:
                 log.info("Seguir viendo: %s", r.get("title", "?"))
                 if await self.open_and_play(r):
                     return
+            last = r
             attempt += 1
             await asyncio.sleep(0.8)
-        log.warning("No encontré la fila «Seguir viendo»")
+        # Para saber por qué (la fila se llama distinto en ese perfil, no está, no cargó…): qué filas había.
+        seen = last.get("seen") if isinstance(last, dict) else None
+        log.warning("No encontré la fila «Seguir viendo» (perfil %s, %s intentos, bajé hasta y=%s). Filas: %s",
+                    self._last_profile or "?", attempt, last.get("y", "?") if isinstance(last, dict) else "?",
+                    " | ".join(seen) if seen else "ninguna")
         await self.toast("No encontré «Seguir viendo»")

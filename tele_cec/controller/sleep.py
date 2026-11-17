@@ -128,7 +128,7 @@ class SleepMixin:
             return
         if await self._page_ctx(20) == "profiles":
             await self._restore_profile(profile)
-        if url and "netflix.com" in url and urlparse(url).path.rstrip("/") not in ("", "/browse"):
+        if url and "netflix.com" in url and urlparse(url).path.rstrip("/").lower() not in ("", "/browse", "/kids"):
             await self.navigate(url)
         if "/watch/" in url:
             # El reproductor arranca solo: se pausa apenas empieza (Netflix recuerda el minuto). Se le pregunta a

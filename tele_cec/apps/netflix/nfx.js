@@ -585,7 +585,7 @@
       return { done: 'browse' };
     }
     if (modal) return { key: 'Escape', restore: true };
-    if (/^\/browse\/?$/.test(location.pathname)) {
+    if (/^\/(browse|kids)\/?$/i.test(location.pathname)) {  // el inicio (/Kids en los perfiles infantiles)
       if (window.scrollY > 10) {
         window.scrollTo({ top: 0, behavior: scrollBehavior() }); setCur(null); S.lastRect = null;
         return { done: 'top' };
@@ -760,11 +760,20 @@
     return row;
   }
 
+  // Para el log cuando no aparece «Seguir viendo»: las filas que hay (su tipo y su título).
+  function rowsSeen() {
+    return $$(C.row).filter((r) => !(r.parentElement && closest(r.parentElement, C.row))).slice(0, 30).map((r) => {
+      const h = $$(C.row_header, r)[0];
+      const ctx = r.getAttribute('data-list-context') || '';
+      return (ctx ? ctx + ': ' : '') + ((h && h.textContent) || '').trim().slice(0, 60);
+    });
+  }
+
   function cw(scrollIfMissing) {
     const row = cwRowEl();
     if (!row) {
       if (scrollIfMissing) window.scrollBy({ top: vh() * 0.8 });
-      return { none: true };
+      return { none: true, seen: rowsSeen(), y: Math.round(window.scrollY) };
     }
     const links = $$('a[href*="/watch/"]', row);
     if (links.length) {
