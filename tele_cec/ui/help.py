@@ -94,15 +94,15 @@ SUB_ACTIONS = {
               "previous": "Tema anterior", "like": "Me gusta (favoritos)", "shuffle": "Aleatorio",
               "my_tracks": "Mis canciones → Colección → Inicio (en ciclo)", "lyrics": "Letras (otra vez: volver)", "back": "Atrás en la app",
               "nav": "Cambia las flechas: recorrer la app ↔ controles (volumen, temas)", "move": "Moverse por la app",
-              "tab": "Siguiente elemento (si las flechas se traban)"},
+              "tab": "Siguiente elemento (si las flechas se traban)", "info": "Qué suena (tema, artista, disco)"},
     "video": {"play_pause": "Play / pausa", "ok": "Play / pausa (buscando: saltar ahí)", "play": "Play",
               "pause": "Pausa", "stop": "Pausa", "next": "Video siguiente", "previous": "Video anterior",
               "subtitles": "Subtítulos", "audio": "Idioma de audio", "aspect": "Proporción de la imagen",
-              "back": "Dejar de buscar (sin saltar)"},
+              "back": "Dejar de buscar (sin saltar)", "info": "Qué es (nombre, por dónde va)"},
     "musica": {"play_pause": "Play / pausa", "ok": "Play / pausa (buscando: saltar ahí)", "play": "Play",
                "pause": "Pausa", "stop": "Pausa", "next": "Tema siguiente", "previous": "Tema anterior",
                "shuffle": "Mezclar / volver al orden", "loop": "Repetir: la lista, el tema o nada",
-               "back": "Dejar de buscar (sin saltar)"},
+               "back": "Dejar de buscar (sin saltar)", "info": "Qué suena (tema, artista, disco)"},
     "web": {"nav": "Moverse entre los enlaces y botones", "ok": "Abrir (en un campo de texto: escribir ahí)",
             "back": "Volver atrás (escribiendo: salir del campo)", "home": "La página de inicio (los sitios)",
             "reload": "Recargar la página", "go": "Escribir una dirección o qué buscar",
@@ -112,7 +112,8 @@ SUB_ACTIONS = {
             "sites": "Los sitios guardados", "site": "Ese sitio de la lista", "url": "Abrir esa dirección"},
     "radio": {"play_pause": "Pausa / seguir (después de un rato: en vivo otra vez)", "ok": "Pausa / seguir",
               "play": "Seguir", "pause": "Pausa", "stop": "Pausa", "next": "Radio siguiente",
-              "previous": "Radio anterior", "station": "Esa radio de la lista"},
+              "previous": "Radio anterior", "station": "Esa radio de la lista",
+              "info": "Qué suena (la radio y el tema)", "list": "La lista de radios"},
     "fotos": {"next": "Foto siguiente", "previous": "Foto anterior", "pause": "Pausar o seguir la presentación",
               "rotate": "Girar la foto", "random": "Una foto al azar", "info": "Qué foto es (carpeta y archivo)",
               "filename": "Nombre del archivo (chico)", "zoom_in": "Zoom: acercar", "zoom_out": "Alejar",
@@ -151,7 +152,7 @@ def describe(action: Any, ctx: str, cfg: Config) -> str:
         if sub == "seek":
             return _plus_minus("seek", rest or "+")
         return {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "next": "Video siguiente",
-                "previous": "Video anterior", "subtitles": "Subtítulos"}.get(sub, str(action))
+                "previous": "Video anterior", "home": "Inicio de YouTube", "subtitles": "Subtítulos"}.get(sub, str(action))
     if name == "android" and sub == "key":
         if rest.isdigit():
             return "Escribir el número (p. ej. el PIN)"

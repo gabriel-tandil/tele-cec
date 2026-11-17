@@ -148,6 +148,10 @@ class FakeMusic:
             return {"status": "Stopped"}
         return {"status": self.state, "title": "Volver a Volver", "artist": "Gabo Ferro"}
 
+    async def details(self) -> dict:
+        return {"status": "Paused", "title": "Volver a Volver", "artist": "Gabo Ferro", "album": "Mancha de Rolando",
+                "position": "1:02", "length": "3:40"}
+
     async def command(self, line: str, timeout: float = 10.0, wait: float = 0.0) -> str:
         self.log.append(f"music:cmd:{line}")
         return "ok"
@@ -346,6 +350,10 @@ class FakePlayerMixin:
         self.log.append(f"mpv:seek{seconds:+d}")
         return True
 
+    async def info(self) -> str:
+        self.log.append("mpv:info")
+        return "Obsession\n1:02 de 1:40:00\nVideo 1 de 3"
+
     async def next(self) -> bool:
         self.log.append("mpv:next")
         return True
@@ -535,7 +543,8 @@ async def main() -> int:
     ctl.music.channel = False
     out = await press("SELECT", "FORWARD", "BACKWARD", "UP", "DOWN", "RECORD", "F1_BLUE")
     check(out == ["mpris:play-pause", "mpris:next", "mpris:previous", "mpris:volume+", "mpris:volume-",
-                  "like"], f"OK, ⏭, ⏮, ▲, ▼, ● (me gusta); azul libre: {out}")
+                  "like", "ov:toast:Volver a Volver\nGabo Ferro · Mancha de Rolando\n1:02 de 3:40 · en pausa"],
+          f"OK, ⏭, ⏮, ▲, ▼, ● (me gusta), azul (qué suena): {out}")
     out = await press("CHANNEL_UP", "CHANNEL_DOWN", "RIGHT", "LEFT", "FAST_FORWARD", "REWIND")
     check(out == ["mpris:next", "mpris:previous", "mpris:seek+10", "mpris:seek-10", "mpris:seek+60", "mpris:seek-60"],
           f"Canal ± = tema, ◀ ▶ = 10 s, ⏪ ⏩ = 1 min (como en Música y Videos): {out}")
@@ -577,8 +586,9 @@ async def main() -> int:
                       "F4_YELLOW", "EXIT", "F1_BLUE")
     check(out == ["mpv:ok", "mpv:seek+10", "mpv:seek-10", "mpv:seek+60", "mpv:volume+", "ov:toast:Volumen 55 %",
                   "mpv:next", "mpv:previous", "mpv:sub", "ov:toast:Subtítulos: Español", "mpv:audio",
-                  "ov:toast:Audio: Inglés", "mpv:aspect", "ov:toast:Proporción: 4:3", "mpv:osd:cancel"],
-          f"OK, ▶ ◀ (buscar), ⏩ (1 min), ▲, ⏭, Canal−, CC, rojo, amarillo, Atrás (deja de buscar); azul libre: {out}")
+                  "ov:toast:Audio: Inglés", "mpv:aspect", "ov:toast:Proporción: 4:3", "mpv:osd:cancel", "mpv:info",
+                  "ov:toast:Obsession\n1:02 de 1:40:00\nVideo 1 de 3"],
+          f"OK, ▶ ◀ (buscar), ⏩ (1 min), ▲, ⏭, Canal−, CC, rojo, amarillo, Atrás (deja de buscar), azul (qué es): {out}")
 
     print("Fotos sin contenido")
     fotos.content = False
@@ -688,14 +698,18 @@ async def main() -> int:
 
     print("La tecla CC (SUB_PICTURE, así la mandan algunas TVs)")
     af = ctl.cfg.action_for
+    check(af("radio", 0x71) == ("radio:info", "radio") and af("radio", 0x74) == ("radio:list", "radio")
+          and af("musica", 0x71) == ("musica:info", "musica") and af("tidal_nav", 0x71) == ("music:info", "tidal")
+          and af("youtube", 0x71) == ("yt:home", "youtube"),
+          "azul = qué es / qué suena (Videos, Música, Tidal, Radio), amarillo en Radio = la lista, azul en YouTube = inicio")
     check(af("player", 0x51) == ("subtitles", "player") and af("player_menu", 0x51) == ("subtitles", "player_menu")
           and af("player", 0x71) == ("profiles", "player") and af("videos", 0x51) == ("video:subtitles", "videos")
-          and af("videos", 0x71) is None and af("tidal", 0x51) == ("music:lyrics", "tidal")
+          and af("videos", 0x71) == ("video:info", "videos") and af("tidal", 0x51) == ("music:lyrics", "tidal")
           and af("tidal_nav", 0x51) == ("music:lyrics", "tidal") and af("tidal", 0x72) == ("music:shuffle", "tidal")
           and af("youtube", 0x51) == ("yt:subtitles", "youtube") and af("fotos", 0x51) == ("fotos:date", "fotos")
           and af("fotos_zoom", 0x51) == ("fotos:date", "fotos"),
           "CC: subtítulos (Netflix, Videos, YouTube), letras (Tidal), la fecha (Fotos); azul en Netflix = perfiles, "
-          "en Videos libre; rojo en Tidal = mezclar")
+          "en Videos = qué es; rojo en Tidal = mezclar")
     from tele_cec.ui import help as help_t
     check(any(k == "CC" and d == "Subtítulos" for k, d in help_t.rows(ctl.cfg, "player")), "la Ayuda la muestra como CC")
 
@@ -1417,8 +1431,9 @@ async def main() -> int:
     out = await ctl.run_action("app:youtube") or log[-3:]
     check(ctl.current_app() == "youtube" and await ctl.context() == "youtube", "app:youtube abre YouTube (contexto 'youtube')")
     out = await press("DOWN", "RIGHT", "SELECT", "EXIT", "PAUSE_PLAY_FUNCTION", "FAST_FORWARD", "F1_BLUE")
-    check(out == ["wtype:Down", "wtype:Right", "wtype:Return", "wtype:Escape", "firefox:play-pause", "firefox:seek+60"],
-          f"flechas, OK y Atrás van tal cual a YouTube; ⏯ y ⏩ (1 min) por MPRIS; azul nada: {out}")
+    check(out == ["wtype:Down", "wtype:Right", "wtype:Return", "wtype:Escape", "firefox:play-pause", "firefox:seek+60",
+                  "ov:toast:Para ir al inicio con el azul, cerrá YouTube y abrilo de nuevo"],
+          f"flechas, OK y Atrás van tal cual a YouTube; ⏯ y ⏩ (1 min) por MPRIS; azul = inicio (sin canal: avisa): {out}")
     out = await press("CHANNEL_UP", "CHANNEL_DOWN", "STOP")
     check(out == ["firefox:next", "firefox:previous", "wtype:Escape"],
           f"Canal ± = video siguiente / anterior (sin canal de control, por MPRIS); ■ = salir del video: {out}")
@@ -2744,8 +2759,8 @@ echo '</mame>'
               f"▶ también la abre; elegir Música la abre: {[x for x in out if not x.startswith('ov:')]}")
         check(await ctl.context() == "musica", "contexto «musica»")
         out = await press("SELECT", "RIGHT", "FORWARD", "F2_RED", "F3_GREEN", "F1_BLUE")
-        check(out == ["mpv:ok", "mpv:seek+10", "mpv:next", "mpv:shuffle", "ov:toast:Mezclado"],
-              f"en Música: OK, ▶ (buscar), ⏭ (tema siguiente), rojo (mezclar, como en Tidal); verde y azul nada: {out}")
+        check(out[:5] == ["mpv:ok", "mpv:seek+10", "mpv:next", "mpv:shuffle", "ov:toast:Mezclado"] and out[5] == "mpv:info",
+              f"en Música: OK, ▶ (buscar), ⏭ (tema siguiente), rojo (mezclar, como en Tidal), azul (qué suena); verde nada: {out}")
         out = await press("F4_YELLOW", "F4_YELLOW", "F4_YELLOW")
         check(out == ["mpv:loop", "ov:toast:Repetir toda la lista", "mpv:loop", "ov:toast:Repetir este tema",
                       "mpv:loop", "ov:toast:Sin repetir"], f"amarillo: repetir la lista, el tema, nada: {out}")
@@ -3988,6 +4003,17 @@ echo '</mame>'
             await ctl.a_radio("station:1")
             check("ov:toast:Radio: otra.example:8000" in log[start:] and "ov:toast:Radio: Radio Uno" in log[start:]
                   and radio_state["pos"] == 0, f"radio:next y radio:station:N, con aviso: {log[start:]}")
+            radio._song = "Fito - Mariposa"
+            start = len(log)
+            await ctl.a_radio("info")
+            check(any(x.startswith("ov:toast:Radio Uno\nFito - Mariposa") for x in log[start:]),
+                  f"azul: la radio y el tema que suena: {log[start:]}")
+            ctx_before = ctl._ctx
+            await ctl.a_radio("list")
+            check(ctl._menu_open and ctl._menu_mode == "radio" and ctl._radio_back_closes,
+                  "amarillo: la lista de radios encima de la Radio")
+            await ctl.run_action("menu:back")
+            check(not ctl._menu_open and ctl._ctx == ctx_before, "Atrás vuelve a la Radio (no al menú de actividades)")
             rows = help_rows(ctl, "radio")
             check(any(k == "⏭  ⏮" or "⏭" in k for k, _d in rows) and any(d == "Esa radio de la lista" and "1 – 9" in k
                                                                          for k, d in rows),

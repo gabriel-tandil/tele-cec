@@ -218,6 +218,7 @@ class MenuMixin:
         self._picker_stack: list[tuple[Path | None, int]] = []
         # Lista de juegos: si se abrió desde el juego (menú cerrado), Atrás vuelve al juego en vez de al menú.
         self._games_back_closes = False
+        self._radio_back_closes = False  # la lista de radios abierta desde la Radio (amarillo): Atrás vuelve a ella
         self._sites_back_closes = False  # la lista de sitios abierta desde el Navegador (amarillo): Atrás vuelve a él
         # Ayuda (desde el menú, con • o con la tecla Ayuda): páginas por app y desde dónde se abrió.
         self._menu_from_ctx = "offline"
@@ -688,6 +689,8 @@ class MenuMixin:
                 await self.menu_close()  # se había abierto desde el juego: seguir jugando
             else:
                 await self.menu_open(self._menu_act_sel)
+        elif sub in ("left", "back") and self._menu_mode == "radio" and self._radio_back_closes:
+            await self.menu_close()  # se había abierto desde la Radio (amarillo): seguir escuchando
         elif sub in ("left", "back") and self._menu_mode == "sites":
             if self._sites_back_closes:
                 await self.menu_close()  # se había abierto desde el Navegador (amarillo): seguir ahí
@@ -900,8 +903,9 @@ class MenuMixin:
         self._menu_restart_timer()
 
     # ---------------------------------------------------------------- Radio: elegir la emisora
-    async def _radio_open(self) -> None:
+    async def _radio_open(self, from_app: bool = False) -> None:
         """La lista de [apps.radio] stations: resaltada la que suena (o la última que sonó). OK la pone."""
+        self._radio_back_closes = from_app
         r = self.activities["radio"]
         assert isinstance(r, activities_mod.RadioActivity)
         playing, state = -1, ""
@@ -969,6 +973,16 @@ class MenuMixin:
         await self.overlay.show(items, sel, title=f"{w.name} · sitios", hint=SITES_HINT, numbers=True)
         log.info("Menú: sitios: %s", " · ".join(b["name"] for b in w.bookmarks))
         self._menu_restart_timer()
+
+    async def radio_open_from_app(self) -> None:
+        """Amarillo en la Radio: la lista de radios encima; OK cambia, Atrás vuelve a la Radio."""
+        r = self.activities.get("radio")
+        if self._menu_open or self._switching or not isinstance(r, activities_mod.RadioActivity) or not r.stations:
+            return
+        self._menu_from_ctx = self._ctx
+        self._menu_act_sel = 0
+        self._menu_open = True
+        await self._radio_open(from_app=True)
 
     async def sites_open_from_app(self) -> None:
         """Amarillo en el Navegador: la lista de sitios encima de la página; Atrás vuelve a la página."""

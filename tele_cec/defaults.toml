@@ -261,7 +261,7 @@ DOWN = "music:volume:-"
 VOLUME_UP = "music:volume:+"
 VOLUME_DOWN = "music:volume:-"
 RECORD = "music:like"         # ● = me gusta (agregar/quitar de favoritos)
-F1_BLUE = ""                  # azul: libre
+F1_BLUE = "music:info"        # azul = qué suena: tema, artista, disco y por dónde va
 SUB_PICTURE = "music:lyrics"  # CC = mostrar las letras (otra vez = volver al reproductor)
 F2_RED = "music:shuffle"      # rojo = mezclar / volver al orden
 F4_YELLOW = "music:my_tracks" # amarillo = Mis canciones
@@ -305,7 +305,7 @@ REWIND = "yt:seek:-60"
 CHANNEL_UP = "yt:next"        # Canal ±: el video siguiente / anterior de la lista
 CHANNEL_DOWN = "yt:previous"
 FORWARD = ""
-F1_BLUE = ""
+F1_BLUE = "yt:home"           # azul = el inicio de YouTube
 SUB_PICTURE = "yt:subtitles"  # CC = prender o apagar los subtítulos
 
 [keys.navegador]              # Navegador: las flechas van al enlace o botón más cercano (con un marco), OK lo abre
@@ -425,7 +425,7 @@ BACKWARD = "video:previous"
 CHANNEL_UP = "video:next"
 CHANNEL_DOWN = "video:previous"
 SUB_PICTURE = "video:subtitles"   # CC = subtítulos
-F1_BLUE = ""                  # azul: libre
+F1_BLUE = "video:info"        # azul = qué es: el nombre, por dónde va y el número de video
 F2_RED = "video:audio"        # rojo = idioma de audio
 F4_YELLOW = "video:aspect"    # amarillo = proporción de la imagen (16:9, 4:3…)
 EXIT = "video:back"           # Atrás: deja de buscar (sin saltar)
@@ -452,6 +452,7 @@ CHANNEL_UP = "musica:next"
 CHANNEL_DOWN = "musica:previous"
 F2_RED = "musica:shuffle"     # rojo = mezclar / volver al orden (como en Tidal)
 F4_YELLOW = "musica:loop"     # amarillo = repetir: toda la lista → este tema → no repetir
+F1_BLUE = "musica:info"       # azul = qué suena: tema, artista, disco y por dónde va
 EXIT = "musica:back"
 AN_RETURN = "musica:back"
 
@@ -472,6 +473,8 @@ CHANNEL_UP = "radio:next"
 CHANNEL_DOWN = "radio:previous"
 RIGHT = "radio:next"
 LEFT = "radio:previous"
+F1_BLUE = "radio:info"        # azul = qué suena: la radio y el tema
+F4_YELLOW = "radio:list"      # amarillo = la lista de radios (OK cambia, Atrás vuelve)
 NUMBER1 = "radio:station:1"   # 1 – 9: esa radio de la lista
 NUMBER2 = "radio:station:2"
 NUMBER3 = "radio:station:3"

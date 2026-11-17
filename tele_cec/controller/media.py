@@ -48,6 +48,12 @@ class MediaMixin:
         elif cmd in ("next", "previous"):
             name = await r.step(1 if cmd == "next" else -1)
             await self.toast(f"Radio: {name}" if name else "Hay una sola radio (agregá más en [apps.radio])", 1800)
+        elif cmd == "info":
+            text = await r.info()
+            log.info("Radio: %s", text.replace("\n", " · "))
+            await self.toast(text, 6000)
+        elif cmd in ("list", "lista"):
+            await self.radio_open_from_app()
         elif cmd == "station":
             try:
                 index = int(rest) - 1
@@ -78,6 +84,10 @@ class MediaMixin:
             await v.previous()
         elif cmd == "back":
             await v.osd("cancel")
+        elif cmd == "info":
+            text = await v.info()
+            log.info("%s: %s", v.name, text.replace("\n", " · "))
+            await self.toast(text or "No está sonando nada", 6000)
         elif cmd == "shuffle":
             await self.toast("Mezclado" if await v.toggle_shuffle() else "En orden", 1500)
         elif cmd == "loop":
@@ -118,6 +128,9 @@ class MediaMixin:
             await self.toast(await y.toggle_subtitles(), 2500)
         elif cmd in mpris:
             await y.mpris.ctl(mpris[cmd])
+        elif cmd == "home":
+            if not await y.home():
+                await self.toast("Para ir al inicio con el azul, cerrá YouTube y abrilo de nuevo", 2500)
         elif cmd in ("next", "previous"):
             if not await y.step(1 if cmd == "next" else -1):
                 await self.toast("No hay otro video en la lista", 1500)
@@ -330,6 +343,18 @@ class MediaMixin:
             await m.ctl(mpris[cmd])
         elif cmd == "volume":
             await m.volume(rest or "+")
+        elif cmd == "info":
+            d = await m.details()
+            if not d.get("title"):
+                await self.toast("No está sonando nada", 2000)
+                return
+            lines = [d["title"], " · ".join(x for x in (d.get("artist"), d.get("album")) if x)]
+            when = d.get("position", "") + (f" de {d['length']}" if d.get("length") else "")
+            if d.get("status") == "Paused":
+                when += " · en pausa"
+            text = "\n".join(x for x in (*lines, when.strip(" ·")) if x)
+            log.info("Tidal: %s", text.replace("\n", " · "))
+            await self.toast(text, 6000)
         elif cmd == "seek":
             try:
                 await m.seek(int(rest or 10))

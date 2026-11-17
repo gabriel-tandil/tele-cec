@@ -32,12 +32,20 @@ def _natural(path: str) -> list:
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", path)]
 
 
+def clock(sec: float) -> str:
+    """1:05:09 o 5:09."""
+    sec = int(sec)
+    h, m, s = sec // 3600, sec // 60 % 60, sec % 60
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 class MpvMediaActivity(MediaActivity):
     """Base de Videos y Música: mpv con la lista de la carpeta y su canal de control."""
 
     audio_only = False     # Música: la barra queda siempre a la vista, sin miniaturas
     thumbnails = True      # Videos: miniaturas al buscar (thumbfast)
     TITLE = "tele-cec"
+    UNIT = "Archivo"   # «Video 3 de 12», «Tema 3 de 12» (el azul)
     fail_text = ""
 
     def __init__(self, cfg: dict[str, Any] | None = None):
@@ -208,6 +216,28 @@ class MpvMediaActivity(MediaActivity):
         """La TV pasó a standby."""
         if await self.mpv.set("pause", True):
             log.info("%s en pausa por standby de la TV", self.name)
+
+    async def info(self) -> str:
+        """Azul: qué se está viendo o escuchando (nombre, o tema · artista · disco), por dónde va y el número."""
+        title = await self.mpv.get("media-title") or ""
+        if not title:
+            return ""
+        meta = await self.mpv.get("metadata") or {}
+        meta = {str(k).lower(): str(v) for k, v in meta.items()} if isinstance(meta, dict) else {}
+        lines = [meta.get("title") or title]
+        extra = " · ".join(x for x in (meta.get("artist"), meta.get("album")) if x) if meta.get("title") else ""
+        if extra:
+            lines.append(extra)
+        pos, dur = await self.mpv.get("time-pos"), await self.mpv.get("duration")
+        if isinstance(pos, (int, float)):
+            when = clock(pos) + (f" de {clock(dur)}" if isinstance(dur, (int, float)) and dur > 0 else "")
+            if await self.mpv.get("pause"):
+                when += " · en pausa"
+            lines.append(when)
+        n, count = await self.mpv.get("playlist-pos"), await self.mpv.get("playlist-count")
+        if isinstance(n, int) and isinstance(count, int) and count > 1:
+            lines.append(f"{self.UNIT} {n + 1} de {count}")
+        return "\n".join(lines)
 
     async def seek(self, seconds: int) -> bool:
         """◀ ▶: buscar (la barra muestra a dónde, con miniatura, y salta al soltar); sin barra, salta directo."""

@@ -16,6 +16,16 @@ class Mpris:
         rc, _ = await run_cmd(["playerctl", "-p", self.player, *args], 5)
         return rc == 0
 
+    async def details(self) -> dict[str, str]:
+        """Para el azul: estado, tema, artista, disco, posición y duración («3:12»), o {} si no hay nada."""
+        keys = ("status", "title", "artist", "album", "position", "length")
+        rc, out = await run_cmd(["playerctl", "-p", self.player, "metadata", "--format",
+                                 "{{status}}\t{{title}}\t{{artist}}\t{{album}}\t{{duration(position)}}\t"
+                                 "{{duration(mpris:length)}}"], 5)
+        if rc != 0:
+            return {}
+        return dict(zip(keys, (out.strip("\n").split("\t") + [""] * 6)[:6]))
+
     async def status(self) -> dict[str, str]:
         rc, out = await run_cmd(["playerctl", "-p", self.player, "metadata", "--format",
                                  "{{status}}\t{{title}}\t{{artist}}"], 5)

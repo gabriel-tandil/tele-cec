@@ -246,6 +246,9 @@ class HighTide:
     async def status(self) -> dict[str, str]:
         return await self.mpris.status()
 
+    async def details(self) -> dict[str, str]:
+        return await self.mpris.details()
+
     async def volume(self, sign: str) -> bool:
         return await self.mpris.volume(sign)
 

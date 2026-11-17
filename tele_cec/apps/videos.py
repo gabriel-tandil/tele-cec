@@ -25,6 +25,7 @@ class VideosActivity(MpvMediaActivity):
     pick_files = True     # se elige el video (solo ese), no la carpeta entera
     play_folder = False
     TITLE = "tele-cec videos"
+    UNIT = "Video"
 
     def extra_args(self) -> list[str]:
         # Subtítulos: los que estén al lado del video aunque el nombre no sea idéntico; idioma preferido español.

@@ -236,6 +236,18 @@ class RadioActivity(ProcActivity):
         i = await self.current()
         return self.stations[i]["name"] if 0 <= i < len(self.stations) else self.name
 
+    async def info(self) -> str:
+        """Azul: la radio, el tema que manda (si manda) y si está en pausa."""
+        lines = [await self.station_name()]
+        if self._song:
+            lines.append(self._song)
+        if await self.mpv.get("pause"):
+            lines.append("En pausa")
+        i, n = await self.current(), len(self.stations)
+        if n > 1 and i >= 0:
+            lines.append(f"Radio {i + 1} de {n}")
+        return "\n".join(lines)
+
     async def set_pause(self, on: bool) -> bool:
         if not on and self._paused_at is not None and time.monotonic() - self._paused_at > LIVE_AGAIN_S:
             return await self.play_station(await self.current())  # en vivo otra vez, no lo de hace un rato

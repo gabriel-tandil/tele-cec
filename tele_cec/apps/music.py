@@ -27,6 +27,7 @@ class MusicActivity(MpvMediaActivity):
     pick_continues = True
     thumbnails = False
     TITLE = "tele-cec musica"
+    UNIT = "Tema"
 
     def extra_args(self) -> list[str]:
         # La tapa: la del archivo o una imagen al lado (cover.jpg, folder.jpg…); sin tapa, fondo negro y la barra.

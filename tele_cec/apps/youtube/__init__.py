@@ -250,6 +250,15 @@ class YouTubeActivity(ProcActivity):
             log.info("YouTube: paso de video por MPRIS (%s)", exc)
         return await self.mpris.ctl("next" if direction > 0 else "previous")
 
+    async def home(self) -> bool:
+        """Azul: el inicio de YouTube (por el canal de control de la página)."""
+        try:
+            await self.js(f"(() => {{ location.assign({json.dumps(self.url + '#/')}); return 'ok'; }})()")
+            return True
+        except (NotConnected, cdp.CDPError, OSError, asyncio.TimeoutError) as exc:
+            log.info("YouTube: no pude ir al inicio (%s)", exc)
+            return False
+
     async def toggle_subtitles(self) -> str:
         """CC: prende o apaga los subtítulos del video. Devuelve el aviso para la pantalla."""
         try:
