@@ -12,7 +12,7 @@ los tres modos (también con [apps.fotos] shuffle = true); al cambiar de modo co
 «Un día como hoy» también va al azar (con [apps.fotos] today_shuffle = false, del año más viejo al más nuevo).
 La fecha de cada foto en una esquina (CC en el control, con mpv): el día, o el mes, o el año, según lo que se sepa
 (del nombre, de la foto o de las carpetas). Queda prendida o apagada para las próximas veces.
-Favoritas (● en el control): guarda la foto que se ve en una lista (~/.local/share/tele-cec/fotos-favoritas.txt);
+Favoritas (1 en el control): guarda la foto que se ve en una lista (~/.local/share/tele-cec/fotos-favoritas.txt);
 otra vez la saca. En Carpetas ▸ está «♥ Favoritas» para verlas, y en la esquina se ve un ♥ en las guardadas.
 Mientras suena un video, la música de Tidal de fondo se pausa (on_video, lo pone el controlador).
 """
@@ -42,7 +42,7 @@ from .mpv import SCRIPTS, Mpv, base_args, mpv_pids
 
 MODES = ("photos", "mixed", "videos")   # los que pasa ▼
 TODAY = "today"                          # «Un día como hoy»: las fotos de esta fecha en otros años
-FAVORITES = "favorites"                  # «♥ Favoritas»: las guardadas con ●
+FAVORITES = "favorites"                  # «♥ Favoritas»: las guardadas con 1
 ALL_MODES = MODES + (TODAY, FAVORITES)
 FAVORITES_FILE = "fotos-favoritas.txt"   # en ~/.local/share/tele-cec: una ruta por línea, en el orden en que se guardaron
 TODAY_SPREAD = 3        # si no hay de este día exacto: esta semana (± 3 días) en otros años
@@ -107,7 +107,7 @@ class PhotosActivity(MediaActivity):
         self._show_year = False     # «Un día como hoy»: el año de cada foto en una esquina
         self.show_date = self._load_show_date()   # la fecha de cada foto en una esquina (CC en el control)
         self._corner_path = ""      # de qué foto es lo que dice la esquina
-        self._favorites: list[str] | None = None   # las guardadas con ● (se leen la primera vez que hacen falta)
+        self._favorites: list[str] | None = None   # las guardadas con 1 (se leen la primera vez que hacen falta)
         self.reset_view()
 
     # ------------------------------------------------------------ favoritas (1 en el control)

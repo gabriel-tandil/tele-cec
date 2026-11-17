@@ -17,7 +17,7 @@ No convierte el control en un teclado, como hace [cec-mini-kb](https://github.co
 - **Control desde el celular**: una página en `http://raspberrypi.local:8765/` con el mismo menú de actividades de la TV, buscar en Netflix y YouTube, tu Tidal y tu música local (biblioteca, búsqueda y cola), lo que está sonando y la salida de sonido (ver [Control desde el celular](#control-desde-el-celular)).
 - **Android**: la pantalla del celular en la TV, por USB o Wi‑Fi, con su sonido, y manejable con el control (ver [Android](#android)).
 - **Videos, música y fotos** de un pendrive o de una carpeta local, en pantalla completa y con el control: mpv para los videos y la música (con una barra para la TV que, al buscar, muestra una miniatura del punto elegido) y una presentación con mpv para las fotos.
-- **Botón inteligente** (⏭): salta la intro o el resumen, o pasa al siguiente episodio, según lo que muestre Netflix.
+- **Botón inteligente** (🟡 amarillo en el reproductor): salta la intro o el resumen, o pasa al siguiente episodio, según lo que muestre Netflix.
 - **Perfiles y "Seguir viendo"**: elegís el perfil con los números y retomás lo último visto con el rojo (en el inicio).
 - **Tidal** con [High Tide](#tidal): play/pausa, temas, volumen, "me gusta" y "Mis canciones" con el control.
 - **Reproducción**: play/pausa, ±10 s, volumen, y ciclar subtítulos y audio, con avisos en pantalla.
@@ -101,14 +101,13 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 | Flechas | Moverse (con resaltado) | ◀ ▶ −/+10 s · ▲ ▼ volumen |
 | OK | Clic (la 1.ª vez solo muestra el resaltado) | Play / pausa |
 | Exit / Return | Volver · cerrar ficha · subir al principio | Salir del reproductor |
-| ⏭ Forward | Botón inteligente | Botón inteligente |
 | CC (subtítulos) | — | Ciclar subtítulos |
 | 🔵 Azul | Ir al inicio | ¿Quién está viendo? (perfiles) |
 | 🔴 Rojo | **Seguir viendo** (retomar lo último) | Ciclar audio |
-| 🟡 Amarillo | **Mi lista** | Botón inteligente (para controles sin la tecla ⏭) |
-| ▶ Play / ⏯ Play-Pausa | Reproducir el título resaltado o el de la ficha abierta | Play / pausa |
+| 🟡 Amarillo | **Mi lista** | Botón inteligente: saltar la intro o el resumen, o el siguiente episodio |
+| ▶ Play · ⏸ Pausa | Reproducir el título resaltado o el de la ficha abierta | Play · pausa |
 | ■ Stop | — | Salir del reproductor |
-| ⏪ ⏩ · ⏮ Backward | — | −/+1 minuto · −10 s |
+| ⏪ ⏩ | — | −/+1 minuto |
 | Canal + | — | Siguiente episodio |
 | 0 | ¿Quién está viendo? (perfiles) | Modo navegación (flechas para moverse por los controles) |
 
@@ -119,14 +118,15 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 | Flechas | Mover el foco al elemento más cercano en esa dirección | ◀ ▶ −/+10 s · ▲ ▼ volumen |
 | OK | Abrir / elegir (un disco, una playlist, un tema) | Play / pausa |
 | Exit / Return | Atrás en Tidal | — |
-| Canal − · Canal + (o ⏮ ⏭) | Tema anterior / siguiente | Igual |
-| ⏯ · ▶ · ⏸ · ■ | Play / pausa (■ pausa) | Igual |
+| Canal − · Canal + | Tema anterior / siguiente | Igual |
+| ▶ · ⏸ · ■ | Play · pausa · pausa | Igual |
 | ⏪ ⏩ | −/+1 minuto | Igual |
-| ● (grabar) | Me gusta (agregar o quitar de favoritos) | Igual |
+| 1 | ♥ Me gusta (agregar o quitar de favoritos) | Igual |
+| 🔵 Azul | Qué suena: tema, artista, disco y por dónde va | Igual |
 | 🟡 Amarillo | En ciclo: Mis canciones → Colección → Inicio | Igual |
 | CC (subtítulos) | Mostrar las letras (otra vez = volver al reproductor) | Igual |
 | 🔴 Rojo | Mezclar / volver al orden | Igual |
-| 1 · 2 · 3 | Inicio · Explorar · Colección | Igual |
+| 2 · 3 · 4 | Inicio · Explorar · Colección | Igual |
 
 GTK solo mueve el foco con flechas dentro de cada bloque (una fila de portadas, una lista), así que a muchos lugares no se llegaba. El parche que tele-cec le carga a High Tide (ver abajo) hace que las flechas vayan al elemento más cercano en esa dirección según dónde está en la pantalla, como en una TV, primero dentro del mismo panel (así, al final de una lista sigue bajando por la lista y no salta a la barra de abajo). Para que se vea qué está elegido, tele-cec le pone a High Tide un estilo con **marco y fondo amarillos** en el elemento con el foco (GTK lo dibuja muy tenue); el color se cambia con `[apps.tidal] focus_color` (`""` lo desactiva). Las **portadas** (discos, playlists, artistas) de High Tide no se pueden elegir con el teclado: solo se abren con un clic del mouse. Por eso, al abrirlo, tele-cec le carga un pequeño parche (un `usercustomize.py` en su carpeta de datos, sin modificar la app instalada) que hace que la portada reciba el foco, que **OK** abra las portadas y los atajos de Inicio (que High Tide solo abre con un clic), que las flechas se muevan por posición, y le abre un canal de control para que tele-cec cambie de pantalla (Inicio, Colección, Mis canciones, Atrás, Letras, me gusta) llamando a las mismas funciones que sus botones; se desactiva con `[apps.tidal] keyboard_cards = false` (entonces esas acciones vuelven a ir por accesibilidad).
 
@@ -134,19 +134,19 @@ GTK solo mueve el foco con flechas dentro de cada bloque (una fila de portadas, 
 
 | Tecla | Videos · Música | Fotos |
 |---|---|---|
-| OK · ⏯ · ▶ · ⏸ | Play / pausa (si estás buscando, salta ahí) | OK: pausar o seguir la presentación · ⏯: con música de fondo, la música |
+| OK · ▶ · ⏸ | Play / pausa (si estás buscando, salta ahí) | OK: pausar o seguir la presentación · ▶ ⏸: con música de fondo, la música |
 | ◀ ▶ | Buscar de a 10 s: la barra muestra a dónde (en videos, con una miniatura) y salta al soltar | Foto anterior / siguiente |
 | ⏪ ⏩ | Buscar de a 1 minuto | — |
 | ■ Stop | Cerrar y volver al menú (Videos se acuerda por dónde ibas) | Cerrar y volver al menú (la música de fondo sigue) |
 | ▲ ▼ | Volumen | ▲ = zoom (ver abajo) · ▼ = cambiar de modo: solo fotos → fotos y videos → solo videos |
-| ⏮ ⏭ · Canal −/+ | Video o tema anterior / siguiente | Foto anterior / siguiente (⏮ ⏭ también con zoom o con música) |
+| Canal −/+ | Video o tema anterior / siguiente | Foto anterior / siguiente (también con zoom) |
 | Atrás | Deja de buscar (sin saltar) | — |
 | CC (subtítulos) | Videos: subtítulos | La fecha en una esquina (prender / apagar) |
-| 🔵 Azul · 🔴 Rojo | Videos: — · idioma de audio | Qué foto es (carpeta, archivo y número, en letra grande) · girar la foto |
-| 🔴 Rojo (Música) | Música: aleatorio (mezclar / volver al orden) | |
+| 🔵 Azul | Qué es: el nombre (en Música, tema, artista y disco), por dónde va y el número | Qué foto es (carpeta, archivo y número, en letra grande) |
+| 🔴 Rojo | Videos: idioma de audio · Música: aleatorio (mezclar / volver al orden) | Girar la foto |
 | 🟡 Amarillo | Videos: proporción (16:9, 4:3…) · Música: repetir (toda la lista → este tema → no repetir) | Una foto al azar |
 | 🟢 Verde | — | Dónde se sacó la foto: un mapa (si tiene GPS) |
-| ● (grabar) | — | ♥ Guardar la foto en **Favoritas** (otra vez la saca) |
+| 1 | — | ♥ Guardar la foto en **Favoritas** (otra vez la saca) |
 
 En Música, la barra dice abajo a la derecha si está en **aleatorio** y si **repite la lista** o **el tema**. Es lo mismo que muestran los botones del reproductor del celular: se puede cambiar desde cualquiera de los dos.
 
@@ -157,9 +157,9 @@ En Música, la barra dice abajo a la derecha si está en **aleatorio** y si **re
 | ◀ ▶ ▲ ▼ | Mover la foto (ver otra parte) |
 | OK · Canal + | Acercar más |
 | Atrás · Canal − | Alejar; desde el primer paso vuelve a la foto entera |
-| ⏯ · ▶ · ⏸ | Foto entera de una |
+| ▶ · ⏸ | Foto entera de una |
 
-Al salir del zoom (o al pasar a otra foto con ⏮ ⏭) la presentación sigue sola, salvo que la hubieras pausado vos antes.
+Al salir del zoom (o al pasar a otra foto con Canal ±) la presentación sigue sola, salvo que la hubieras pausado vos antes.
 
 **Fotos y videos**: la presentación tiene tres modos.
 - **Solo fotos** (el de siempre).
@@ -167,11 +167,11 @@ Al salir del zoom (o al pasar a otra foto con ⏮ ⏭) la presentación sigue so
 - **Dónde se sacó** (verde): en las fotos que tienen la ubicación (GPS, como las del celular), el verde muestra un **mapa** con una marca en el lugar, la fecha y la carpeta; ▲ u OK acercan, ▼ aleja y Atrás vuelve a la presentación (que se pausa mientras tanto). El azul avisa cuando la foto tiene mapa. Los mosaicos son de [OpenStreetMap](https://www.openstreetmap.org/copyright): la Pi los pide a tile.openstreetmap.org (es lo único que sale de la casa: la zona del mapa, no la foto) y los guarda en `~/.cache/tele-cec/mapas` un mes. Necesita `python3-pil` (lo instala `install.sh`). `[apps.fotos] map = false` lo apaga; `map_tiles` cambia de dónde salen los mosaicos.
 - **Un día como hoy**: en la carpeta de Fotos (Carpetas ▸, o tocando Fotos › Carpetas en el celular), después de los tres modos, «▶ Un día como hoy» muestra las fotos y videos de esta fecha en otros años, al azar («15 de noviembre: 312 fotos y 4 videos de 2009, 2014 y 2017»), con el año de cada una chico abajo a la derecha («2014 · hace 12 años»). Si no hay de ese día exacto, los de esa semana. La fecha sale del nombre (IMG_20170226_…, IMG-20180321-WA…, una carpeta «20-12-2008 …») o, para las de cámara (DSC02815.JPG), de la foto misma (EXIF). Leer todas la primera vez lleva un rato: va de a poco (unas 4 fotos por segundo, para no trabar la red de la Pi) y se pausa mientras se están mirando las fotos; mientras tanto el menú dice «buscando fechas (…%)»; quedan guardadas en `~/.cache/tele-cec/fotos-fechas.json` y las nuevas se leen al actualizarse la lista. Primero se guardan las que dice el nombre (al instante) y después las del EXIF; si el servicio se reinicia, a los 2 minutos sigue solo desde donde quedó. Las que se leen al mirar una foto (la fecha en la esquina) también quedan guardadas. ▼ pasa a la carpeta entera. `on_this_day = false` lo oculta; `today_shuffle = false` las muestra de la más vieja a la más nueva.
 - **La fecha en la esquina** (**CC** en el control): prende o apaga la fecha de cada foto, chica abajo a la derecha, con lo que se sepa: el día («sábado 20 de diciembre de 2008 · hace 17 años») si lo dice el nombre o la foto (EXIF); si no, el mes o el año según las carpetas («2003/Diciembre», «2009/11», «2008-12 Navidad», «Vacaciones enero 2010» → «diciembre de 2003», «noviembre de 2009»…; «Fotos 1998» → «1998»). Sin nada, la esquina queda vacía. Si la foto o el video sabe **dónde se sacó** (GPS: EXIF de las fotos, o la ubicación que guardan los celulares en los videos MP4/MOV), a la derecha de la fecha aparece un **globo terráqueo**: el verde muestra el mapa (también de los videos). `show_location = false` lo saca. Queda como la dejaste para la próxima vez (`show_date` es cómo arranca la primera vez). En «Un día como hoy», con la fecha prendida se ve el día entero en vez de solo el año. Solo con mpv (no con `viewer = "feh"`).
-- **Favoritas** (**●**, el botón de grabar): guarda la foto (o el video) que se está viendo en una lista; otra vez ● la saca, y en la esquina de abajo a la derecha se ve un **♥** en las guardadas (con la fecha, si está prendida). Para verlas: en **Carpetas ▸**, al final de la lista de carpetas (y dentro de cada una, después de «Un día como hoy»), «▶ ♥ Favoritas» las muestra en el orden en que se guardaron («12 fotos y 1 video guardadas con ●»); lo mismo en la página del celular, que además ofrece «♥ Guardar esta foto» tocando Fotos cuando está en la TV. La lista está en `~/.local/share/tele-cec/fotos-favoritas.txt` (una ruta por línea: se puede editar o copiar), fuera de la caché para que no se pierda. También con feh.
+- **Favoritas** (**1** en el control, como el ♥ de Tidal): guarda la foto (o el video) que se está viendo en una lista; otra vez 1 la saca, y en la esquina de abajo a la derecha se ve un **♥** en las guardadas (con la fecha, si está prendida). Para verlas: en **Carpetas ▸**, al final de la lista de carpetas (y dentro de cada una, después de «Un día como hoy»), «▶ ♥ Favoritas» las muestra en el orden en que se guardaron («12 fotos y 1 video guardadas con 1»); lo mismo en la página del celular, que además ofrece «♥ Guardar esta foto» tocando Fotos cuando está en la TV. La lista está en `~/.local/share/tele-cec/fotos-favoritas.txt` (una ruta por línea: se puede editar o copiar), fuera de la caché para que no se pierda. También con feh.
 - **Al azar**: si la carpeta tiene subcarpetas con fotos o videos (los años, los viajes…), la presentación va en orden aleatorio, en los tres modos; si no, en orden (por nombre, o intercalados por fecha). Con `shuffle = true`, siempre al azar. El menú lo dice debajo de cada opción («· al azar»). Al cambiar de modo con ▼ sigue desde la foto que se estaba viendo.
 - **Solo videos**: los videos de esa carpeta y sus subcarpetas.
 
-Los tres usan **mpv** (`sudo apt install mpv`). Al entrar a la presentación se ve unos segundos en qué modo arranca, y **▼** pasa al siguiente sin perder el lugar: sigue desde la foto que se estaba viendo (o el video más cercano por fecha). También se puede elegir en **Carpetas ▸**: dentro de una carpeta, debajo de «Ver las fotos» están «Fotos y videos» y «Solo los videos», y lo mismo en la página del celular. OK sobre Fotos siempre arranca en «solo fotos». Mientras suena un video, la música de Tidal de fondo se pausa y vuelve al terminar el video; ⏯ pausa el video.
+Los tres usan **mpv** (`sudo apt install mpv`). Al entrar a la presentación se ve unos segundos en qué modo arranca, y **▼** pasa al siguiente sin perder el lugar: sigue desde la foto que se estaba viendo (o el video más cercano por fecha). También se puede elegir en **Carpetas ▸**: dentro de una carpeta, debajo de «Ver las fotos» están «Fotos y videos» y «Solo los videos», y lo mismo en la página del celular. OK sobre Fotos siempre arranca en «solo fotos». Mientras suena un video, la música de Tidal de fondo se pausa y vuelve al terminar el video; ▶ y ⏸ pausan el video.
 
 Al abrirse una ficha, el resaltado pasa solo a su botón **Reproducir/Reanudar** (OK dos veces = abrir y reproducir), y al cerrarla vuelve a la tarjeta.
 
@@ -230,7 +230,7 @@ Las opciones van en **dos columnas**, sin desplazar (`[menu] columns = 2`; con `
 - **Con el teclado** (el de la Pi 400 o uno USB/Bluetooth), mientras el menú está a la vista: flechas, **Enter** (o espacio) para elegir, **Esc** o **Retroceso** para volver, números, **F1** para la ayuda y la tecla Menú para volver o cerrar. El panel toma el teclado solo mientras se ve el menú; al cerrarse, las teclas vuelven a la app (`[menu] keyboard = false` lo desactiva).
 - Al abrirse, queda resaltada la actividad **en uso**. OK sobre ella solo cierra el menú.
 - **Ayuda**: la última opción del menú (o, desde cualquier app, la tecla del punto (•), como recuerda abajo el menú, o Ayuda si tu TV la manda: muchas no la pasan por CEC, ni Info) muestra una tabla «tecla → qué hace», empezando por la app que estabas usando. ◀ ▶ pasan a otra app (Netflix en el inicio y viendo un título, Tidal, Videos, Fotos, Fotos con zoom, Android, el propio menú…), ▲ ▼ muestran más filas y Atrás vuelve. Se arma con tu configuración de teclas, así que si cambiás alguna en `config.toml` la ayuda lo refleja.
-- **Música mientras pasan las fotos**: abrir Fotos no cierra Tidal ni la Música local (con la Música pasa lo mismo que se cuenta acá de Tidal), así que podés poner música y después la presentación. En el menú, Tidal figura «sonando» (o «en pausa», o «abierto» si no tiene nada cargado). Mientras tanto, ⏯ pone play o pausa a la música (con un aviso de qué suena); OK pausa la presentación y ◀ ▶ ⏮ ⏭ pasan de foto. Para cambiar de tema, usá la página del celular o elegí Tidal en el menú: cierra las fotos y deja Tidal en pantalla, sin cortar la música. Abrir Netflix, Videos u otra app sí cierra la música. Sin música, ⏯ pausa la presentación.
+- **Música mientras pasan las fotos**: abrir Fotos no cierra Tidal ni la Música local (con la Música pasa lo mismo que se cuenta acá de Tidal), así que podés poner música y después la presentación. En el menú, Tidal figura «sonando» (o «en pausa», o «abierto» si no tiene nada cargado). Mientras tanto, ▶ y ⏸ ponen play o pausa a la música (con un aviso de qué suena); OK pausa la presentación y ◀ ▶ o Canal ± pasan de foto. Para cambiar de tema, usá la página del celular o elegí Tidal en el menú: cierra las fotos y deja Tidal en pantalla, sin cortar la música. Abrir Netflix, Videos u otra app sí cierra la música. Sin música, ▶ y ⏸ pausan la presentación.
 - **Videos y Música: OK no arranca nada**: abre el selector en la carpeta predeterminada (el pendrive, o `~/Vídeos` / `~/Música`) para elegir qué poner. En **Videos** se elige el archivo: aparecen las subcarpetas y después los videos, y OK sobre uno reproduce solo ese; al terminar vuelve el menú. En **Música** la primera opción es «▶ Escuchar esta carpeta» (dice qué tiene: «12 temas», «12 temas y 3 subcarpetas», «en 3 subcarpetas»); abajo, las subcarpetas (artistas, discos) y los temas de esa carpeta: OK sobre un tema lo pone y sigue con los demás de la carpeta, como un disco.
   - **Lo que dicen los archivos**: cada tema muestra el título de sus etiquetas y, abajo, el artista (el disco, si no es el de la carpeta) y la duración; cada video, su título (si lo trae; si no, el nombre del archivo), la duración, la calidad (1080p, 4K…), el tamaño y si tiene subtítulos (adentro o al lado). Los videos se leen con `ffprobe` (paquete `ffmpeg`, lo instala `install.sh`) y lo leído se guarda en `~/.cache/tele-cec/videos-info.json`: la primera vez, si una carpeta tiene muchos videos, algunos pueden aparecer solo con el tamaño (se terminan de leer de fondo y la próxima vez ya salen completos). ◀ sube a la lista de carpetas configuradas (si hay más de una) y de ahí al menú. Si Videos o Música ya están abiertos, OK vuelve a ellos como siempre.
 - **Elegir otra carpeta**: OK sobre Fotos arranca la presentación en la carpeta predeterminada (la primera de `[apps.fotos] folders`). Con **▶** (o el botoncito «Carpetas») se abre un selector de carpetas en el mismo panel:
@@ -295,7 +295,7 @@ Un joystick (Xbox 360 o One, 8BitDo, PlayStation…) maneja todo igual que el co
 | B | Atrás |
 | X | ⏯ |
 | Y | Amarillo (en el Xbox los colores coinciden) |
-| LB · RB | ⏮ · ⏭ |
+| LB · RB | Canal − · Canal + (anterior · siguiente) |
 | LT · RT (gatillos) | ⏪ · ⏩ |
 | Start · botón del medio | Menú |
 | Back | Azul |
@@ -346,7 +346,7 @@ resume_apps = false           # al volver: el menú (false) o lo que estaba abie
 - **Música** abre **mpv** con los temas de la carpeta (y subcarpetas, en orden natural: «2 - …» antes que «10 - …») y muestra la **tapa del disco**: la que trae el archivo o una imagen al lado (`cover.jpg`, `folder.jpg`…). La barra queda siempre a la vista con el tema, el artista y el tiempo. Puede quedar sonando mientras pasan las fotos.
 - **En la Raspberry Pi**, los videos H.264 y HEVC se decodifican por hardware y se muestran con la salida `dmabuf-wayland` de mpv (1080p a 60 cuadros sin trabarse); las fotos, las tapas y los videos en otros formatos, con OpenGL. El cambio lo hace solo un script de mpv (`tele_cec/apps/mpv_scripts/tele_cec_vo.lua`) en cada archivo. Con Vulkan (lo que mpv elige solo) la tele se veía azul: las fotos salen en colores de 10 bits que el escritorio manda directo al HDMI, y los cuadros del decodificador por hardware Vulkan no los sabe leer. Las fotos de más de 4096 píxeles de lado (p. ej. 4160 × 3120, de 13 MP) se achican a 4096 antes de dibujarlas: la placa de video de la Pi no acepta imágenes más grandes (salían negras).
 - Videos y Música se manejan por el canal de control de mpv; con **mpv-mpris** (lo instala `install.sh`) lo que suena aparece en la página del celular. Cada uno usa su propio mpv, sin la configuración personal de mpv (`~/.config/mpv`).
-- **Radio**: OK sobre Radio en el menú pone **la última que sonó** de una (abajo de la fila dice cuál). El botoncito **Radios ▸** (▶, o el amarillo) muestra la lista de `[apps.radio] stations` (no viene ninguna: se ponen en `config.toml`), con la que suena o la última resaltada; OK (o 1 – 9) abre **mpv** con esa emisora, o la cambia si la Radio ya estaba sonando. La primera vez (todavía no sonó ninguna) OK también muestra la lista. En la TV, una pantalla propia: la emisora, «● En vivo» y el tema que está sonando, si la emisora lo manda («Artista - Tema»), con la **tapa del disco** a la izquierda si se encuentra: las emisoras mandan solo el texto, así que se busca en iTunes (público, sin cuenta; sale de la casa solo «Artista - Tema») y se acepta solo si el artista coincide, para no poner la tapa de otro; quedan guardadas en `~/.cache/tele-cec/radio-tapas` y la misma tapa se ve en el reproductor del celular. `covers = false` lo apaga. OK pausa y sigue (después de una pausa de más de 20 s vuelve a conectar, para escuchar lo que sale en vivo y no lo de hace un rato); ▲ ▼ el volumen; ◀ ▶ o Canal ± cambian de radio, 1 – 9 eligen una de la lista y ■ la cierra. Se acuerda de la última que sonó. Arranca con 3 s de colchón y, si se corta la conexión, vuelve a conectarse sola. Como la Música, puede quedar sonando mientras pasan las fotos (un video de la presentación la pausa) y, con un parlante Bluetooth, abrirla desde el celular no prende la TV.
+- **Radio**: OK sobre Radio en el menú pone **la última que sonó** de una (abajo de la fila dice cuál). El botoncito **Radios ▸** (▶, o el amarillo) muestra la lista de `[apps.radio] stations` (no viene ninguna: se ponen en `config.toml`), con la que suena o la última resaltada; OK (o 1 – 9) abre **mpv** con esa emisora, o la cambia si la Radio ya estaba sonando. La primera vez (todavía no sonó ninguna) OK también muestra la lista. En la TV, una pantalla propia: la emisora, «● En vivo» y el tema que está sonando, si la emisora lo manda («Artista - Tema»), con la **tapa del disco** a la izquierda si se encuentra: las emisoras mandan solo el texto, así que se busca en iTunes (público, sin cuenta; sale de la casa solo «Artista - Tema») y se acepta solo si el artista coincide, para no poner la tapa de otro; quedan guardadas en `~/.cache/tele-cec/radio-tapas` y la misma tapa se ve en el reproductor del celular. `covers = false` lo apaga. OK pausa y sigue (después de una pausa de más de 20 s vuelve a conectar, para escuchar lo que sale en vivo y no lo de hace un rato); ▲ ▼ el volumen; ◀ ▶ o Canal ± cambian de radio, 1 – 9 eligen una de la lista, el **amarillo** muestra la lista encima (Atrás vuelve a la Radio), el **azul** dice qué suena y ■ la cierra. Se acuerda de la última que sonó. Arranca con 3 s de colchón y, si se corta la conexión, vuelve a conectarse sola. Como la Música, puede quedar sonando mientras pasan las fotos (un video de la presentación la pausa) y, con un parlante Bluetooth, abrirla desde el celular no prende la TV.
 - **Fotos** abre una presentación con **mpv** en pantalla completa: avanza sola cada 8 s y con ◀ ▶ pasás a mano. La placa de video achica las fotos, hace el zoom y las mueve (antes, con feh, todo lo hacía el procesador), y la foto siguiente se lee mientras se ve la actual: pasar de foto tarda 0,2 s aunque sean de 12 MP y estén en otra máquina. Las fotos sacadas con el celular girado salen derechas. OK la pausa. ▲ hace zoom y las flechas recorren la foto (ver [Teclas](#teclas-por-defecto)).
 - **De dónde**: la primera carpeta de `folders` que tenga videos o fotos. Por defecto, primero los **pendrives** (`/media/<usuario>/<disco>`, donde los monta el escritorio) y después `~/Vídeos` o `~/Imágenes`. El menú muestra cuál va a usar («Pendrive KINGSTON», «~/Vídeos»).
 
@@ -406,9 +406,12 @@ YouTube se ve con **YouTube para TV** (`youtube.com/tv`), la versión que traen 
 | Tecla | Qué hace |
 |---|---|
 | ▲ ▼ ◀ ▶ · OK | Moverse y elegir (como en un Smart TV) |
-| Atrás | Volver |
-| ⏯ · Play · Pausa | Play / pausa |
-| ⏩ ⏪ | Adelantar / atrasar 10 s |
+| Atrás · ■ Stop | Volver (■ sale del video) |
+| ▶ Play · ⏸ Pausa | Play · pausa |
+| ⏩ ⏪ | Adelantar / atrasar 1 minuto |
+| Canal + · Canal − | El video siguiente / anterior de la lista |
+| 🔵 Azul | El inicio de YouTube |
+| CC | Subtítulos (prender / apagar) |
 
 ```toml
 [apps.youtube]
@@ -438,7 +441,7 @@ force_h264 = true
 | 🟡 Amarillo | La lista de sitios | abc → ABC → 123 |
 | 🔵 Azul | La página de inicio | — |
 | Canal ± · ⏪ ⏩ | Una página entera arriba o abajo | Igual |
-| ⏯ · Play · Pausa | El video de la página | Igual |
+| ▶ Play · ⏸ Pausa | El video de la página | Igual |
 
 ```toml
 [apps.navegador]
@@ -516,8 +519,8 @@ serial = "192.168.0.50:5555"   # "" = el que esté conectado (primero el del cab
 | Amarillo | Notificaciones (otra vez: cerrarlas) |
 | Menú › OK sobre Android | **Seguir viendo**, **Dejar de compartir la pantalla** u otro celular (el menú ya abre parado en Android) |
 | Verde | Lo mismo, si tu TV manda el verde por CEC (muchas lo usan para sus propias funciones) |
-| ⏯ · Play · Pausa · Stop | Play / pausa de lo que suena en el celular |
-| Canal ± (o ⏭ ⏮) · ⏩ ⏪ | Siguiente / anterior · adelantar / atrasar (si la app los entiende) |
+| ▶ Play · ⏸ Pausa · ■ Stop | Play · pausa · stop de lo que suena en el celular |
+| Canal ± · ⏩ ⏪ | Siguiente / anterior · adelantar / atrasar (si la app los entiende) |
 | 0 – 9 · Borrar | Escribir números, por ejemplo el PIN para desbloquear |
 
 - Las flechas, OK y los números se le escriben a la ventana de scrcpy (`wtype`), que se los pasa al celular como un teclado. En muchas apps hechas para el dedo, las flechas recorren los botones con un recuadro; donde no llegan, el celular sigue andando con la mano.
@@ -798,7 +801,7 @@ cec: CEC listo (/dev/cec0)
 tele: Conectado a Firefox: https://www.netflix.com/browse
 tele: Tecla F2_RED (rojo) [browse] -> continue_watching
 tele: Seguir viendo: Merlina
-tele: Tecla FORWARD (siguiente) [player] -> smart_skip
+tele: Tecla F4_YELLOW (amarillo) [player] -> smart_skip
 tele: Botón inteligente: Saltar intro
 tele: Tecla ROOT_MENU (menú) [player] -> menu
 tele: Menú: [Netflix] · Tidal · Videos · Fotos

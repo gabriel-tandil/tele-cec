@@ -260,15 +260,15 @@ UP = "music:volume:+"
 DOWN = "music:volume:-"
 VOLUME_UP = "music:volume:+"
 VOLUME_DOWN = "music:volume:-"
-RECORD = "music:like"         # ● = me gusta (agregar/quitar de favoritos)
 F1_BLUE = "music:info"        # azul = qué suena: tema, artista, disco y por dónde va
 SUB_PICTURE = "music:lyrics"  # CC = mostrar las letras (otra vez = volver al reproductor)
 F2_RED = "music:shuffle"      # rojo = mezclar / volver al orden
 F4_YELLOW = "music:my_tracks" # amarillo = Mis canciones
 NUMBER0 = "music:nav"         # cambia las flechas: recorrer la interfaz ↔ controles (volumen, temas)
-NUMBER1 = "music:page:inicio"     # páginas de High Tide (la barra de abajo)
-NUMBER2 = "music:page:explorar"
-NUMBER3 = "music:page:coleccion"
+NUMBER1 = "music:like"        # 1 = ♥ me gusta (agregar/quitar de favoritos), como el 1 en Fotos
+NUMBER2 = "music:page:inicio"     # páginas de High Tide (la barra de abajo)
+NUMBER3 = "music:page:explorar"
+NUMBER4 = "music:page:coleccion"
 EXIT = ""
 AN_RETURN = ""
 
@@ -510,7 +510,7 @@ F3_GREEN = "fotos:map"        # verde = dónde se sacó la foto (un mapa, si tie
 UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
 DOWN = "fotos:mode"           # ▼ = solo fotos → fotos y videos → solo videos (sigue desde la foto que se veía)
 SUB_PICTURE = "fotos:date"    # CC = la fecha de cada foto en una esquina (el día, el mes o el año: lo que se sepa)
-RECORD = "fotos:favorite"     # ● = guardar la foto en Favoritas (otra vez: sacarla); se ven desde Carpetas ▸
+NUMBER1 = "fotos:favorite"    # 1 = ♥ guardar la foto en Favoritas (otra vez: sacarla); se ven desde Carpetas ▸
 
 [keys.fotos_zoom]             # Fotos con zoom: las flechas mueven la foto, OK acerca y Atrás aleja
 UP = "fotos:scroll:up"
@@ -582,8 +582,8 @@ A = "SELECT"
 B = "EXIT"
 X = "PAUSE_PLAY_FUNCTION"
 Y = "F4_YELLOW"               # en el Xbox los colores coinciden: Y amarillo
-LB = "BACKWARD"
-RB = "FORWARD"
+LB = "CHANNEL_DOWN"            # LB · RB = Canal − · Canal +: anterior · siguiente, como en el control
+RB = "CHANNEL_UP"
 LT = "REWIND"
 RT = "FAST_FORWARD"
 BACK = "F1_BLUE"
@@ -599,6 +599,12 @@ RS_UP = "VOLUME_UP"           # la palanca derecha
 RS_DOWN = "VOLUME_DOWN"
 RS_LEFT = ""
 RS_RIGHT = ""
+
+# Ayuda en la TV (• o el final del menú): qué hace cada tecla.
+[help]
+# Teclas que no se muestran en la Ayuda porque el control no las tiene (siguen funcionando si llegan).
+# Por defecto, las que no trae el control Philips: ⏭ ⏮ ⏯ e Info. Con [] se muestran todas.
+hide_keys = ["FORWARD", "BACKWARD", "PAUSE_PLAY_FUNCTION", "DISPLAY_INFORMATION"]
 
 # Menú de actividades.
 [menu]

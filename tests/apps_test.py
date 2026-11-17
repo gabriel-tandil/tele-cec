@@ -541,10 +541,10 @@ async def main() -> int:
     check(out == ["cycle:my_tracks", "cycle:collection", "cycle:home", "cycle:my_tracks"],
           f"con el canal, el amarillo cicla Mis canciones → Colección → Inicio: {out}")
     ctl.music.channel = False
-    out = await press("SELECT", "FORWARD", "BACKWARD", "UP", "DOWN", "RECORD", "F1_BLUE")
+    out = await press("SELECT", "FORWARD", "BACKWARD", "UP", "DOWN", "NUMBER1", "F1_BLUE")
     check(out == ["mpris:play-pause", "mpris:next", "mpris:previous", "mpris:volume+", "mpris:volume-",
                   "like", "ov:toast:Volver a Volver\nGabo Ferro · Mancha de Rolando\n1:02 de 3:40 · en pausa"],
-          f"OK, ⏭, ⏮, ▲, ▼, ● (me gusta), azul (qué suena): {out}")
+          f"OK, ⏭, ⏮, ▲, ▼, 1 (♥ me gusta), azul (qué suena): {out}")
     out = await press("CHANNEL_UP", "CHANNEL_DOWN", "RIGHT", "LEFT", "FAST_FORWARD", "REWIND")
     check(out == ["mpris:next", "mpris:previous", "mpris:seek+10", "mpris:seek-10", "mpris:seek+60", "mpris:seek-60"],
           f"Canal ± = tema, ◀ ▶ = 10 s, ⏪ ⏩ = 1 min (como en Música y Videos): {out}")
@@ -557,11 +557,11 @@ async def main() -> int:
     out = await press("DOWN", "LEFT", "SELECT", "EXIT")
     check(out == ["wtype:Down", "wtype:Left", "wtype:Return", "go:back"],
           f"en modo navegación: flechas, OK y Atrás van tal cual a la app (sin seguir el foco): {out}")
-    out = await press("FORWARD", "BACKWARD", "CHANNEL_UP", "CHANNEL_DOWN", "RECORD")
+    out = await press("FORWARD", "BACKWARD", "CHANNEL_UP", "CHANNEL_DOWN", "NUMBER1")
     check(out == ["mpris:next", "mpris:previous", "mpris:next", "mpris:previous", "like"],
-          f"⏭ ⏮ y Canal ± cambian de tema también recorriendo la interfaz; ● = me gusta: {out}")
-    out = await press("NUMBER3", "NUMBER1")
-    check(out == ["go:collection", "go:home"], f"3 = Colección, 1 = Inicio: {out}")
+          f"⏭ ⏮ y Canal ± cambian de tema también recorriendo la interfaz; 1 = ♥ me gusta: {out}")
+    out = await press("NUMBER4", "NUMBER2")
+    check(out == ["go:collection", "go:home"], f"4 = Colección, 2 = Inicio (el 1 es ♥): {out}")
     out = await press("ROOT_MENU")
     check(await ctl.context() == "menu", "Menú también se abre en el modo navegación")
     await press("EXIT")
@@ -609,15 +609,16 @@ async def main() -> int:
     out = await press("RIGHT", "LEFT", "SELECT", "EXIT")
     check(out == ["feh:next", "feh:previous", "feh:h"], f"▶, ◀, OK (Atrás nada): {out}")
     check(fotos.paused, "queda en pausa")
-    out = await press("RECORD")
-    check(out == ["ov:toast:♥ Guardada en Favoritas (1) · ● otra vez la saca"]
+    out = await press("NUMBER1")
+    check(out == ["ov:toast:♥ Guardada en Favoritas (1) · 1 otra vez la saca"]
           and fotos.favorites() == ["/mnt/fotos-red/2017/07/IMG_0001.jpg"],
-          f"● guarda la foto que se ve en Favoritas (también con feh): {out}")
-    out = await press("RECORD")
-    check(out == ["ov:toast:Sacada de Favoritas (0)"] and fotos.favorites() == [], f"otra vez ● la saca: {out}")
-    check(ctl.cfg.action_for("fotos_zoom", parse_key("RECORD"))[0] == "fotos:favorite"
-          and ctl.cfg.action_for("fotos", parse_key("NUMBER1")) is None
-          and ctl.cfg.action_for("fotos", parse_key("NUMBER2")) is None, "también con zoom; el 1 y el 2 quedan libres")
+          f"1 guarda la foto que se ve en Favoritas (también con feh): {out}")
+    out = await press("NUMBER1")
+    check(out == ["ov:toast:Sacada de Favoritas (0)"] and fotos.favorites() == [], f"otra vez 1 la saca: {out}")
+    check(ctl.cfg.action_for("fotos_zoom", parse_key("NUMBER1"))[0] == "fotos:favorite"
+          and ctl.cfg.action_for("tidal", parse_key("NUMBER1"))[0] == "music:like"
+          and ctl.cfg.action_for("fotos", parse_key("NUMBER2")) is None,
+          "también con zoom; el 1 es ♥ también en Tidal; el 2 queda libre")
     await press("SELECT")
     fotos.current_folder = Path("/mnt/fotos-red")
     out = await press("F2_RED", "F4_YELLOW", "F1_BLUE")
@@ -3361,7 +3362,7 @@ echo '</mame>'
         _, its = ctl._picker_entries("fotos", None)
         row = its[-1]
         check(row.get("mode") == "favorites" and row["name"] == "▶ ♥ Favoritas" and row["enabled"]
-              and row["sub"] == "1 foto y 1 video guardadas con ● · otra vez ● las saca" and row["path"] == its[0]["path"]
+              and row["sub"] == "1 foto y 1 video guardadas con 1 · otra vez 1 las saca" and row["path"] == its[0]["path"]
               and its[0]["kind"] == "dir",
               f"en Carpetas ▸ (la lista de carpetas), al final: «♥ Favoritas» con cuántas hay: {row}")
         _, its = ctl._picker_entries("fotos", hoy)
@@ -4015,9 +4016,10 @@ echo '</mame>'
             await ctl.run_action("menu:back")
             check(not ctl._menu_open and ctl._ctx == ctx_before, "Atrás vuelve a la Radio (no al menú de actividades)")
             rows = help_rows(ctl, "radio")
-            check(any(k == "⏭  ⏮" or "⏭" in k for k, _d in rows) and any(d == "Esa radio de la lista" and "1 – 9" in k
-                                                                         for k, d in rows),
-                  f"la ayuda tiene la página de la Radio: {rows}")
+            check(any(d == "Radio siguiente" and "Canal +" in k for k, d in rows)
+                  and any(d == "Esa radio de la lista" and "1 – 9" in k for k, d in rows)
+                  and not any("⏭" in k or "⏯" in k for k, _d in rows),
+                  f"la ayuda tiene la página de la Radio (sin ⏭ ⏯, que el control no tiene): {rows}")
             from tele_cec.ui import help as help_mod2
             check(("radio", "Radio") in help_mod2.pages(ctl.cfg, {"radio"})
                   and not any(c == "radio" for c, _t in help_mod2.pages(ctl.cfg, {"netflix"})),

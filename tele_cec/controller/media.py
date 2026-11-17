@@ -258,7 +258,7 @@ class MediaMixin:
             log.warning("fotos:%s desconocida", arg)
 
     async def _fotos_favorite(self, f: activities_mod.PhotosActivity) -> None:
-        """● (grabar) en Fotos: guarda la foto que se ve en Favoritas (otra vez la saca). Se ven desde Carpetas ▸."""
+        """1 en Fotos: guarda la foto que se ve en Favoritas (otra vez la saca). Se ven desde Carpetas ▸."""
         info = await f.photo_info()
         if not info:
             await self.toast("No sé qué foto se está viendo", 2500)
@@ -269,7 +269,7 @@ class MediaMixin:
             return
         n = len(f.favorites())
         await f.refresh_corner()
-        await self.toast(f"♥ Guardada en Favoritas ({n}) · ● otra vez la saca" if added
+        await self.toast(f"♥ Guardada en Favoritas ({n}) · 1 otra vez la saca" if added
                          else f"Sacada de Favoritas ({n})", 2500)
 
     async def _fotos_map(self, f: activities_mod.PhotosActivity) -> None:

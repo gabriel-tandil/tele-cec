@@ -245,8 +245,11 @@ def rows(cfg: Config, ctx: str) -> list[tuple[str, str]]:
         for code in cfg.bindings.get(c, {}):
             if code not in codes:
                 codes.append(code)
+    hidden = {parse_key(str(k)) for k in (cfg.raw.get("help") or {}).get("hide_keys", [])}
     groups: dict[str, list[str]] = {}
     for code in codes:
+        if code in hidden:
+            continue  # el control no la tiene ([help] hide_keys)
         found = cfg.action_for(ctx, code)
         if not found:
             continue
