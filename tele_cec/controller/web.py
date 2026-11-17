@@ -1,9 +1,11 @@
 """Acciones del Navegador (apps/navegador): moverse por la página, abrir, volver, escribir con los números (T9), el
-cuadro «Ir a», los sitios guardados y el video de la página."""
+cuadro «Ir a», el modo mouse, los sitios guardados y el video de la página."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 from .. import apps as activities_mod
 from ..apps.navegador.t9 import MODE_TEXT
@@ -12,9 +14,28 @@ from ..apps.netflix.cdp import CDPClosed, CDPError
 log = logging.getLogger("tele")
 
 TEXT_HINT = "Escribí con los números · OK aceptar · Atrás salir del campo"
+MOUSE_HINT = "Modo mouse · las flechas mueven la flecha (seguido: más rápido) · OK = clic · CC = salir"
+MOUSE_OFF_HINT = "Modo mouse apagado · las flechas van de enlace en enlace"
+
+
+# Botón mantenido sin aviso de «soltado» (0x45): si no llega otra repetición en este tiempo, se soltó.
+HOLD_GAP_S = 0.55
+MOUSE_DIRS = ("up", "down", "left", "right")
 
 
 class WebMixin:
+    def _init_web(self) -> None:
+        self._web_glide: asyncio.Task | None = None   # la flecha deslizándose (botón mantenido en modo mouse)
+        self._web_glide_dir = ""
+
+    def _web_stop_glide(self) -> None:
+        if self._web_glide is not None and not self._web_glide.done():
+            self._web_glide.cancel()
+        self._web_glide = None
+
+    def _web_still_held(self) -> bool:
+        return not self._released and time.monotonic() - self._last_key[1] < HOLD_GAP_S
+
     def _web(self) -> activities_mod.WebActivity | None:
         w = self.activities.get("navegador")
         return w if isinstance(w, activities_mod.WebActivity) else None
@@ -22,7 +43,8 @@ class WebMixin:
     async def a_web(self, arg: str) -> None:
         """web:nav:up|down|left|right · ok · back · home · reload · go (el cuadro «Ir a») · url:<dirección> ·
         submit (Enter / ir) · t9:0-9 (escribir) · t9:mode (abc → ABC → 123) · key:<Tecla> (Backspace, ArrowLeft…) ·
-        clear · scroll:up|down · play_pause|play|pause (el video de la página) · sites (la lista) · site:N."""
+        clear · scroll:up|down · play_pause|play|pause (el video de la página) · sites (la lista) · site:N ·
+        mouse (prender / apagar el modo mouse) · mouse:up|down|left|right · mouse:click · save (guardar la página)."""
         w = self._web()
         if w is None or not w.running():
             log.info("El Navegador no está abierto: no ejecuto web:%s", arg)
@@ -36,14 +58,27 @@ class WebMixin:
             log.warning("Navegador: web:%s: %s", arg, exc)
 
     async def _web_cmd(self, w: activities_mod.WebActivity, cmd: str, rest: str) -> None:
+        if w.mouse:
+            # Modo mouse, también escribiendo: las flechas siempre mueven la flecha; OK hace clic (escribiendo, si
+            # la flecha no se movió desde la última letra, OK busca: Enter).
+            if cmd == "nav" or (cmd == "key" and rest in ("ArrowLeft", "ArrowRight")):
+                cmd, rest = "mouse", rest if cmd == "nav" else rest.removeprefix("Arrow").lower()
+            elif cmd == "ok" or (cmd == "submit" and w.mouse_moved):
+                cmd, rest = "mouse", "click"
+        if not (cmd == "mouse" and rest.lower() in MOUSE_DIRS):
+            self._web_stop_glide()  # cualquier otra tecla frena la flecha
         if cmd == "nav":
             r = await w.js("nav", rest.lower() or "down")
+            if r.get("key"):  # las sugerencias del buscador: con flechas de verdad
+                w.t9.reset()
+                await w.key_press(r["key"])
             if r.get("label"):
                 log.debug("Navegador: foco en %s", r["label"])
         elif cmd == "ok":
             r = await w.js("activate")
             if "x" in r and "y" in r:
                 await w.click(r["x"], r["y"])
+                await w.click_landed()
             if r.get("text"):
                 w.t9.reset()
                 await self.toast(TEXT_HINT, 2500)
@@ -75,6 +110,7 @@ class WebMixin:
             elif r.get("enter"):
                 await w.key_press("Enter")
         elif cmd == "t9":
+            w.mouse_moved = False
             if rest.lower() == "mode":
                 await self.toast(MODE_TEXT[w.t9.next_mode()], 1500)
                 return
@@ -106,7 +142,64 @@ class WebMixin:
                 await w.navigate(w.bookmarks[index]["url"])
             else:
                 await self.toast(f"No hay un sitio {index + 1} (ver [apps.navegador] bookmarks)", 2500)
+        elif cmd == "mouse":
+            await self._web_mouse(w, rest.lower())
+        elif cmd == "save":
+            await self.web_save_page()
         elif cmd == "toast":
             await self.toast(rest)
         else:
             log.warning("web:%s desconocida", cmd)
+
+    async def _web_mouse(self, w: activities_mod.WebActivity, sub: str) -> None:
+        if sub in ("", "toggle", "on", "off"):
+            on = (not w.mouse) if sub in ("", "toggle") else sub == "on"
+            if on:
+                await w.mouse_on()
+                await self.toast(MOUSE_HINT, 3000)
+            else:
+                await w.mouse_off()
+                await self.toast(MOUSE_OFF_HINT, 2000)
+            log.info("Navegador: modo mouse %s", "prendido" if on else "apagado")
+        elif sub in MOUSE_DIRS:
+            if not w.mouse:
+                await w.mouse_on()
+            glide = self._web_glide
+            if glide is not None and not glide.done():
+                if self._web_glide_dir == sub:
+                    return  # otra repetición del botón mantenido: la flecha ya se está deslizando
+                self._web_stop_glide()
+            if self._key_held:
+                # Mantenido: se desliza sola (cada vez más rápido) hasta que se suelte el botón.
+                self._web_glide_dir = sub
+                self._web_glide = asyncio.get_running_loop().create_task(w.mouse_glide(sub, self._web_still_held))
+            else:
+                await w.mouse_move(sub)
+        elif sub == "click":
+            r = await w.mouse_click()
+            if r.get("text"):
+                w.t9.reset()
+                await self.toast(TEXT_HINT, 2500)
+            log.info("Navegador: clic en %s,%s%s", r.get("x"), r.get("y"), f" «{r['label']}»" if r.get("label") else "")
+        else:
+            log.warning("web:mouse:%s desconocida (up, down, left, right, click, on, off)", sub)
+
+    async def web_save_page(self) -> int:
+        """Guarda la página que se ve en los sitios. Devuelve su lugar en la lista (-1: no se pudo)."""
+        w = self._web()
+        if w is None or not w.running():
+            return -1
+        url, title = await w.page_info()
+        if not activities_mod.navegador.allowed_url(url):
+            await self.toast("Esta página no se puede guardar (solo direcciones web)", 2500)
+            return -1
+        before = w.saved_index(url)
+        index = w.add_bookmark(url, title)
+        if index < 0:
+            await self.toast("No pude guardar el sitio", 2500)
+        elif before >= 0:
+            await self.toast(f"Ya estaba guardado: «{w.bookmarks[index]['name']}» (sitio {index + 1})", 2500)
+        else:
+            num = f" · {index + 1} lo abre" if index < 9 else ""
+            await self.toast(f"Guardado: «{w.bookmarks[index]['name']}»{num}", 2500)
+        return index

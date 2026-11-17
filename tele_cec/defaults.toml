@@ -115,6 +115,8 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #  Navegador: web:nav:up|down|left|right  web:ok  web:back  web:home  web:reload  web:go (dirección o búsqueda)
 #    web:submit  web:t9:0-9 (escribir)  web:t9:mode (abc/ABC/123)  web:key:Backspace|ArrowLeft|ArrowRight  web:clear
 #    web:scroll:up|down  web:play_pause|play|pause  web:sites (la lista)  web:site:N  web:url:<dirección>
+#    web:mouse (modo mouse: prender / apagar)  web:mouse:up|down|left|right  web:mouse:click
+#    web:save (guardar la página que se ve en los sitios)
 #  Fotos: fotos:next  fotos:previous  fotos:pause  fotos:rotate  fotos:random  fotos:info  fotos:filename  fotos:mode
 #    fotos:date (la fecha en una esquina)  fotos:favorite (guardar en Favoritas, o sacarla)
 #    fotos:zoom_in  fotos:zoom_out  fotos:fit (sin zoom)  fotos:scroll:left|right|up|down
@@ -240,6 +242,7 @@ NUMBER7 = "menu:pick:7"
 NUMBER8 = "menu:pick:8"
 NUMBER9 = "menu:pick:9"
 HELP = "menu:help"
+F2_RED = "menu:delete"        # en los sitios del Navegador: borrar el resaltado (rojo dos veces)
 
 [keys.tidal]
 SELECT = "music:play_pause"
@@ -320,7 +323,8 @@ AN_RETURN = "web:back"
 F1_BLUE = "web:home"          # azul = la página de inicio (los sitios guardados)
 F2_RED = "web:go"             # rojo (o 0) = escribir una dirección o qué buscar
 F3_GREEN = "web:reload"
-F4_YELLOW = "web:sites"       # amarillo = la lista de sitios ([apps.navegador] bookmarks)
+F4_YELLOW = "web:sites"       # amarillo = los sitios guardados (ahí: «Guardar esta página»; rojo borra uno)
+SUB_PICTURE = "web:mouse"     # CC = modo mouse: las flechas mueven una flecha y OK hace clic ahí (otra vez: volver)
 CHANNEL_UP = "web:scroll:up"  # Canal ± y ⏪ ⏩: una página entera arriba o abajo
 CHANNEL_DOWN = "web:scroll:down"
 REWIND = "web:scroll:up"
@@ -342,6 +346,15 @@ NUMBER7 = "web:site:7"
 NUMBER8 = "web:site:8"
 NUMBER9 = "web:site:9"
 
+[keys.navegador_mouse]        # Navegador en modo mouse (CC): para lo que el marco no alcanza (un «No soy un robot»,
+UP = "web:mouse:up"           # un video embebido, un menú que se abre al pasar por encima). Las demás teclas, como
+DOWN = "web:mouse:down"       # siempre. Apretando seguido la flecha va cada vez más rápido; en el borde, corre la página.
+LEFT = "web:mouse:left"
+RIGHT = "web:mouse:right"
+SELECT = "web:mouse:click"    # OK = clic donde está la flecha
+ENTER = "web:mouse:click"
+SUB_PICTURE = "web:mouse:off" # CC otra vez = volver a ir de enlace en enlace
+
 [keys.navegador_text]         # Navegador, escribiendo en un campo: los números son letras, como en un celular viejo
 NUMBER0 = "web:t9:0"          # 0 = espacio · 1 = . , ? ! ' - @ / : _ · 2 = a b c á · 3 = d e é f … (seguido: la siguiente)
 NUMBER1 = "web:t9:1"
@@ -362,7 +375,7 @@ CLEAR = "web:key:Backspace"
 BACKWARD = "web:key:Backspace"
 F3_GREEN = "web:clear"        # verde = borrar todo
 F4_YELLOW = "web:t9:mode"     # amarillo = abc → ABC → 123
-LEFT = "web:key:ArrowLeft"    # ◀ ▶ mueven el cursor; ▲ ▼ salen del campo y siguen por la página
+LEFT = "web:key:ArrowLeft"    # ◀ ▶ mueven el cursor; ▲ ▼ recorren las sugerencias del buscador (sin sugerencias: salen del campo)
 RIGHT = "web:key:ArrowRight"
 
 [keys.juegos]                 # Juegos (MAME): el joystick es del juego
@@ -673,7 +686,9 @@ extensions = []                      # otros .xpi de Firefox para copiar al perf
 # bookmarks = [                      # los sitios: la página de inicio, el botoncito «Sitios» y las teclas 1 – 9
 #   { name = "Google", url = "https://www.google.com" },     (sin la lista: Google, DuckDuckGo y Wikipedia,
 #   { name = "Wikipedia", url = "https://es.wikipedia.org" },  cada uno con su ícono)
-# ]
+# ]                                  Al guardar o borrar un sitio desde la TV (amarillo › «Guardar esta página»,
+#                                    rojo sobre un sitio) la lista pasa a ~/.local/share/tele-cec/navegador-sitios.json
+#                                    y esta queda de lado (borrá ese archivo para volver a ella).
 # prefs = { }                        # otras preferencias de Firefox para este perfil
 
 [apps.videos]                        # Videos con mpv: la carpeta entera (y sus subcarpetas) en pantalla completa

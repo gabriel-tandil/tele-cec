@@ -62,5 +62,6 @@ class Controller(CoreMixin, BrowserMixin, NetflixMixin, ActivitiesMixin, MenuMix
         self._init_activities()
         self._init_menu()
         self._init_android_menu()
+        self._init_web()
         # Reposo o apagado automático ([power]): sin sonido ni teclas durante un rato, la Pi descansa.
         self.power = IdleShutdown(self, cfg.raw.get("power"))

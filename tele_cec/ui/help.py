@@ -20,6 +20,7 @@ PAGES: list[tuple[str, str]] = [
     ("youtube", "YouTube"),
     ("navegador", "Navegador · recorriendo la página"),
     ("navegador_text", "Navegador · escribiendo (los números son letras)"),
+    ("navegador_mouse", "Navegador · modo mouse (CC)"),
     ("tidal_nav", "Tidal · recorrer la interfaz (así arranca)"),
     ("tidal", "Tidal · controles (después de 0)"),
     ("videos", "Videos"),
@@ -89,7 +90,8 @@ SUB_ACTIONS = {
     "menu": {"": "Abrir el menú (abierto: volver atrás o cerrarlo)", "up": "Moverse", "down": "Moverse", "ok": "Abrir",
              "back": "Volver · cerrar", "close": "Cerrar", "left": "Otra columna · carpeta de arriba",
              "right": "Botón de la fila (Carpetas…) · otra columna", "pick": "Elegir directo", "help": "Ayuda",
-             "options": "Opciones: carpetas, radios, conectar, juegos"},
+             "options": "Opciones: carpetas, radios, conectar, juegos",
+             "delete": "Sitios del Navegador: borrar el resaltado (dos veces)"},
     "music": {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "stop": "Pausa", "next": "Tema siguiente",
               "previous": "Tema anterior", "like": "Me gusta (favoritos)", "shuffle": "Aleatorio",
               "my_tracks": "Mis canciones → Colección → Inicio (en ciclo)", "lyrics": "Letras (otra vez: volver)", "back": "Atrás en la app",
@@ -109,7 +111,8 @@ SUB_ACTIONS = {
             "submit": "Aceptar: ir / buscar (Enter)", "t9": "Escribir: cada número, sus letras (seguido = la siguiente)",
             "key": "Tecla", "clear": "Borrar todo", "scroll": "Página arriba / abajo",
             "play_pause": "Play / pausa del video de la página", "play": "Play", "pause": "Pausa",
-            "sites": "Los sitios guardados", "site": "Ese sitio de la lista", "url": "Abrir esa dirección"},
+            "sites": "Los sitios guardados (guardar esta página · rojo borra)", "site": "Ese sitio de la lista",
+            "url": "Abrir esa dirección", "save": "Guardar esta página en los sitios"},
     "radio": {"play_pause": "Pausa / seguir (después de un rato: en vivo otra vez)", "ok": "Pausa / seguir",
               "play": "Seguir", "pause": "Pausa", "stop": "Pausa", "next": "Radio siguiente",
               "previous": "Radio anterior", "station": "Esa radio de la lista",
@@ -165,6 +168,13 @@ def describe(action: Any, ctx: str, cfg: Config) -> str:
     if name == "web" and sub == "key":
         return {"Backspace": "Borrar una letra", "ArrowLeft": "Mover el cursor", "ArrowRight": "Mover el cursor",
                 "Enter": "Enter"}.get(rest, f"Tecla {rest}")
+    if name == "web" and sub == "mouse":
+        return {"up": "Mover la flecha (seguido: más rápido; en el borde corre la página)",
+                "down": "Mover la flecha (seguido: más rápido; en el borde corre la página)",
+                "left": "Mover la flecha (seguido: más rápido; en el borde corre la página)",
+                "right": "Mover la flecha (seguido: más rápido; en el borde corre la página)",
+                "click": "Clic donde está la flecha", "off": "Salir del modo mouse"}.get(
+                    rest.lower(), "Modo mouse: las flechas mueven una flecha, OK hace clic")
     if name == "web" and sub == "t9" and rest.lower() == "mode":
         return "Mayúsculas / minúsculas / números (abc → ABC → 123)"
     if name in SUB_ACTIONS:
@@ -278,7 +288,7 @@ def rows(cfg: Config, ctx: str) -> list[tuple[str, str]]:
 def pages(cfg: Config, installed: set[str]) -> list[tuple[str, str]]:
     """Páginas que tienen sentido: las de las apps instaladas (installed = ids de actividades)."""
     needs = {"browse": "netflix", "player": "netflix", "youtube": "youtube", "tidal": "tidal", "tidal_nav": "tidal",
-             "navegador": "navegador", "navegador_text": "navegador",
+             "navegador": "navegador", "navegador_text": "navegador", "navegador_mouse": "navegador",
              "videos": "videos", "musica": "musica", "radio": "radio", "fotos": "fotos", "fotos_zoom": "fotos", "android": "android", "juegos": "juegos"}
     out = []
     for ctx, title in PAGES:

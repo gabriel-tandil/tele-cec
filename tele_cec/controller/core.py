@@ -15,6 +15,9 @@ log = logging.getLogger("tele")
 
 # Acciones que tiene sentido repetir si se mantiene apretado el botón.
 REPEATABLE = {"nav", "seek", "volume", "key", "type", "music", "video", "musica", "radio", "fotos", "yt", "android"}
+# Y algunas del Navegador (no todas: OK mantenido no tiene que abrir el enlace varias veces).
+REPEATABLE_PREFIXES = ("web:nav:", "web:scroll:", "web:key:", "web:mouse:up", "web:mouse:down", "web:mouse:left",
+                       "web:mouse:right")
 # Una repetición (botón mantenido) que esperó más que esto en la cola ya no se ejecuta.
 STALE_REPEAT_S = 0.35
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
@@ -51,6 +54,7 @@ class CoreMixin:
         self._ctx = "offline"
         self._last_key: tuple[int | None, float] = (None, 0.0)
         self._released = True
+        self._key_held = False   # la tecla que se está ejecutando es la repetición de un botón mantenido
         self._macro_task: asyncio.Task | None = None
         from .sleeptimer import SleepTimer  # noqa: PLC0415
         self.sleep_timer = SleepTimer(self)  # temporizador para apagar (Sonido en el menú, o el celular)
@@ -217,7 +221,8 @@ class CoreMixin:
                 and now - last_t < self.cfg.netflix.get("debounce_ms", 700) / 1000)
         self._last_key = (code, now)
         self._released = False
-        repeatable = isinstance(action, str) and name in REPEATABLE
+        self._key_held = held
+        repeatable = isinstance(action, str) and (name in REPEATABLE or action.strip().startswith(REPEATABLE_PREFIXES))
         if held and not repeatable:
             log.debug("Tecla %s mantenida: ignorada", label)
             return

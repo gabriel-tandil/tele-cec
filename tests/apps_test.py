@@ -449,6 +449,8 @@ async def main() -> int:
     photodates_mod._dates.pause_s = 0.0  # sin la pausa entre fotos (en la Pi va de a poco)
     from tele_cec.apps import photos as photos_main
     photos_main.DATA_DIR = tmp / "datos"  # las fotos favoritas: no tocar las de verdad
+    from tele_cec.apps import navegador as navegador_main
+    navegador_main.DATA_DIR = tmp / "datos"  # los sitios guardados desde la TV: tampoco
     cfg_file = tmp / "config.toml"
     cfg_file.write_text('[browser]\nengine = "firefox"\nlaunch = "on_key"\n[feedback]\nbusy = false\n'
                         '[menu]\nitems = ["netflix", "tidal", "videos", "fotos"]\nsound = false\n')  # YouTube y Sonido, aparte
@@ -1578,13 +1580,26 @@ async def main() -> int:
 
         def __init__(self, log):
             self.log, self.ctx, self.value, self.text_next, self.gobox = log, "page", "", False, False
+            self.url, self.mxy = "https://x.example/p", None
 
         async def evaluate(self, expr, timeout=10.0):
             m = re.search(r'cmd\("([a-zA-Z]+)", (\[.*\])\)', expr)
             name, args = m.group(1), json.loads(m.group(2))
             self.log.append("web:" + name + ("" if not args else ":" + ":".join(map(str, args))))
             if name == "ctx":
-                return {"ctx": self.ctx, "gobox": self.gobox, "url": "https://x.example/p"}
+                return {"ctx": self.ctx, "gobox": self.gobox, "url": self.url, "title": "Una página - El sitio"}
+            if name == "mouse":
+                if args[0] == "show":
+                    self.mxy = (args[1] if args[1] is not None else 640, args[2] if args[2] is not None else 360)
+                    return {"on": True, "x": self.mxy[0], "y": self.mxy[1]}
+                if args[0] == "move":
+                    self.mxy = (max(0, min(1279, self.mxy[0] + args[1])), max(0, min(719, self.mxy[1] + args[2])))
+                    return {"x": self.mxy[0], "y": self.mxy[1]}
+                if args[0] == "where":
+                    return {"on": self.mxy is not None, "x": self.mxy[0], "y": self.mxy[1], "text": False} if self.mxy else {"on": False}
+                if args[0] == "hide":
+                    self.mxy = None
+                    return {"on": False}
             if name == "activate":
                 if self.text_next:
                     self.ctx, self.text_next = "text", False
@@ -1619,6 +1634,9 @@ async def main() -> int:
 
         async def mouse_click(self, x, y):
             self.log.append(f"web:click:{x},{y}")
+
+        async def mouse_move(self, x, y):
+            self.log.append(f"web:move:{x},{y}")
 
         async def reload(self):
             self.log.append("web:reload")
@@ -1665,11 +1683,28 @@ async def main() -> int:
     check(ctl.current_app() == "navegador" and await ctl.context() == "navegador" and wf.page is wf.fake,
           "app:navegador abre el Navegador (contexto 'navegador')")
     out = await press("DOWN", "RIGHT", "SELECT", "EXIT", "F1_BLUE", "CHANNEL_DOWN", "NUMBER2", "PAUSE_PLAY_FUNCTION")
-    check(out == ["web:ctx", "web:nav:down", "web:ctx", "web:nav:right", "web:ctx", "web:activate", "web:click:10,20", "web:ctx",
+    check(out == ["web:ctx", "web:nav:down", "web:ctx", "web:nav:right", "web:ctx", "web:activate", "web:click:10,20",
+                  "web:clicked", "web:ctx",
                   "web:back", "web:ctx", "web:navigate:" + wf.home_url(), "web:ctx", "web:scroll:down", "web:ctx",
                   "ov:toast:Clarín", "web:navigate:https://www.clarin.com", "web:ctx", "web:playPause:",
                   "ov:toast:No hay ningún video en esta página"],
-          f"flechas = moverse, OK = clic de verdad, Atrás, azul = inicio, Canal− = página abajo, 2 = sitio 2, ⏯: {out}")
+          f"flechas = moverse, OK = clic de verdad (y pregunta si le llegó), Atrás, azul = inicio, Canal− = página "
+          f"abajo, 2 = sitio 2, ⏯: {out}")
+
+    async def hold(name: str, times: int, gap: float = 0.0) -> list[str]:
+        """Un botón mantenido: la tecla repetida sin «soltado» en el medio."""
+        start = len(log)
+        for _ in range(times):
+            await ctl.handle_key(parse_key(name))
+            if gap:
+                await asyncio.sleep(gap)
+        return log[start:]
+    out = await hold("DOWN", 3)
+    ctl._released = True
+    check(out.count("web:nav:down") == 3, f"▼ mantenido sigue bajando (web:nav se repite): {out}")
+    out = await hold("SELECT", 3)
+    ctl._released = True
+    check(out.count("web:activate") == 1, f"OK mantenido abre una sola vez: {out}")
     wf.fake.text_next = True
     out = await press("SELECT")
     check(out[-2:] == ["web:activate", "ov:toast:" + ctl_web.TEXT_HINT] and await ctl.context() == "navegador_text",
@@ -1704,7 +1739,9 @@ async def main() -> int:
         (tmp / "cache-fav" / "favicons" / "es.wikipedia.org.png").write_bytes(png_bytes(128, 128))
         await ctl._menu_options(ctl.overlay.items.index(row))
         check(ctl._menu_mode == "sites" and [i["name"] for i in ctl.overlay.items]
-              == ["Wiki", "Clarín", "Escribir una dirección o buscar"], f"la lista de sitios: {[i['name'] for i in ctl.overlay.items]}")
+              == ["Wiki", "Clarín", "Guardar esta página", "Escribir una dirección o buscar"]
+              and ctl.overlay.items[2]["sub"] == "Una página - El sitio" and ctl._menu_sel == 0,
+              f"la lista de sitios (con «Guardar esta página», que no está guardada): {[i['name'] for i in ctl.overlay.items]}")
         check(ctl.overlay.items[0]["icon"] == str(tmp / "cache-fav" / "favicons" / "es.wikipedia.org.png")
               and ctl.overlay.items[1]["icon"] == "navegador.svg",
               f"cada sitio con su ícono (si ya se bajó; si no, el genérico): {[i['icon'] for i in ctl.overlay.items]}")
@@ -1717,8 +1754,85 @@ async def main() -> int:
         out = await press("EXIT")
         check(out == ["ov:hide"] and not ctl._menu_open, f"Atrás vuelve a la página: {out}")
         await ctl.a_web("sites")
-        await ctl.a_menu("pick:3")
+        check(ctl._menu_sel == 2, "desde el Navegador, con una página sin guardar: «Guardar esta página» ya resaltado")
+        await ctl.a_menu("pick:4")
         check(not ctl._menu_open and log[-1] == "web:go:", f"«Escribir una dirección» abre el cuadro «Ir a»: {log[-3:]}")
+
+        # guardar la página que se ve y borrar sitios (rojo dos veces)
+        sites_file = tmp / "datos" / "navegador-sitios.json"
+        wf.fake.ctx, wf.fake.gobox = "page", False  # el cuadro «Ir a», cerrado
+        check(not sites_file.exists(), "sin cambios desde la TV, los sitios son los de la configuración (sin archivo)")
+        await ctl.a_web("sites")
+        await press("SELECT")
+        check([b["name"] for b in wf.bookmarks] == ["Wiki", "Clarín", "Una página - El sitio"] and ctl._menu_open
+              and ctl._menu_sel == 2 and "Guardar esta página" not in [i["name"] for i in ctl.overlay.items]
+              and json.loads(sites_file.read_text("utf-8"))[2] == {"name": "Una página - El sitio", "url": "https://x.example/p"},
+              f"OK en «Guardar esta página»: queda al final (con el título corto) y se guarda en el archivo: {wf.bookmarks}")
+        check(nav_mod.site_name("Raspberry Pi 400 - Wikipedia, la enciclopedia libre", "https://es.wikipedia.org/x")
+              == "Raspberry Pi 400" and nav_mod.site_name("", "https://www.clarin.com/") == "clarin.com",
+              "el nombre de un sitio nuevo: el título (sin la cola larga) o el nombre del sitio")
+        check("Una página" in wf.start_page_html() and ctl.overlay.items[2]["current"], "y aparece en la página de inicio")
+        await press("EXIT")
+        out = await press("NUMBER3")
+        check("web:navigate:https://x.example/p" in out, f"3 lo abre desde el Navegador: {out}")
+        await ctl.a_web("save")
+        check(len(wf.bookmarks) == 3 and log[-1].startswith("ov:toast:Ya estaba guardado"), f"web:save otra vez: ya estaba: {log[-1]}")
+        await ctl.a_web("sites")
+        await press("UP", "F2_RED")  # abre en la página que se ve (la 3.ª): ▲ = Clarín
+        check(len(wf.bookmarks) == 3 and ctl._sites_delete is not None and ctl._sites_delete[0] == 1,
+              "rojo una vez sobre un sitio: pregunta (no lo borra)")
+        await press("DOWN", "F2_RED")
+        check(len(wf.bookmarks) == 3 and ctl._sites_delete == (2, ctl._sites_delete[1]),
+              "otra tecla cancela; rojo sobre otro sitio vuelve a preguntar")
+        await press("F2_RED")
+        check([b["name"] for b in wf.bookmarks] == ["Wiki", "Clarín"] and ctl._menu_open and ctl._menu_mode == "sites"
+              and [i["name"] for i in ctl.overlay.items][:3] == ["Wiki", "Clarín", "Guardar esta página"]
+              and len(json.loads(sites_file.read_text("utf-8"))) == 2,
+              f"rojo otra vez: lo borra (y la lista se rearma): {[i['name'] for i in ctl.overlay.items]}")
+        await press("UP", "UP", "F2_RED", "F2_RED")
+        check([b["name"] for b in wf.bookmarks] == ["Clarín"], f"y se puede borrar cualquiera: {wf.bookmarks}")
+        wf2 = nav_mod.WebActivity({"profile": str(tmp / "nav-perfil"), "bookmarks": [{"name": "Otro", "url": "https://otro.example"}]}, {})
+        check([b["name"] for b in wf2.bookmarks] == ["Clarín"], "el archivo manda sobre [apps.navegador] bookmarks (al reabrir)")
+        await press("EXIT")
+
+        # modo mouse (CC)
+        start = len(log)
+        out = await press("SUB_PICTURE")
+        check(wf.mouse and wf.mouse_xy == (640, 360) and await ctl.context() == "navegador_mouse"
+              and any(x.startswith("ov:toast:Modo mouse") for x in out), f"CC prende el modo mouse: {out}")
+        nav_mod.MOUSE_REPEAT_S = 10.0
+        out = await press("RIGHT", "RIGHT", "DOWN")
+        check(wf.mouse_xy == (640 + 24 + 24 * 1.6, 360 + 24) and "web:move:640.0,384.0" not in out
+              and f"web:move:{640 + 24 + 24 * 1.6},384.0" in out,
+              f"las flechas mueven la flecha (apretando seguido, más rápido) y la mueven de verdad (hover): {wf.mouse_xy} {out}")
+        out = await press("SELECT")
+        check(f"web:click:{640 + 24 + 24 * 1.6},384" in out, f"OK = clic de verdad donde está la flecha: {out}")
+        xy0 = wf.mouse_xy
+        out = await hold("LEFT", 6, 0.1)  # mantenido ~0,6 s: se desliza sola
+        check(ctl._web_glide is not None and not ctl._web_glide.done() and len(out) > 0
+              and wf.mouse_xy[0] < xy0[0] - 100, f"◀ mantenido: la flecha se desliza sola y acelera: {xy0} → {wf.mouse_xy}")
+        ctl._released = True  # se soltó
+        await asyncio.sleep(0.15)
+        x_stop = wf.mouse_xy
+        await asyncio.sleep(0.15)
+        check(ctl._web_glide.done() and wf.mouse_xy == x_stop and log[-1].startswith("web:move:"),
+              f"al soltar se frena (y el puntero de verdad va ahí): {log[-2:]}")
+        wf.fake.mxy = wf.mouse_xy = (678.4, 384.0)  # de vuelta, para lo que sigue
+        wf.fake.ctx = "text"  # un campo con el foco (Google lo enfoca solo al abrir)
+        out = await press("RIGHT", "NUMBER2", "SELECT")
+        check(any(x.startswith("web:mouse:move:") for x in out) and "web:type:a:False:abc2:0" in out
+              and "web:submit" in out and not any(x.startswith("web:click") for x in out),
+              f"escribiendo con el modo mouse: ◀ ▶ mueven la flecha, los números escriben, OK (sin mover) busca: {out}")
+        out = await press("LEFT", "SELECT")
+        check(any(x.startswith("web:click:") for x in out) and "web:submit" not in out,
+              f"y si la flecha se movió después de escribir, OK es un clic: {out}")
+        wf.fake.ctx = "page"
+        out = await press("NUMBER1")
+        check("web:ctx:{'x': 678.4, 'y': 384.0}" in out or any(x.startswith("web:ctx:") for x in out),
+              f"con cada tecla la página se entera de dónde va la flecha (por si cambió de página): {out}")
+        out = await press("SUB_PICTURE")
+        check(not wf.mouse and "web:mouse:hide" in out and await ctl.context() == "navegador", f"CC otra vez: lo apaga: {out}")
+        nav_mod.MOUSE_REPEAT_S = 0.6
         await ctl.run_action("app:tidal")
         check(not wf.on and "navegador:close" in log[-6:], "abrir otra app cierra el Navegador")
         switched_w: list = []
@@ -1731,10 +1845,10 @@ async def main() -> int:
         try:
             await ctl.menu_open(select_id="navegador")
             await ctl._menu_options(ctl._menu_sel)
-            check([i["name"] for i in ctl.overlay.items] == ["Wiki", "Clarín"], "cerrado: la lista sin «Escribir una dirección»")
+            check([i["name"] for i in ctl.overlay.items] == ["Clarín"], "cerrado: la lista sin «Guardar» ni «Escribir una dirección»")
             await ctl.a_menu("pick:1")
             await ctl._macro_task
-            check(switched_w and switched_w[0]["id"] == "navegador" and wf.want_url == "https://es.wikipedia.org",
+            check(switched_w and switched_w[0]["id"] == "navegador" and wf.want_url == "https://www.clarin.com",
                   f"cerrado: elegir un sitio abre el Navegador en él: {switched_w} {wf.want_url}")
         finally:
             ctl._menu_switch = real_menu_switch_w  # type: ignore[method-assign]

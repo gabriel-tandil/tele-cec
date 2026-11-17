@@ -13,7 +13,7 @@
   if (window.__tcnav && typeof window.__tcnav.destroy === 'function') { try { window.__tcnav.destroy(); } catch (e) { /* nada */ } }
   const C = __NAV_CONFIG__;
 
-  const S = { cur: null, lastRect: null, raf: 0, ringKey: '', toastTimer: 0, hintTimer: 0, tickTimer: 0, followUntil: 0, listeners: [] };
+  const S = { cur: null, lastRect: null, mouse: null, armed: null, raf: 0, ringKey: '', toastTimer: 0, hintTimer: 0, tickTimer: 0, followUntil: 0, listeners: [] };
   function on(target, type, fn, opts) { target.addEventListener(type, fn, opts); S.listeners.push([target, type, fn, opts]); }
 
   // ------------------------------------------------------------ utilidades
@@ -100,7 +100,13 @@
 #tcn-go input{flex:1;min-width:0;font:inherit;font-weight:500;color:#fff;background:#101014;border:2px solid #444;border-radius:8px;
   padding:.25em .5em;outline:none}
 #tcn-go input:focus{border-color:#fff}
-#tcn-go small{flex:none;color:#888;font-size:.55em;font-weight:500}`;
+#tcn-go small{flex:none;color:#888;font-size:.55em;font-weight:500}
+#tcn-cursor{position:fixed;left:0;top:0;width:44px;height:44px;margin:-3px 0 0 -5px;pointer-events:none;z-index:2147483647;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))}
+#tcn-cursor svg{width:100%;height:100%;display:block}
+#tcn-cursor .hand{display:none}
+#tcn-cursor.link .arrow{display:none}
+#tcn-cursor.link .hand{display:block}`;
     (document.head || document.documentElement).appendChild(st);
   }
 
@@ -239,24 +245,46 @@
     return { el: initial(cands), near: false };
   }
 
+  // El vecino en esa dirección. Tiene que estar de ese lado (su centro pasando el borde del actual: así lo que
+  // está en la misma fila, apenas más abajo, no cuenta como «abajo»). Con ◀ ▶ vale lo de la misma fila; otra fila
+  // solo si está del todo a ese lado y cerca (si no, desde el «+» de un buscador ◀ saltaba al pie de la página).
+  // Con ▲ ▼ se salta el enlace que va al mismo lugar que el actual (título y dirección de un mismo resultado).
   function pick(from, cands, dir) {
     const horizontal = dir === 'left' || dir === 'right';
-    let best = null; let bestScore = Infinity;
+    const tol = 4;
+    const href = hrefOf(S.cur);
+    let best = null; let bestScore = Infinity; let same = null; let sameScore = Infinity;
     for (const c of cands) {
       if (c === S.cur) continue;
       const r = R(c);
       let primary;
-      if (dir === 'right') { if (r.cx <= from.cx + 1 || r.r <= from.r - 1) continue; primary = Math.max(0, r.l - from.r); }
-      else if (dir === 'left') { if (r.cx >= from.cx - 1 || r.l >= from.l + 1) continue; primary = Math.max(0, from.l - r.r); }
-      else if (dir === 'down') { if (r.cy <= from.cy + 1 || r.b <= from.b - 1) continue; primary = Math.max(0, r.t - from.b); }
-      else { if (r.cy >= from.cy - 1 || r.t >= from.t + 1) continue; primary = Math.max(0, from.t - r.b); }
+      if (dir === 'right') { if (r.cx < from.r - tol || r.r <= from.r) continue; primary = Math.max(0, r.l - from.r); }
+      else if (dir === 'left') { if (r.cx > from.l + tol || r.l >= from.l) continue; primary = Math.max(0, from.l - r.r); }
+      else if (dir === 'down') { if (r.cy < from.b - tol || r.b <= from.b) continue; primary = Math.max(0, r.t - from.b); }
+      else { if (r.cy > from.t + tol || r.t >= from.t) continue; primary = Math.max(0, from.t - r.b); }
       let gap; let off;
-      if (horizontal) { gap = Math.max(0, Math.max(r.t, from.t) - Math.min(r.b, from.b)); off = Math.abs(r.cy - from.cy); }
-      else { gap = Math.max(0, Math.max(r.l, from.l) - Math.min(r.r, from.r)); off = Math.abs(r.cx - from.cx); }
+      if (horizontal) {
+        gap = Math.max(0, Math.max(r.t, from.t) - Math.min(r.b, from.b));
+        off = Math.abs(r.cy - from.cy);
+        if (gap > 0) {
+          const beyond = dir === 'right' ? r.l >= from.r - tol : r.r <= from.l + tol;
+          const near = gap <= Math.min(vh() * 0.25, Math.max(48, 1.2 * Math.max(from.h, r.h)));
+          if (!beyond || !near) continue;
+        }
+      } else {
+        gap = Math.max(0, Math.max(r.l, from.l) - Math.min(r.r, from.r));
+        off = Math.min(Math.abs(r.cx - from.cx), Math.abs(r.l - from.l));  // las listas de enlaces van alineadas a la izquierda
+      }
       const score = primary + gap * (horizontal ? 5 : 2) + off * (horizontal ? 0.5 : 0.25);
+      if (!horizontal && href && hrefOf(c) === href) { if (score < sameScore) { sameScore = score; same = c; } continue; }
       if (score < bestScore) { bestScore = score; best = c; }
     }
-    return best;
+    return best || same;
+  }
+
+  function hrefOf(el) {
+    const a = el && closest(el, 'a[href]');
+    return a ? a.href.replace(/#.*$/, '') : '';
   }
 
   function current() {
@@ -266,6 +294,11 @@
   function nav(dir) {
     current();
     const a = document.activeElement;
+    // Un buscador con sus sugerencias abiertas (Google, YouTube, Wikipedia…): ▲ ▼ las recorren con flechas de
+    // verdad (la página pone la elegida en el campo; OK la busca). Sin sugerencias, salen del campo.
+    if (a && (dir === 'up' || dir === 'down') && matches(a, TEXT_SEL) && !isGoBox(a) && a.getAttribute('aria-expanded') === 'true') {
+      return { key: dir === 'down' ? 'ArrowDown' : 'ArrowUp' };
+    }
     if (a && a !== document.body && matches(a, TEXT_SEL) && !isGoBox(a)) a.blur();  // salir del campo
     if (!S.cur) {
       const rec = recover();
@@ -295,20 +328,45 @@
   function scroll(dir) {
     const delta = (dir === 'up' ? -1 : 1) * vh() * 0.85;
     window.scrollBy({ top: delta, behavior: behavior() });
-    if (S.cur) { S.lastRect = null; const rec = recover(); setCur(rec.el, false); }
+    if (S.cur && !S.mouse) { S.lastRect = null; const rec = recover(); setCur(rec.el, false); }
+    if (S.mouse) drawCursor();
     return { scrolled: true };
   }
 
-  // Punto para un clic «real». Si el centro está tapado, clic por JS.
+  // Punto para un clic «real» (muchos sitios ignoran los clics por script): uno que caiga de verdad sobre el
+  // elemento. El centro del recuadro no siempre sirve: un enlace en dos renglones (el centro cae entre ellos), un
+  // título con un ícono o un botón encima. Se prueban el centro, cada renglón y lo de adentro (el título, la imagen).
+  // Solo si ninguno cae sobre él, clic por script. El servicio después pregunta si el clic llegó (clicked).
   function target(el) {
     let r = el.getBoundingClientRect();
     if (r.bottom < 0 || r.top > vh()) { scrollToShow(el); r = el.getBoundingClientRect(); }
-    const x = Math.round(clamp(r.left + r.width / 2, 1, vw() - 2));
-    const y = Math.round(clamp(r.top + r.height / 2, 1, vh() - 2));
-    const hit = document.elementFromPoint(x, y);
-    if (hit && (hit === el || el.contains(hit) || hit.contains(el))) return { x, y };
+    const rects = [r, ...Array.from(el.getClientRects())];
+    for (const d of $$('h1, h2, h3, h4, img, svg, span, div', el).slice(0, 16)) rects.push(d.getBoundingClientRect());
+    let loose = null;
+    for (const rr of rects) {
+      if (rr.width < 2 || rr.height < 2 || rr.bottom < 1 || rr.top > vh() - 1 || rr.right < 1 || rr.left > vw() - 1) continue;
+      for (const fx of [0.5, 0.2]) {
+        const x = Math.round(clamp(rr.left + rr.width * fx, 1, vw() - 2));
+        const y = Math.round(clamp(rr.top + rr.height / 2, 1, vh() - 2));
+        const hit = document.elementFromPoint(x, y);
+        if (hit && (hit === el || el.contains(hit))) { arm(el); return { x, y }; }
+        if (!loose && hit && hit.contains(el)) loose = { x, y };  // un contenedor transparente encima: puede andar
+      }
+    }
+    if (loose) { arm(el); return loose; }
+    S.armed = null;
     try { el.click(); } catch (e) { /* nada */ }
     return { clicked: true };
+  }
+
+  // ¿Le llegó el clic de verdad? (si cayó en otra cosa, el elemento recibe un clic por script)
+  function arm(el) { S.armed = { el, hit: false }; }
+  function clicked() {
+    const a = S.armed;
+    S.armed = null;
+    if (!a || a.hit || !a.el.isConnected) return { hit: !!(a && a.hit) };
+    try { a.el.click(); } catch (e) { /* nada */ }
+    return { hit: false, fallback: true };
   }
 
   function activate() {
@@ -416,8 +474,13 @@
     return { enter: true };  // el servicio manda Enter de verdad
   }
 
-  function ctx() {
+  // m: {x, y} (o {}) si el modo mouse está prendido: lo recuerda el servicio, porque con cada página nueva este
+  // script arranca de cero.
+  function ctx(m) {
+    if (m && typeof m === 'object') { if (!S.mouse) mouseShow(m.x, m.y); }
+    else if (S.mouse) mouseHide(false);
     const el = editable();
+    if (el && !S.mouse && el !== S.cur && !isGoBox(el) && usable(el, { near: false })) setCur(el, false);  // el campo que enfocó la página
     return { ctx: el ? 'text' : 'page', gobox: !!(el && isGoBox(el)), url: location.href, title: document.title };
   }
 
@@ -431,7 +494,113 @@
   }
 
   function dump() {
-    return { url: location.href, title: document.title, focused: textOf(S.cur), candidates: candidates(document).length, ctx: ctx().ctx };
+    return { url: location.href, title: document.title, focused: textOf(S.cur), candidates: candidates(document).length, ctx: editable() ? 'text' : 'page', mouse: S.mouse };
+  }
+
+  // ------------------------------------------------------------ modo mouse
+  // Una flecha dibujada que se mueve con las flechas del control; el clic lo hace el servicio, de verdad, en ese
+  // punto (sirve también dentro de los iframes, adonde el marco no llega: un «No soy un robot», un video embebido).
+  const CURSOR_SVG = '<svg class="arrow" viewBox="0 0 24 24"><path d="M4 2l15 11.5-6.6.9 3.9 7.4-3 1.6-3.9-7.5L4 20.6z" ' +
+    'fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>' +
+    '<svg class="hand" viewBox="0 0 24 24"><path d="M9 11V4.5a1.5 1.5 0 013 0V10l.1-1a1.5 1.5 0 013 .1v1.3a1.5 1.5 0 013 .2v1.2a1.5 1.5 0 013 .3V16c0 3.6-2.6 6-6 6h-1.6c-2 0-3.4-.8-4.6-2.3L4.6 15a1.6 1.6 0 012.4-2.1L9 15z" ' +
+    'fill="#fff" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+
+  function clickableAt(x, y) {
+    const hit = document.elementFromPoint(x, y);
+    if (!hit) return null;
+    if (hit.tagName === 'IFRAME') return hit;  // adentro no se ve: puede ser un botón
+    return closest(hit, C.focusable) || (getComputedStyle(hit).cursor === 'pointer' ? hit : null);
+  }
+
+  function drawCursor() {
+    if (!S.mouse) return;
+    ensureStyle();
+    const c = overlay('tcn-cursor');
+    if (!c.firstChild) c.innerHTML = CURSOR_SVG;
+    c.style.transform = `translate(${Math.round(S.mouse.x)}px,${Math.round(S.mouse.y)}px)`;
+    const el = clickableAt(S.mouse.x, S.mouse.y);
+    c.classList.toggle('link', !!el);
+    S.mouse.label = el ? textOf(el) : '';
+  }
+
+  function mouseShow(x, y) {
+    if (x == null || y == null || !isFinite(+x) || !isFinite(+y)) {
+      // Donde estaba el marco (o en el medio de la pantalla).
+      const el = S.cur && S.cur.isConnected ? S.cur : null;
+      const r = el ? R(el) : null;
+      x = r ? r.cx : vw() / 2; y = r ? r.cy : vh() / 2;
+    }
+    S.mouse = { x: clamp(+x, 0, maxX()), y: clamp(+y, 0, maxY()), label: '' };
+    if (S.cur) { S.cur.classList.remove('tcn-focused'); S.cur = null; }
+    hideRing();
+    drawCursor();
+    return { on: true, x: S.mouse.x, y: S.mouse.y, label: S.mouse.label };
+  }
+
+  function mouseHide(focus) {
+    const m = S.mouse;
+    S.mouse = null;
+    const c = document.getElementById('tcn-cursor');
+    if (c) c.remove();
+    if (focus !== false && m) {  // el marco, en lo más cercano a donde quedó la flecha
+      S.lastRect = { l: m.x, r: m.x, t: m.y, b: m.y, w: 0, h: 0, cx: m.x, cy: m.y };
+      const rec = recover();
+      if (rec.el) setCur(rec.el, false);
+    }
+    return { on: false };
+  }
+
+  // Hasta dónde llega la punta: la flecha se dibuja hacia abajo y a la derecha, que se siga viendo en el borde.
+  const maxX = () => Math.max(0, vw() - 24);
+  const maxY = () => Math.max(0, vh() - 30);
+
+  // El contenedor que se puede correr debajo de la flecha (o la página).
+  function scrollerAt(x, y, vertical) {
+    let p = document.elementFromPoint(x, y);
+    while (p && p !== document.body && p !== document.documentElement) {
+      const cs = getComputedStyle(p);
+      const ov = vertical ? cs.overflowY : cs.overflowX;
+      if (/(auto|scroll|overlay)/.test(ov) && (vertical ? p.scrollHeight > p.clientHeight + 4 : p.scrollWidth > p.clientWidth + 4)) return p;
+      p = p.parentElement;
+    }
+    return null;
+  }
+
+  // Mueve la flecha; si se pasa del borde, corre la página (o la lista que está debajo) en vez de salirse.
+  function mouseMove(dx, dy) {
+    if (!S.mouse) mouseShow();  // (el campo con el foco lo sigue teniendo, como con un mouse: hasta el próximo clic)
+    dx = +dx || 0; dy = +dy || 0;
+    const m = S.mouse;
+    const nx = m.x + dx; const ny = m.y + dy;
+    const cx = clamp(nx, 0, maxX()); const cy = clamp(ny, 0, maxY());
+    let scrolled = false;
+    const over = { x: nx - cx, y: ny - cy };
+    for (const vertical of [true, false]) {
+      const amount = vertical ? over.y : over.x;
+      if (!amount) continue;
+      const by = Math.sign(amount) * Math.max(Math.abs(amount), vertical ? vh() * 0.15 : vw() * 0.15);
+      const sc = scrollerAt(cx, cy, vertical);
+      const before = sc ? (vertical ? sc.scrollTop : sc.scrollLeft) : (vertical ? window.scrollY : window.scrollX);
+      if (sc) sc.scrollBy(vertical ? { top: by } : { left: by });
+      else window.scrollBy(vertical ? { top: by } : { left: by });
+      const after = sc ? (vertical ? sc.scrollTop : sc.scrollLeft) : (vertical ? window.scrollY : window.scrollX);
+      if (after !== before) scrolled = true;
+    }
+    m.x = cx; m.y = cy;
+    drawCursor();
+    return { x: m.x, y: m.y, scrolled, edge: !scrolled && (over.x !== 0 || over.y !== 0), label: m.label };
+  }
+
+  function mouse(what, a, b) {
+    if (what === 'show') return mouseShow(a, b);
+    if (what === 'hide') return mouseHide(true);
+    if (what === 'move') return mouseMove(a, b);
+    if (what === 'where') {  // para el clic: el punto, y si ahí hay un campo de texto
+      if (!S.mouse) return { on: false };
+      const hit = document.elementFromPoint(S.mouse.x, S.mouse.y);
+      return { on: true, x: Math.round(S.mouse.x), y: Math.round(S.mouse.y), text: !!(hit && closest(hit, TEXT_SEL)), label: S.mouse.label };
+    }
+    return { error: `mouse: ${what}?` };
   }
 
   // ------------------------------------------------------------ rendimiento
@@ -450,7 +619,7 @@ html{cursor:none}`;
   }
 
   // ------------------------------------------------------------ API
-  const API = { ctx, nav, activate, back, scroll, type, clear, go, submit, hint, toast, playPause, dump,
+  const API = { ctx, nav, activate, back, scroll, type, clear, go, submit, hint, toast, playPause, dump, mouse, clicked,
     hide: () => { setCur(null); return {}; },
     viewport: () => ({ w: vw(), h: vh() }) };
 
@@ -468,17 +637,29 @@ html{cursor:none}`;
   function destroy() {
     hideRing(); closeGo();
     for (const [t, ty, fn, o] of S.listeners) { try { t.removeEventListener(ty, fn, o); } catch (e) { /* nada */ } }
-    for (const id of ['tcn-ring', 'tcn-toast', 'tcn-hint', 'tcn-style', 'tcn-perf']) { const e = document.getElementById(id); if (e) e.remove(); }
+    for (const id of ['tcn-ring', 'tcn-toast', 'tcn-hint', 'tcn-cursor', 'tcn-style', 'tcn-perf']) { const e = document.getElementById(id); if (e) e.remove(); }
   }
 
   window.__tcnav = { v: V, cmd, destroy };
-  const onMove = () => follow(250);
+  const onMove = () => { follow(250); if (S.mouse) drawCursor(); };
   on(document, 'scroll', onMove, { capture: true, passive: true });
   on(window, 'resize', onMove, { passive: true });
   on(document, 'fullscreenchange', () => { if (S.cur) showRing(); });
+  // La página pone el foco en un campo (el buscador de Google, al abrir): el marco va ahí, para que se vea que los
+  // números ya escriben.
+  on(document, 'focusin', (ev) => {
+    const el = ev.target;
+    if (S.mouse || !el || el === S.cur || isGoBox(el) || !matches(el, TEXT_SEL) || !usable(el, { near: false })) return;
+    setCur(el, false);
+  }, { capture: true });
+  on(window, 'load', () => {
+    const el = editable();
+    if (el && !S.mouse && !S.cur && !isGoBox(el) && usable(el, { near: false })) setCur(el, false);
+  });
   if (document.readyState === 'loading') on(document, 'DOMContentLoaded', addPerfStyle); else addPerfStyle();
   // Los enlaces que abren «otra ventana»: en pantalla completa no hay otra ventana, van en esta.
   on(document, 'click', (ev) => {
+    if (S.armed && ev.target && (ev.target === S.armed.el || S.armed.el.contains(ev.target))) S.armed.hit = true;
     const a = ev.target && ev.target.closest ? ev.target.closest('a[target]') : null;
     if (a && /^_blank$/i.test(a.getAttribute('target') || '')) a.removeAttribute('target');
   }, { capture: true });

@@ -11,7 +11,7 @@ No convierte el control en un teclado, como hace [cec-mini-kb](https://github.co
 - **Navegación espacial** con las flechas por perfiles, filas de títulos, fichas y menús, con un **resaltado bien visible** del elemento enfocado. OK = clic, Atrás = volver.
 - **Menú de actividades**: el botón **Menú** abre un menú en el centro de la pantalla, encima de lo que esté abierto, para elegir **Netflix, YouTube, Tidal, Videos y música, Radio, Fotos, Juegos (MAME), Android** u otros programas. Elegir una cierra la que estaba abierta. Ver [Menú de actividades](#menú-de-actividades).
 - **YouTube para TV**: la versión de YouTube de los Smart TV, hecha para manejarse con flechas, OK y Atrás (ver [YouTube](#youtube)).
-- **Navegador**: cualquier página web con el control remoto: las flechas van al enlace más cercano, OK lo abre y los números escriben como en un celular viejo (ver [Navegador](#navegador)).
+- **Navegador**: cualquier página web con el control remoto: las flechas van al enlace más cercano, OK lo abre, los números escriben como en un celular viejo y CC prende un modo mouse (ver [Navegador](#navegador)).
 - **Control desde el celular**: una página en `http://raspberrypi.local:8765/` con el mismo menú de actividades de la TV, buscar en Netflix y YouTube, tu Tidal y tu música local (biblioteca, búsqueda y cola), lo que está sonando y la salida de sonido (ver [Control desde el celular](#control-desde-el-celular)).
 - **Android**: la pantalla del celular en la TV, por USB o Wi‑Fi, con su sonido, y manejable con el control (ver [Android](#android)).
 - **Videos, música y fotos** de un pendrive o de una carpeta local, en pantalla completa y con el control: mpv para los videos y la música (con una barra para la TV que, al buscar, muestra una miniatura del punto elegido) y una presentación con mpv para las fotos.
@@ -422,21 +422,24 @@ force_h264 = true
 
 **Navegador** abre cualquier página web en la TV y se maneja entera con el control remoto. Es un **Firefox aparte** (o Chromium: `[apps.navegador] engine`), en pantalla completa, con su propio perfil (`~/.config/firefox-navegador`), lanzado y controlado igual que el de Netflix pero por otro puerto (`debug_port = 9223`): tele-cec le inyecta un script en cada página (`tele_cec/apps/navegador/nav.js`) y con eso las flechas van al enlace o botón **más cercano en esa dirección**, con un marco blanco y azul, igual que en Netflix.
 
-- **La página de inicio** es una propia, con los **sitios** de `bookmarks` en cuadros grandes y numerados (sin la lista, vienen Google, DuckDuckGo y Wikipedia). Cada sitio se muestra con **su ícono** (favicon), también en la lista del menú y en el celular: se le pide al sitio mismo (el más grande que declare, o `/apple-touch-icon.png`, o `/favicon.ico`) y queda en `~/.cache/tele-cec/favicons`; si un sitio no tiene, va el globo. **1 – 9** abren ese sitio desde cualquier página, el **azul** vuelve al inicio y el **amarillo** (o el botoncito **Sitios ▸** del menú) muestra la lista en el panel. `home` cambia la página de inicio por cualquier dirección.
+- **La página de inicio** es una propia, con los **sitios guardados** en cuadros chicos y numerados (sin la lista, vienen Google, DuckDuckGo y Wikipedia). Cada sitio se muestra con **su ícono** (favicon), también en la lista del menú y en el celular: se le pide al sitio mismo (el más grande que declare, o `/apple-touch-icon.png`, o `/favicon.ico`) y queda en `~/.cache/tele-cec/favicons`; si un sitio no tiene, va su inicial (o el globo, en el menú). **1 – 9** abren ese sitio desde cualquier página, el **azul** vuelve al inicio y el **amarillo** (o el botoncito **Sitios ▸** del menú) muestra la lista en el panel. `home` cambia la página de inicio por cualquier dirección.
+- **Guardar y borrar sitios**: con una página abierta, el **amarillo** muestra la lista con **★ Guardar esta página** ya resaltado: **OK** la agrega al final (con el título de la página como nombre) y queda en la página de inicio y en su número. En la lista (desde el Navegador o desde el menú), el **rojo** sobre un sitio pregunta y el **rojo otra vez** lo borra. La primera vez que se guarda o se borra uno, la lista pasa a `~/.local/share/tele-cec/navegador-sitios.json` y desde ahí manda ese archivo (`bookmarks` de la configuración queda de lado; borrá el archivo para volver a ella).
+- **Modo mouse** (**CC**): para lo que el marco no alcanza (el «No soy un robot» de un captcha, un video embebido o cualquier cosa adentro de un iframe, un menú que se abre al pasar por encima), las flechas mueven **una flecha dibujada** en la página: con un toque, de a poco (tocando seguido, cada vez más); **manteniendo apretada** la flecha del control, se desliza sola y acelera hasta que la soltás (al llegar al borde corre la página o la lista que tenga debajo). Se vuelve **mano** sobre lo que se puede tocar. **OK** hace un **clic de verdad** en ese punto (y la flecha se mueve de verdad: los menús «al pasar» se abren). Escribiendo en un campo con el modo mouse, los números escriben y OK busca, salvo que hayas movido la flecha después de la última letra: ahí OK es un clic. **CC** otra vez vuelve al marco, en lo más cercano a donde quedó la flecha. Sigue prendido al cambiar de página.
 - **Escribir**: en un campo de texto (el buscador de Google, un formulario) **OK** entra a escribir y los **números escriben como en un celular viejo**: 2 = a b c, 3 = d e f, 6 = m n ñ o…, apretado seguido pasa a la letra siguiente (arriba se ven las letras de la tecla con la elegida marcada), **0** es el espacio y **1** los signos (. , ? ! ' - @ / :). **Rojo** borra una letra, **verde** borra todo, **amarillo** pasa de minúsculas a MAYÚSCULAS y a números, ◀ ▶ mueven el cursor, **OK** acepta (busca) y **Atrás** sale del campo. Desde el celular es más cómodo: escribís en su teclado (ver [Control desde el celular](#control-desde-el-celular)).
 - **Ir a una dirección o buscar**: **0** (o el rojo) abre un cuadro «Ir a» arriba de la página: lo que escribís, si parece una dirección (`clarin.com`) se abre, y si no se busca en Google (`search` cambia el buscador, con `{q}` en lugar del texto).
 - **Rendimiento en la Pi**: las mismas preferencias que Netflix (sin animaciones, sin trabajo en segundo plano, sin avisos ni ventanas nuevas: los enlaces «en otra ventana» van en la misma), las páginas al **150 %** (`scale`, para leer desde el sillón; `1.0` = como una PC) y protección contra rastreadores estricta (menos cosas que cargar). Lo que más pesa en las páginas es la publicidad: si el Firefox de siempre tiene **uBlock Origin**, tele-cec lo copia al perfil del Navegador y queda habilitado solo (y se actualiza cuando se actualice ese; `ublock = false` lo evita). Otras extensiones: `extensions = ["~/Descargas/algo.xpi"]`.
 
 | Tecla | Recorriendo la página (`navegador`) | Escribiendo en un campo (`navegador_text`) |
 |---|---|---|
-| ▲ ▼ ◀ ▶ | Al enlace o botón más cercano (al llegar al borde, baja la página) | ▲ ▼ salen del campo · ◀ ▶ mueven el cursor |
+| ▲ ▼ ◀ ▶ | Al enlace o botón más cercano (al llegar al borde, baja la página) | ▲ ▼ recorren las sugerencias del buscador (si las hay; si no, salen del campo) · ◀ ▶ mueven el cursor |
 | OK | Abrir (en un campo de texto: escribir ahí) | Aceptar: buscar / ir (Enter) |
 | Atrás | Página anterior | Salir del campo (cierra «Ir a») |
 | 0 | Escribir una dirección o qué buscar | Espacio |
 | 1 – 9 | Ese sitio de la lista | Las letras de cada número (1 = signos) |
 | 🔴 Rojo · 🟢 Verde | Escribir una dirección · recargar | Borrar una letra · borrar todo |
-| 🟡 Amarillo | La lista de sitios | abc → ABC → 123 |
+| 🟡 Amarillo | La lista de sitios (★ Guardar esta página · rojo borra) | abc → ABC → 123 |
 | 🔵 Azul | La página de inicio | — |
+| CC | Modo mouse (otra vez: volver al marco) | Igual |
 | Canal ± · ⏪ ⏩ | Una página entera arriba o abajo | Igual |
 | ▶ Play · ⏸ Pausa | El video de la página | Igual |
 
@@ -449,11 +452,17 @@ search = "https://www.google.com/search?q={q}"
 scale = 1.5
 ublock = true                 # copiar el uBlock Origin del Firefox de siempre
 extensions = []               # otros .xpi para copiar al perfil
-bookmarks = [
+bookmarks = [                 # hasta que se guarde o se borre uno desde la TV
   { name = "Google", url = "https://www.google.com" },
   { name = "Wikipedia", url = "https://es.wikipedia.org" },
 ]
 ```
+
+**OK** hace un clic de verdad (como con un mouse) en un punto que caiga sobre el enlace: el centro, cada renglón si el enlace ocupa dos, o lo de adentro (el título) si algo le tapa el centro. Si aun así el clic no le llegó, le hace uno por script. Mantener apretada una flecha sigue moviendo el marco; mantener OK no abre dos veces.
+
+**Las flechas**, más en detalle: van al enlace o botón cuyo centro queda de ese lado; con ◀ ▶ primero lo que está en la misma fila, y otra fila solo si está del todo a ese lado y cerca (si no, no se mueve: antes, desde el «+» del buscador de Google, ◀ saltaba al pie de la página); con ▲ ▼ se saltea el enlace que va al mismo lugar que el actual (el título y la dirección de un mismo resultado). Si la página pone el foco sola en un campo (Google, al abrir), el marco aparece ahí y los números ya escriben.
+
+**Google y el «tráfico inusual»**: Google puede contestar las búsquedas con su página «Nuestros sistemas detectaron tráfico inusual» y un «No soy un robot», porque Firefox avisa que está bajo control remoto (`navigator.webdriver`; en Netflix tele-cec lo oculta, en el Navegador no). Ese captcha está en un iframe, adonde el marco no llega: con el **modo mouse** (CC) se puede tildar. Si pasa seguido, `search = "https://duckduckgo.com/?q={q}"` busca en DuckDuckGo.
 
 ## Juegos (MAME)
 

@@ -26,7 +26,8 @@ GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar · • (punto)
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
 SOUND_HINT = "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida · Atrás volver"
 RADIO_HINT = "▲ ▼ o 1 – 9 elegir · OK escuchar · Atrás volver"
-SITES_HINT = "▲ ▼ o 1 – 9 elegir · OK abrir · Atrás volver"
+SITES_HINT = "▲ ▼ o 1 – 9 elegir · OK abrir · rojo borrar · Atrás volver"
+SITES_DELETE_S = 5.0   # rojo sobre un sitio: hay que apretarlo otra vez antes de esto para borrarlo
 VOLUME_STEP = 5        # % por cada ◀ ▶ en la fila «Volumen»
 SOUND_FIRST = 2        # en Sonido, las salidas empiezan después de las filas «Volumen» y «Temporizador»
 BT_SCAN_SECONDS = 25   # cuánto se buscan parlantes y auriculares Bluetooth al abrir «Sonido»
@@ -220,6 +221,7 @@ class MenuMixin:
         self._games_back_closes = False
         self._radio_back_closes = False  # la lista de radios abierta desde la Radio (amarillo): Atrás vuelve a ella
         self._sites_back_closes = False  # la lista de sitios abierta desde el Navegador (amarillo): Atrás vuelve a él
+        self._sites_delete: tuple[int, float] | None = None  # rojo una vez sobre un sitio: (cuál, cuándo)
         # Ayuda (desde el menú, con • o con la tecla Ayuda): páginas por app y desde dónde se abrió.
         self._menu_from_ctx = "offline"
         self._help_pages: list[tuple[str, str]] = []
@@ -647,6 +649,17 @@ class MenuMixin:
             log.debug("menu:%s con el menú cerrado: lo abro", arg)
             await self.menu_open()
             return
+        if sub == "delete":
+            if self._menu_mode == "sites":
+                await self._sites_delete_key()
+            else:
+                self._menu_restart_timer()
+            return
+        if self._sites_delete is not None:
+            self._sites_delete = None
+            if self._menu_mode == "sites" and sub in ("up", "prev", "previous", "down"):
+                await self.overlay.show(self._menu_items, self._menu_sel, title=self._sites_title(), hint=SITES_HINT,
+                                        numbers=True)  # sin el «rojo otra vez para borrar»
         if sub in ("up", "prev", "previous", "down", "left", "right") and self._grid():
             await self._grid_move({"up": -1, "prev": -1, "previous": -1, "down": 1}.get(sub, 0),
                                   {"left": -1, "right": 1}.get(sub, 0))
@@ -952,11 +965,13 @@ class MenuMixin:
         self._macro_task = asyncio.create_task(self._menu_switch({"id": "radio", "name": r.name}))
 
     # ---------------------------------------------------------------- Navegador: los sitios guardados
-    async def _sites_open(self, from_app: bool = False) -> None:
-        """[apps.navegador] bookmarks en el panel (desde el menú, o con el amarillo desde el Navegador). OK abre."""
+    async def _sites_open(self, from_app: bool = False, sel: int | None = None) -> None:
+        """Los sitios guardados en el panel (desde el menú, o con el amarillo desde el Navegador). OK abre; rojo
+        borra. Con el Navegador abierto, al final: «Guardar esta página» (si no está guardada) y «Escribir una
+        dirección»."""
         w = self.activities["navegador"]
         assert isinstance(w, activities_mod.WebActivity)
-        cur = await w.current_url() if w.running() else ""
+        cur, title = await w.page_info() if w.running() else ("", "")
         items = []
         for i, b in enumerate(w.bookmarks):
             host = b["url"].split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
@@ -964,15 +979,52 @@ class MenuMixin:
             items.append({"id": f"_site{i}", "url": b["url"], "name": b["name"], "enabled": True,
                           "icon": str(ico) if ico else "navegador.svg",
                           "sub": host, "current": bool(cur) and cur.rstrip("/").startswith(b["url"].rstrip("/"))})
+        save = -1
+        if w.running() and activities_mod.navegador.allowed_url(cur) and w.saved_index(cur) < 0:
+            save = len(items)
+            items.append({"id": "_site_save", "url": cur, "name": "Guardar esta página", "icon": "★",
+                          "sub": activities_mod.navegador.site_name(title, cur), "enabled": True, "current": False})
         if w.running():
             items.append({"id": "_site_go", "url": "", "name": "Escribir una dirección o buscar", "icon": "edit-find",
                           "sub": "con los números del control (0 en el Navegador)", "enabled": True, "current": False})
-        sel = next((i for i, it in enumerate(items) if it["current"]), 0)
+        if sel is None:
+            # Desde el Navegador, con una página sin guardar: «Guardar esta página» ya resaltado.
+            sel = save if from_app and save >= 0 else next((i for i, it in enumerate(items) if it["current"]), 0)
+        sel = max(0, min(sel, len(items) - 1))
         self._sites_back_closes = from_app
+        self._sites_delete = None
         self._menu_mode, self._menu_items, self._menu_sel = "sites", items, sel
-        await self.overlay.show(items, sel, title=f"{w.name} · sitios", hint=SITES_HINT, numbers=True)
+        await self.overlay.show(items, sel, title=self._sites_title(), hint=SITES_HINT, numbers=True)
         log.info("Menú: sitios: %s", " · ".join(b["name"] for b in w.bookmarks))
         self._menu_restart_timer()
+
+    def _sites_title(self) -> str:
+        return f"{self.activities['navegador'].name} · sitios"
+
+    async def _sites_delete_key(self) -> None:
+        """Rojo sobre un sitio: la primera vez pregunta; la segunda (enseguida), lo borra."""
+        item = self._menu_items[self._menu_sel] if 0 <= self._menu_sel < len(self._menu_items) else None
+        self._menu_restart_timer()
+        if item is None or not str(item["id"]).removeprefix("_site").isdigit():
+            await self.overlay.show(self._menu_items, self._menu_sel, title=self._sites_title(),
+                                    hint="Rojo borra un sitio guardado (este no es uno)", numbers=True)
+            return
+        index = int(str(item["id"]).removeprefix("_site"))
+        pending, self._sites_delete = self._sites_delete, None
+        if pending is None or pending[0] != index or time.monotonic() - pending[1] > SITES_DELETE_S:
+            self._sites_delete = (index, time.monotonic())
+            await self.overlay.show(self._menu_items, self._menu_sel, title=self._sites_title(),
+                                    hint=f"Rojo otra vez = borrar «{item['name']}» · otra tecla, no", numbers=True)
+            return
+        w = self.activities["navegador"]
+        assert isinstance(w, activities_mod.WebActivity)
+        gone = w.remove_bookmark(index)
+        await self._sites_open(from_app=self._sites_back_closes, sel=self._menu_sel)
+        if gone is not None:
+            await self.overlay.show(self._menu_items, self._menu_sel, title=self._sites_title(),
+                                    hint=f"Borré «{gone['name']}» · " + SITES_HINT, numbers=True)
+            if w.running() and w.on_start_page(await w.current_url()):
+                await w.navigate(w.home_url())  # la página de inicio, sin el sitio borrado
 
     async def radio_open_from_app(self) -> None:
         """Amarillo en la Radio: la lista de radios encima; OK cambia, Atrás vuelve a la Radio."""
@@ -1003,6 +1055,19 @@ class MenuMixin:
         if item["id"] == "_site_go":
             await self.menu_close()
             await self.a_web("go")
+            return
+        if item["id"] == "_site_save":
+            added = w.add_bookmark(item["url"], item["sub"])
+            if added < 0:
+                await self.overlay.show(self._menu_items, index, title=self._sites_title(),
+                                        hint="No pude guardar esta página · " + SITES_HINT, numbers=True)
+                return
+            await self._sites_open(from_app=self._sites_back_closes, sel=added)
+            num = f" · {added + 1} lo abre desde el Navegador" if added < 9 else ""
+            await self.overlay.show(self._menu_items, added, title=self._sites_title(),
+                                    hint=f"Guardé «{w.bookmarks[added]['name']}»{num} · Atrás volver", numbers=True)
+            if w.on_start_page(await w.current_url()):
+                await w.navigate(w.home_url())
             return
         if w.running():
             log.info("Menú: Navegador: %s", item["name"])

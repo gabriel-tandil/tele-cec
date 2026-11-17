@@ -3,9 +3,13 @@
 Firefox (o Chromium) en pantalla completa con un perfil propio (~/.config/firefox-navegador), lanzado y controlado
 como el de Netflix (apps/netflix/browser.py, con otro puerto): tele-cec le inyecta nav.js en cada página y con eso
 las flechas van al enlace o botón más cercano (con un marco), OK lo abre, Atrás vuelve, y en un campo de texto los
-números escriben como en un celular viejo (t9.py). 0 abre el cuadro «Ir a» (una dirección o una búsqueda). La
-página de inicio es un archivo propio con los sitios de [apps.navegador] bookmarks en cuadros grandes; 1 – 9 los
-abren directo.
+números escriben como en un celular viejo (t9.py). 0 abre el cuadro «Ir a» (una dirección o una búsqueda). CC
+prende el modo mouse: las flechas mueven una flecha dibujada y OK hace un clic de verdad en ese punto (para lo que el
+marco no alcanza: un «No soy un robot», un video embebido, un menú que se abre al pasar por encima).
+
+La página de inicio es un archivo propio con los sitios guardados en cuadros; 1 – 9 los abren directo. Los sitios
+salen de [apps.navegador] bookmarks hasta que se guarda o se borra uno desde la TV (amarillo › «Guardar esta página»,
+rojo sobre un sitio): desde ahí la lista vive en ~/.local/share/tele-cec/navegador-sitios.json.
 
 Para que vaya rápido en la Pi: las mismas preferencias que Netflix (sin animaciones, sin trabajo de fondo), las
 páginas más grandes (scale: todo al 150 %, para leer desde el sillón), sin ventanas nuevas ni avisos, uBlock
@@ -30,7 +34,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from ...system.procs import graphical_env
+from ...system.procs import DATA_DIR, graphical_env
 from ..base import Activity
 from ..netflix.browser import Browser
 from ..netflix import bidi
@@ -50,7 +54,18 @@ DEFAULT_BOOKMARKS = [
     {"name": "DuckDuckGo", "url": "https://duckduckgo.com"},
     {"name": "Wikipedia", "url": "https://es.wikipedia.org"},
 ]
+SITES_FILE = "navegador-sitios.json"   # en ~/.local/share/tele-cec: los sitios, una vez cambiados desde la TV
 UBLOCK_XPI = "uBlock0@raymondhill.net.xpi"
+# Modo mouse: cuánto se mueve la flecha por cada toque (en píxeles de la página); apretando seguido, cada vez más.
+MOUSE_STEP = 24
+MOUSE_MAX_STEP = 200
+MOUSE_ACCEL = 1.6
+MOUSE_REPEAT_S = 0.6
+# Manteniendo la flecha apretada, se desliza sola: empieza a esta velocidad (px por segundo), acelera y llega a la máxima.
+GLIDE_START = 300.0
+GLIDE_ACCEL = 1100.0
+GLIDE_MAX = 1500.0
+GLIDE_TICK_S = 0.04
 # Dónde guarda las extensiones el Firefox de siempre (Firefox 147+ usa ~/.config/mozilla; antes, ~/.mozilla).
 USER_PROFILES = ("~/.config/mozilla/firefox/*/extensions", "~/.mozilla/firefox/*/extensions")
 # Enlaces y botones por los que se mueven las flechas, y lo que no (lo invisible lo filtra el script).
@@ -127,6 +142,25 @@ def target_url(text: str, search: str = DEFAULT_SEARCH) -> str:
     return search + urllib.parse.quote_plus(text)
 
 
+def same_site(a: str, b: str) -> bool:
+    """¿La misma página guardada? (sin la barra final ni el www.)"""
+    def norm(u: str) -> str:
+        u = re.sub(r"^https?://(www\.)?", "", str(u).strip(), flags=re.IGNORECASE)
+        return u.rstrip("/").lower()
+    return norm(a) == norm(b)
+
+
+def site_name(title: str, url: str) -> str:
+    """El nombre de un sitio nuevo: el título de la página (corto), o el nombre del sitio."""
+    title = " ".join(str(title or "").split())
+    for sep in (" | ", " - ", " — ", " – ", " · "):
+        if sep in title and len(title) > 32:
+            title = title.split(sep)[0].strip()
+    if len(title) > 40:
+        title = title[:39].rstrip() + "…"
+    return title or urllib.parse.urlparse(url).netloc.removeprefix("www.") or url
+
+
 def allowed_url(url: str) -> bool:
     """Solo páginas web (http, https): nada de file:, about: ni otros esquemas desde el celular."""
     try:
@@ -159,7 +193,9 @@ class WebActivity(Activity):
         self.scale = float(cfg.get("scale", 1.5) or 1.0)
         self.search = str(cfg.get("search") or DEFAULT_SEARCH)
         self.home = str(cfg.get("home") or "")
-        self.bookmarks = bookmarks_from(cfg)
+        self.config_bookmarks = bookmarks_from(cfg)
+        self.sites_file = DATA_DIR / SITES_FILE
+        self._bookmarks: list[dict[str, str]] | None = None   # los guardados desde la TV (se leen al usarlos)
         self.extensions = [os.path.expanduser(str(x)) for x in (cfg.get("extensions") or [])]
         self.ublock = bool(cfg.get("ublock", True))
         self.t9 = T9(int(cfg.get("t9_ms", 1200) or 1200))
@@ -181,6 +217,12 @@ class WebActivity(Activity):
         self.want_url: str | None = None   # la próxima vez que se abra, esta página (un sitio del menú)
         self.fail_text = ""
         self._connecting: asyncio.Task | None = None
+        # Modo mouse (CC): prendido, dónde está la flecha (None: donde esté el marco) y el último toque (aceleración).
+        self.mouse = False
+        self.mouse_xy: tuple[float, float] | None = None
+        self._mouse_last: tuple[str, float, float] = ("", 0.0, 0.0)
+        self.mouse_moved = False   # la flecha se movió desde la última letra escrita (escribiendo: OK = clic, no Enter)
+        self._redraw: asyncio.Task | None = None
 
     @property
     def firefox(self) -> bool:
@@ -214,6 +256,70 @@ class WebActivity(Activity):
         names = [b["name"] for b in self.bookmarks]
         return (" · ".join(names[:4]) + (" …" if len(names) > 4 else "")) or NAMES[self.engine], True
 
+    # ------------------------------------------------------------ los sitios guardados
+    @property
+    def bookmarks(self) -> list[dict[str, str]]:
+        """Los sitios: los guardados desde la TV (si alguna vez se cambió la lista ahí) o los de la configuración."""
+        if self._bookmarks is None:
+            self._bookmarks = self._read_sites()
+        return self._bookmarks if self._bookmarks is not None else self.config_bookmarks
+
+    def _read_sites(self) -> list[dict[str, str]] | None:
+        try:
+            raw = json.loads(self.sites_file.read_text("utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as exc:
+            log.warning("Navegador: no pude leer %s (%s); uso los sitios de la configuración", self.sites_file, exc)
+            return None
+        if not isinstance(raw, list):
+            return None
+        return bookmarks_from({"bookmarks": raw})
+
+    def _save_sites(self, sites: list[dict[str, str]]) -> bool:
+        try:
+            self.sites_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.sites_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(sites, ensure_ascii=False, indent=1) + "\n", "utf-8")
+            tmp.replace(self.sites_file)
+        except OSError as exc:
+            log.warning("Navegador: no pude guardar los sitios (%s)", exc)
+            return False
+        self._bookmarks = [dict(b) for b in sites]
+        self.start_page()  # la página de inicio, al día
+        return True
+
+    def saved_index(self, url: str) -> int:
+        """En qué lugar de la lista está esa página (-1: no está guardada)."""
+        return next((i for i, b in enumerate(self.bookmarks) if same_site(b["url"], url)), -1)
+
+    def add_bookmark(self, url: str, title: str = "") -> int:
+        """Guarda la página (al final). Devuelve su lugar, o -1 si no se puede (no es una página web)."""
+        if not allowed_url(url):
+            return -1
+        i = self.saved_index(url)
+        if i >= 0:
+            return i
+        sites = [dict(b) for b in self.bookmarks] + [{"name": site_name(title, url), "url": url}]
+        if not self._save_sites(sites):
+            return -1
+        favicons.ensure([url])
+        log.info("Navegador: guardo el sitio %s (%s)", sites[-1]["name"], url)
+        return len(sites) - 1
+
+    def remove_bookmark(self, index: int) -> dict[str, str] | None:
+        sites = [dict(b) for b in self.bookmarks]
+        if not 0 <= index < len(sites):
+            return None
+        gone = sites.pop(index)
+        if not self._save_sites(sites):
+            return None
+        log.info("Navegador: borro el sitio %s (%s)", gone["name"], gone["url"])
+        return gone
+
+    def on_start_page(self, url: str) -> bool:
+        return bool(url) and not self.home and url.startswith("file:") and url.split("?")[0].endswith("/" + START_PAGE)
+
     # ------------------------------------------------------------ los íconos de los sitios
     def favicon(self, url: str) -> Path | None:
         """El ícono ya bajado del sitio de esa dirección (o None: se usa el genérico)."""
@@ -238,26 +344,31 @@ class WebActivity(Activity):
         for i, b in enumerate(self.bookmarks):
             n = f"<small>{i + 1}</small>" if i < 9 else ""
             ico = self.favicon(b["url"])
-            img = f'<img src="{html.escape(ico.as_uri(), quote=True)}" alt="">' if ico else ""
-            tiles.append(f'<a href="{html.escape(b["url"], quote=True)}">{n}{img}<span>{html.escape(b["name"])}</span>'
-                         f'<i>{html.escape(urllib.parse.urlparse(b["url"]).netloc.removeprefix("www."))}</i></a>')
-        body = "\n".join(tiles) or "<p>No hay sitios: agregalos en [apps.navegador] bookmarks (config.toml)</p>"
+            img = (f'<img src="{html.escape(ico.as_uri(), quote=True)}" alt="">' if ico
+                   else f"<b>{html.escape((b['name'][:1] or '?').upper())}</b>")
+            tiles.append(f'<a href="{html.escape(b["url"], quote=True)}">{n}{img}<div><span>{html.escape(b["name"])}</span>'
+                         f'<i>{html.escape(urllib.parse.urlparse(b["url"]).netloc.removeprefix("www."))}</i></div></a>')
+        body = "\n".join(tiles) or ("<p>No hay sitios guardados: abrí una página y guardala con el amarillo "
+                                     "(«Guardar esta página»)</p>")
         return f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><title>{html.escape(self.name)}</title>
 <style>
-html,body{{margin:0;background:#101014;color:#fff;font:500 22px/1.3 system-ui,Helvetica,Arial,sans-serif;cursor:none}}
-main{{max-width:1500px;margin:0 auto;padding:5vh 4vw}}
-h1{{font-size:1.6em;font-weight:700;margin:0 0 .3em}}
-p.h{{color:#999;margin:0 0 1.4em}}
-nav{{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:24px}}
-a{{display:flex;flex-direction:column;justify-content:center;min-height:150px;padding:18px 22px;border-radius:18px;
-  background:#1c1c22;color:#fff;text-decoration:none;position:relative;border:3px solid transparent}}
-a span{{font-size:1.35em;font-weight:700}} a i{{font-style:normal;color:#999;margin-top:.3em;font-size:.85em}}
-a small{{position:absolute;top:12px;right:16px;color:#2f7cf6;font-size:.9em;font-weight:700}}
-a img{{width:56px;height:56px;margin-bottom:10px;border-radius:12px}}
+html,body{{margin:0;background:#101014;color:#fff;font:500 17px/1.3 system-ui,Helvetica,Arial,sans-serif;cursor:none}}
+main{{max-width:1400px;margin:0 auto;padding:3.5vh 3vw}}
+h1{{font-size:1.3em;font-weight:700;margin:0 0 .2em}}
+p.h{{color:#999;margin:0 0 1.1em;font-size:.85em}}
+nav{{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}}
+a{{display:flex;align-items:center;gap:12px;min-height:64px;padding:10px 14px;border-radius:12px;
+  background:#1c1c22;color:#fff;text-decoration:none;position:relative;border:3px solid transparent;overflow:hidden}}
+a div{{display:flex;flex-direction:column;min-width:0}}
+a span{{font-size:1.05em;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+a i{{font-style:normal;color:#999;font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+a small{{position:absolute;top:6px;right:10px;color:#2f7cf6;font-size:.8em;font-weight:700}}
+a img,a b{{flex:none;width:40px;height:40px;border-radius:9px}}
+a b{{display:flex;align-items:center;justify-content:center;background:#2a2a33;color:#9cc0ff;font-size:1.2em}}
 </style></head><body><main>
 <h1>{html.escape(self.name)}</h1>
-<p class="h">0 = escribir una dirección o buscar · 1 – 9 = estos sitios · flechas y OK · Atrás vuelve · azul = esta página</p>
+<p class="h">0 = escribir una dirección o buscar · 1 – 9 = estos sitios · flechas y OK · CC = mouse · Atrás vuelve · azul = esta página · amarillo = guardar o borrar sitios</p>
 <nav>
 {body}
 </nav></main></body></html>
@@ -400,6 +511,7 @@ a img{{width:56px;height:56px;margin-bottom:10px;border-radius:12px}}
         if self.running() or await self.browser.alive():
             await self.browser.close()
         self.t9.reset()
+        self.mouse, self.mouse_xy = False, None
 
     async def _drop_page(self) -> None:
         page, self.page = self.page, None
@@ -465,10 +577,20 @@ a img{{width:56px;height:56px;margin-bottom:10px;border-radius:12px}}
                                   or not await self.browser.alive()):
             return self.context  # todavía conectando (o sin navegador): sin preguntarle a la página
         try:
-            r = await self.js("ctx", timeout=3.0)
+            r = await self.ctx()
         except CDPError:
             return self.context
-        return "navegador_text" if r.get("ctx") == "text" else self.context
+        if r.get("ctx") == "text":
+            return "navegador_text"
+        return "navegador_mouse" if self.mouse else self.context
+
+    async def ctx(self) -> dict[str, Any]:
+        """Qué hay en la página (campo con el foco, dirección, título). Con el modo mouse prendido le recuerda a la
+        página dónde va la flecha (en cada página nueva el script arranca de cero)."""
+        if not self.mouse:
+            return await self.js("ctx", timeout=3.0)
+        at = {"x": self.mouse_xy[0], "y": self.mouse_xy[1]} if self.mouse_xy else {}
+        return await self.js("ctx", at, timeout=3.0)
 
     async def navigate(self, url: str) -> None:
         if not await self._ensure_page():
@@ -480,6 +602,8 @@ a img{{width:56px;height:56px;margin-bottom:10px;border-radius:12px}}
             await self.page.navigate(url)
         except CDPError as exc:
             log.warning("Navegador: no pude abrir %s (%s)", url, exc)
+            return
+        self.redraw_soon()
 
     async def go(self, text: str) -> str:
         """Lo que se escribió (en la TV o en el celular): abre la dirección o la búsqueda. Devuelve la dirección."""
@@ -496,13 +620,138 @@ a img{{width:56px;height:56px;margin-bottom:10px;border-radius:12px}}
         if await self._ensure_page():
             await self.page.mouse_click(x, y)
 
+    async def click_landed(self) -> bool:
+        """Después del clic de OK: ¿le llegó al elemento? Si no (cayó en otra cosa), el script le hace un clic por su
+        cuenta. Sin reintentos: si el clic abrió otra página, esta pregunta ya no tiene a quién hacerse."""
+        if self.page is None:
+            return True
+        try:
+            r = await self.page.evaluate('(window.__tcnav && window.__tcnav.cmd("clicked", [])) || {}', 2.0)
+        except CDPError:
+            return True
+        if isinstance(r, dict) and r.get("fallback"):
+            log.info("Navegador: el clic no le llegó al elemento; le hago uno por script")
+            return False
+        return True
+
     async def current_url(self) -> str:
         if self.page is None:
             return ""
         try:
-            return str((await self.js("ctx", timeout=3.0)).get("url") or "")
+            return str((await self.ctx()).get("url") or "")
         except CDPError:
             return ""
+
+    async def page_info(self) -> tuple[str, str]:
+        """(dirección, título) de la página que se ve."""
+        if self.page is None:
+            return "", ""
+        try:
+            r = await self.ctx()
+        except CDPError:
+            return "", ""
+        return str(r.get("url") or ""), str(r.get("title") or "")
+
+    # ------------------------------------------------------------ modo mouse
+    def mouse_step(self, direction: str) -> float:
+        """Cuánto avanza la flecha: poco con un toque; apretando seguido en la misma dirección, cada vez más."""
+        now = time.monotonic()
+        last_dir, last_t, last_step = self._mouse_last
+        step = (min(MOUSE_MAX_STEP, last_step * MOUSE_ACCEL) if direction == last_dir and now - last_t < MOUSE_REPEAT_S
+                else MOUSE_STEP)
+        self._mouse_last = (direction, now, step)
+        return step
+
+    async def mouse_on(self) -> dict[str, Any]:
+        self.mouse = True
+        x, y = self.mouse_xy or (None, None)
+        r = await self.js("mouse", "show", x, y)
+        self._keep_xy(r)
+        return r
+
+    async def mouse_off(self) -> None:
+        self.mouse = False
+        self._mouse_last = ("", 0.0, 0.0)
+        try:
+            await self.js("mouse", "hide")
+        except CDPError:
+            pass
+
+    async def mouse_move(self, direction: str, step: float | None = None, hover: bool = True) -> dict[str, Any]:
+        """Mueve la flecha en esa dirección (step: cuánto; sin step, según cuán seguido se aprieta)."""
+        step = self.mouse_step(direction) if step is None else step
+        dx, dy = {"up": (0, -step), "down": (0, step), "left": (-step, 0), "right": (step, 0)}.get(direction, (0, 0))
+        if self.mouse_xy is None:
+            await self.mouse_on()
+        r = await self.js("mouse", "move", dx, dy)
+        self._keep_xy(r)
+        self.mouse_moved = True
+        if hover:
+            await self.mouse_hover()
+        return r
+
+    async def mouse_hover(self) -> None:
+        """Lleva el puntero de verdad adonde está la flecha: los menús que se abren al pasar por encima."""
+        if self.mouse_xy and self.page is not None:
+            try:
+                await self.page.mouse_move(*self.mouse_xy)
+            except CDPError:
+                pass
+
+    async def mouse_glide(self, direction: str, held: Any) -> None:
+        """Botón mantenido: la flecha se desliza sola, cada vez más rápido, mientras held() diga que sigue apretado."""
+        t0 = last = time.monotonic()
+        try:
+            while self.mouse:
+                await asyncio.sleep(GLIDE_TICK_S)
+                if not held():
+                    break
+                now = time.monotonic()
+                speed = min(GLIDE_MAX, GLIDE_START + GLIDE_ACCEL * (now - t0))
+                r = await self.mouse_move(direction, speed * (now - last), hover=False)
+                last = now
+                if r.get("edge"):
+                    break  # contra el borde y sin nada para correr
+        finally:
+            self._mouse_last = (direction, time.monotonic(), MOUSE_MAX_STEP)
+            await self.mouse_hover()
+
+    async def mouse_click(self) -> dict[str, Any]:
+        """Clic de verdad donde está la flecha. Devuelve {x, y, text (era un campo de texto), label}."""
+        r = await self.js("mouse", "where")
+        if not r.get("on"):
+            r = await self.mouse_on()
+            r = await self.js("mouse", "where")
+        if "x" in r and "y" in r:
+            await self.click(r["x"], r["y"])
+            self.mouse_moved = False
+            self.redraw_soon()
+        return r
+
+    def _keep_xy(self, r: dict[str, Any]) -> None:
+        if isinstance(r.get("x"), (int, float)) and isinstance(r.get("y"), (int, float)):
+            self.mouse_xy = (float(r["x"]), float(r["y"]))
+
+    def redraw_soon(self) -> None:
+        """Después de un clic o de abrir otra página: la flecha otra vez, cuando la página nueva ya cargó."""
+        if not self.mouse:
+            return
+        if self._redraw is not None and not self._redraw.done():
+            self._redraw.cancel()
+
+        async def later() -> None:
+            for wait in (1.2, 2.5):
+                await asyncio.sleep(wait)
+                if not self.mouse or self.page is None:
+                    return
+                try:
+                    await self.ctx()
+                except CDPError:
+                    pass
+        try:
+            self._redraw = asyncio.get_running_loop().create_task(later())
+        except RuntimeError:
+            self._redraw = None
 
     def env_ok(self) -> bool:
         return bool(graphical_env())
