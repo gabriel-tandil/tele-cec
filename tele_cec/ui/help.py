@@ -115,7 +115,7 @@ SUB_ACTIONS = {
               "previous": "Radio anterior", "station": "Esa radio de la lista",
               "info": "Qué suena (la radio y el tema)", "list": "La lista de radios"},
     "fotos": {"next": "Foto siguiente", "previous": "Foto anterior", "pause": "Pausar o seguir la presentación",
-              "rotate": "Girar la foto", "random": "Una foto al azar", "info": "Qué foto es (carpeta y archivo)",
+              "rotate": "Girar la foto", "random": "Una foto al azar", "info": "Qué foto es (otra vez: dónde se sacó, en un mapa)",
               "filename": "Nombre del archivo (chico)", "zoom_in": "Zoom: acercar", "zoom_out": "Alejar",
               "fit": "Foto entera (y sigue la presentación)", "scroll": "Mover la foto",
               "media_play_pause": "Con música: play / pausa · sin música: pausar la presentación",

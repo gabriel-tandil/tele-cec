@@ -626,10 +626,15 @@ async def main() -> int:
     check(out == ["feh:greater", "feh:z", f"ov:toast:{where} › 2017 › 07\nIMG_0001.jpg\nFoto 12 de 49.403"],
           f"rojo gira, amarillo al azar, azul = qué foto es (carpeta, archivo, número): {out}")
 
-    print("Fotos: el mapa de dónde se sacó (verde)")
+    print("Fotos: el mapa de dónde se sacó (azul dos veces)")
     out = await press("F3_GREEN")
-    check(out == ["ov:toast:Esta foto no tiene la ubicación (GPS)"] and not ctl._menu_open,
-          f"una foto sin GPS: lo dice: {out}")
+    check(out == [], f"el verde queda libre (la TV no siempre lo manda): {out}")
+    out = await press("F1_BLUE")
+    check(len(out) == 1 and out[0].startswith("ov:toast:") and "Azul otra vez" not in out[0] and not ctl._menu_open,
+          f"una foto sin GPS: el azul otra vez solo vuelve a decir qué foto es: {out}")
+    start = len(log)
+    await ctl.run_action("fotos:map")
+    check(log[start:] == ["ov:toast:Esta foto no tiene la ubicación (GPS)"], f"fotos:map sin GPS lo dice: {log[start:]}")
     from tele_cec.apps import photomap as photomap_mod
     if photomap_mod.available():
         from PIL import Image as PILImage
@@ -652,13 +657,15 @@ async def main() -> int:
         photomap_mod.MapMaker.render = fake_render  # type: ignore[method-assign]
         fotos.photo_info = gps_info  # type: ignore[method-assign]
         try:
+            ctl._fotos_info = ("", 0.0)
             out = await press("F1_BLUE")
-            check(out and out[-1].endswith("Verde: dónde se sacó (mapa)"), f"el azul avisa que tiene mapa: {out}")
-            out = await press("F3_GREEN")
+            check(out and out[-1].endswith("Azul otra vez: dónde se sacó (mapa)") and ctl._menu_mode != "map",
+                  f"el azul dice qué foto es y avisa que tiene mapa: {out}")
+            out = await press("F1_BLUE")
             check(out[:1] == ["feh:h"] and "ov:busy:Buscando el mapa…" in out
                   and out[-1] == "ov:image:Dónde se sacó · IMG_20190120_120000.jpg"
                   and renders == [(-41.134333, -71.31, 15)] and ctl._menu_mode == "map" and fotos.paused,
-                  f"verde: pausa las fotos y muestra el mapa en el lugar de la foto: {out} {renders}")
+                  f"azul otra vez: pausa las fotos y muestra el mapa en el lugar de la foto: {out} {renders}")
             await press("UP", "UP", "DOWN")
             check([r[2] for r in renders] == [15, 16, 17, 16], f"▲ acerca, ▼ aleja: {renders}")
             out = await press("EXIT")

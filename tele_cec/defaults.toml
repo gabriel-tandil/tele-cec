@@ -503,10 +503,10 @@ PAUSE_PLAY_FUNCTION = "fotos:media_play_pause"
 STOP = "close:fotos"          # ■ = cerrar y volver al menú (la música de fondo sigue)
 EXIT = ""
 AN_RETURN = ""
-F1_BLUE = "fotos:info"        # azul = qué foto es: carpeta, archivo y número (en el panel)
+F1_BLUE = "fotos:info"        # azul = qué foto es: carpeta, archivo y número; otra vez: dónde se sacó (mapa, si tiene GPS)
 F2_RED = "fotos:rotate"       # rojo = girar la foto
 F4_YELLOW = "fotos:random"    # amarillo = una foto al azar
-F3_GREEN = "fotos:map"        # verde = dónde se sacó la foto (un mapa, si tiene GPS)
+F3_GREEN = ""                  # verde: libre (el mapa de dónde se sacó la foto es azul otra vez)
 UP = "fotos:zoom_in"          # ▲ = zoom (pausa la presentación; ver [keys.fotos_zoom])
 DOWN = "fotos:mode"           # ▼ = solo fotos → fotos y videos → solo videos (sigue desde la foto que se veía)
 SUB_PICTURE = "fotos:date"    # CC = la fecha de cada foto en una esquina (el día, el mes o el año: lo que se sepa)

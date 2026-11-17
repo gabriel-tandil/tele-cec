@@ -21,6 +21,8 @@ class MediaMixin:
         # proceso de High Tide (si se reinició, ya no vale).
         self._tidal_view = ""
         self._tidal_pids: tuple[int, ...] = ()
+        # Fotos: la foto cuyo cartel «qué foto es» (azul) se está viendo, y hasta cuándo: azul otra vez = el mapa.
+        self._fotos_info: tuple[str, float] = ("", 0.0)
 
     # ---------------------------------------------------------------- Videos, Música (mpv) y Fotos
     async def a_video(self, arg: str) -> None:
@@ -215,10 +217,17 @@ class MediaMixin:
         elif cmd == "info":
             info = await f.photo_info()
             if info:
+                shown, until = self._fotos_info
+                has_map = f.cfg.get("map", True) and await asyncio.to_thread(photodates.gps_of, info["path"])
+                if has_map and shown == info["path"] and time.monotonic() < until:
+                    self._fotos_info = ("", 0.0)
+                    await self._fotos_map(f)  # azul otra vez, con el cartel a la vista: dónde se sacó
+                    return
                 text = f.describe_photo(info)
                 log.info("Fotos: %s", text.replace("\n", " · "))
-                if f.cfg.get("map", True) and await asyncio.to_thread(photodates.gps_of, info["path"]):
-                    text += "\nVerde: dónde se sacó (mapa)"
+                if has_map:
+                    text += "\nAzul otra vez: dónde se sacó (mapa)"
+                self._fotos_info = (info["path"], time.monotonic() + 6)
                 await self.toast(text, 6000)
             else:
                 await f.filename()  # sin el título de la ventana: el texto chico del visor
@@ -273,7 +282,7 @@ class MediaMixin:
                          else f"Sacada de Favoritas ({n})", 2500)
 
     async def _fotos_map(self, f: activities_mod.PhotosActivity) -> None:
-        """Verde en Fotos: el mapa de dónde se sacó la foto que se ve (si tiene GPS)."""
+        """Azul dos veces en Fotos (o fotos:map): el mapa de dónde se sacó la foto que se ve (si tiene GPS)."""
         if not f.cfg.get("map", True):
             return
         if not photomap.available():
