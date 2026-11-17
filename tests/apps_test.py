@@ -1461,7 +1461,7 @@ async def main() -> int:
     t9 = T9(1000)
     seq = [t9.press(k, now=1.0 + i * 0.2) for i, k in enumerate(("2", "2", "2", "6", "0"))]
     check([(c, r) for c, r, _l, _i in seq] == [("a", False), ("b", True), ("c", True), ("m", False), (" ", False)]
-          and seq[1][2] == "abcáä2" and seq[1][3] == 1,
+          and seq[1][2] == "abc2" and seq[1][3] == 1,
           f"T9: el mismo número seguido pasa a la letra siguiente (reemplaza); otro número, letra nueva; 0 espacio: {seq}")
     check(t9.press("2", now=1.9)[0] == "a" and t9.press("2", now=5.0)[0] == "a",
           "después de un rato (t9_ms) la misma tecla empieza de nuevo")
@@ -1675,10 +1675,10 @@ async def main() -> int:
     check(out[-2:] == ["web:activate", "ov:toast:" + ctl_web.TEXT_HINT] and await ctl.context() == "navegador_text",
           f"OK en un campo de texto: entra a escribir (contexto 'navegador_text'): {out}")
     out = await press("NUMBER2", "NUMBER2", "NUMBER6", "NUMBER0", "F2_RED", "NUMBER4")
-    check(wf.fake.value == "bm g" and "web:type:a:False:abcáä2:0" in out and "web:type:b:True:abcáä2:1" in out
+    check(wf.fake.value == "bm g" and "web:type:a:False:abc2:0" in out and "web:type:b:True:abc2:1" in out
           and "web:key:Backspace" in out, f"los números escriben (T9), rojo borra: «{wf.fake.value}» {out}")
     out = await press("F4_YELLOW", "NUMBER2", "F3_GREEN")
-    check("ov:toast:ABC · MAYÚSCULAS" in out and "web:type:A:False:ABCÁÄ2:0" in out and "web:clear" in out and wf.fake.value == "",
+    check("ov:toast:ABC · MAYÚSCULAS" in out and "web:type:A:False:ABC2:0" in out and "web:clear" in out and wf.fake.value == "",
           f"amarillo = mayúsculas, verde = borrar todo: {out}")
     wf.t9.next_mode(); wf.t9.next_mode()  # de vuelta a abc
     out = await press("SELECT", "EXIT")

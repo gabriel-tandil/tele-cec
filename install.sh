@@ -210,39 +210,6 @@ for dev in /dev/cec*; do
 done
 ((found)) || warn "no hay /dev/cec* (en Raspberry Pi OS Bookworm lo crea el driver vc4-kms-v3d)."
 
-# ---------------------------------------------------------------- migración desde netflix-cec
-# El proyecto antes se llamaba netflix-cec: se pasa la configuración, la caché y la regla de apagado al
-# nombre nuevo y se saca el programa viejo. Los perfiles del navegador (firefox-netflix, chromium-netflix)
-# no cambian de nombre: ahí está tu sesión de Netflix.
-OLD_NAME=netflix-cec
-OLD_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/$OLD_NAME"
-OLD_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/$OLD_NAME"
-NEW_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/tele-cec"
-OLD_DEST="$HOME/.local/share/$OLD_NAME"
-OLD_UNIT="$UNIT_DIR/$OLD_NAME.service"
-OLD_RULE=/etc/polkit-1/rules.d/50-$OLD_NAME-apagado.rules
-if [ -e "$OLD_UNIT" ] || [ -d "$OLD_DEST" ] || [ -d "$OLD_CONF" ] || [ -e "$BIN/$OLD_NAME" ]; then
-  step "Migración desde $OLD_NAME"
-  systemctl --user disable --now "$OLD_NAME.service" 2>/dev/null && echo "Servicio $OLD_NAME detenido y deshabilitado" || true
-  if [ -d "$OLD_CONF" ] && [ ! -e "$CONF_DIR" ]; then
-    mv "$OLD_CONF" "$CONF_DIR" && echo "Configuración: $OLD_CONF -> $CONF_DIR"
-  elif [ -d "$OLD_CONF" ]; then
-    warn "existen $OLD_CONF y $CONF_DIR: uso la nueva y dejo la vieja sin tocar"
-  fi
-  if [ -d "$OLD_CACHE" ] && [ ! -e "$NEW_CACHE" ]; then
-    mv "$OLD_CACHE" "$NEW_CACHE" && echo "Caché: $OLD_CACHE -> $NEW_CACHE"
-  fi
-  if sudo test -f "$OLD_RULE"; then  # /etc/polkit-1/rules.d no es legible por el usuario
-    sudo sed -i "s/$OLD_NAME/tele-cec/g" "$OLD_RULE"
-    sudo mv "$OLD_RULE" /etc/polkit-1/rules.d/50-tele-cec-apagado.rules && echo "Regla de polkit renombrada"
-  fi
-  rm -f "$OLD_UNIT" "$BIN/$OLD_NAME"
-  if [ -d "$OLD_DEST" ] && [ -f "$OLD_DEST/netflix_cec/__main__.py" ]; then
-    rm -r "$OLD_DEST" && echo "Programa viejo borrado: $OLD_DEST"
-  fi
-  systemctl --user daemon-reload
-fi
-
 # ---------------------------------------------------------------- archivos
 step "Archivos"
 mkdir -p "$DEST" "$BIN" "$CONF_DIR" "$UNIT_DIR" "$APPS"

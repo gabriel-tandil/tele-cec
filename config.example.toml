@@ -51,7 +51,6 @@
 # bookmarks = [               # la página de inicio, el botoncito «Sitios» y las teclas 1 – 9
 #   { name = "Google", url = "https://www.google.com" },
 #   { name = "Wikipedia", url = "https://es.wikipedia.org" },
-#   { name = "Infobae", url = "https://www.infobae.com" },
 # ]
 
 # [apps.fotos]                # Fotos con feh

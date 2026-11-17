@@ -1,6 +1,6 @@
 """Escribir con los números del control remoto, como en los celulares viejos (T9 multitap).
 
-Cada número tiene sus letras (2 = a b c, 3 = d e f…, con las tildes y la ñ en su lugar); apretarlo seguido pasa a la
+Cada número tiene sus letras (2 = a b c, 3 = d e f…, y la ñ en el 6); apretarlo seguido pasa a la
 letra siguiente y reemplaza la anterior; después de un rato (o con otro número) la letra queda. 0 es el espacio y 1
 los signos. Tres modos: abc, ABC y 123 (los números directos).
 """
@@ -11,13 +11,13 @@ import time
 
 KEYS: dict[str, str] = {
     "1": ".,?!'-@/:_1",
-    "2": "abcáä2",
-    "3": "deéf3",
-    "4": "ghií4",
+    "2": "abc2",
+    "3": "def3",
+    "4": "ghi4",
     "5": "jkl5",
-    "6": "mnñoó6",
+    "6": "mnño6",
     "7": "pqrs7",
-    "8": "tuúüv8",
+    "8": "tuv8",
     "9": "wxyz9",
     "0": " 0",
 }
