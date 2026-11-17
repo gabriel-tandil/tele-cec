@@ -136,7 +136,14 @@
   .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 9; display: flex; align-items: flex-end; justify-content: center; }
   .sheet { background: var(--panel-solid); border: 2px solid var(--line); border-bottom: 0; width: 100%; max-width: 500px;
     border-radius: 22px 22px 0 0; padding: 10px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 92vh; overflow-y: auto; }
-  .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--badge); margin: 0 auto 12px; }
+  .sheet { transition: transform .2s ease; }
+  .sheet.dragging { transition: none; }
+  .sheet-top { position: sticky; top: -10px; z-index: 1; margin: -10px -16px 6px; padding: 10px 16px 0; height: 44px;
+    background: var(--panel-solid); display: flex; justify-content: center; touch-action: none; cursor: grab; }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--badge); margin-top: 2px; }
+  .sheet-x { position: absolute; right: 8px; top: 4px; width: 44px; height: 44px; border-radius: 50%;
+    display: grid; place-items: center; color: var(--muted); }
+  .sheet-x:active { background: var(--row-hover); }
   .big-art { width: min(72vw, 300px); aspect-ratio: 1; border-radius: 16px; margin: 4px auto 16px; display: grid; place-items: center;
     background: rgba(255,255,255,0.06) center/cover no-repeat; font-size: 64px; color: var(--faint); }
   .np-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
@@ -187,6 +194,7 @@
   <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></symbol>
   <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21l-1.5-1.3C5.4 15.1 2 12 2 8.3 2 5.3 4.4 3 7.4 3c1.7 0 3.4.8 4.6 2.1C13.2 3.8 14.9 3 16.6 3 19.6 3 22 5.3 22 8.3c0 3.7-3.4 6.8-8.5 11.4L12 21z"/></symbol>
   <symbol id="i-heart-o" viewBox="0 0 24 24"><path d="M16.6 3c-1.7 0-3.4.8-4.6 2.1C10.8 3.8 9.1 3 7.4 3 4.4 3 2 5.3 2 8.3c0 3.7 3.4 6.8 8.5 11.4L12 21l1.5-1.3C18.6 15.1 22 12 22 8.3 22 5.3 19.6 3 16.6 3zm-4.5 15.2l-.1.1-.1-.1C7.1 14 4 11.2 4 8.3 4 6.3 5.5 4.9 7.4 4.9c1.5 0 3 1 3.5 2.3h2.2c.5-1.3 2-2.3 3.5-2.3 1.9 0 3.4 1.4 3.4 3.4 0 2.9-3.1 5.7-7.9 9.9z"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M4.6 8.6L12 16l7.4-7.4-1.4-1.4-6 6-6-6z"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15.4 4.6L8 12l7.4 7.4 1.4-1.4-6-6 6-6z"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V6z"/></symbol>
   <symbol id="i-phone" viewBox="0 0 24 24"><path d="M8 2h8a2 2 0 012 2v16a2 2 0 01-2 2H8a2 2 0 01-2-2V4a2 2 0 012-2zm0 3v13h8V5H8zm4 14.2a1 1 0 100 2 1 1 0 000-2z"/></symbol>
@@ -315,18 +323,77 @@ function note(text, button) {
   if (button) { d.appendChild(el("br")); d.appendChild(button); }
   return d;
 }
+// Una hoja que sube desde abajo (el reproductor, las opciones). Se cierra con ⌄, tocando o bajando la barrita de
+// arriba, tocando afuera o con el «atrás» del celular: cada hoja abierta es un paso más en el historial.
+const sheets = [];
 function sheet(build, onClose) {
   buzz();
   const bg = el("div", "sheet-bg");
   const sh = el("div", "sheet");
-  sh.appendChild(el("div", "grab"));
-  const close = () => { bg.remove(); if (onClose) onClose(); };
+  const top = el("div", "sheet-top");
+  top.appendChild(el("div", "grab"));
+  const x = el("button", "sheet-x");
+  x.appendChild(svg("down"));
+  x.setAttribute("aria-label", "Cerrar");
+  top.appendChild(x);
+  sh.appendChild(top);
+  let open = true;
+  const remove = () => {  // sacarla de la pantalla (el historial ya volvió o va a volver)
+    if (!open) return false;
+    open = false;
+    bg.remove();
+    sheets.splice(sheets.indexOf(close), 1);
+    if (onClose) onClose();
+    return true;
+  };
+  const close = () => remove() ? historyBack() : Promise.resolve();
+  close.remove = remove;
+  sheets.push(close);
+  history.pushState({sheet: true}, "");
   build(sh, close);
   bg.appendChild(sh);
   bg.addEventListener("click", (ev) => { if (ev.target === bg) close(); });
+  x.addEventListener("click", (ev) => { ev.stopPropagation(); buzz(); close(); });
+  // Arrastrar la barrita hacia abajo: pasado un poco, se cierra; si no, vuelve a su lugar. Un toque también cierra.
+  let y0 = null, dy = 0;
+  top.addEventListener("pointerdown", (ev) => {
+    if (ev.target.closest(".sheet-x")) return;
+    y0 = ev.clientY; dy = 0; sh.classList.add("dragging");
+    try { top.setPointerCapture(ev.pointerId); } catch (e) {}
+  });
+  top.addEventListener("pointermove", (ev) => {
+    if (y0 == null) return;
+    dy = Math.max(0, ev.clientY - y0);
+    sh.style.transform = `translateY(${dy}px)`;
+  });
+  const end = () => {
+    if (y0 == null) return;
+    y0 = null; sh.classList.remove("dragging");
+    if (dy > 80 || dy < 6) { buzz(); close(); } else sh.style.transform = "";
+  };
+  top.addEventListener("pointerup", end);
+  top.addEventListener("pointercancel", () => { y0 = null; sh.classList.remove("dragging"); sh.style.transform = ""; });
   document.body.appendChild(bg);
   return close;
 }
+// Volver un paso en el historial y esperar a que el navegador lo haga (es asíncrono): lo que venga después, como
+// abrir otra página, recién entonces agrega su propio paso.
+const backWaiters = [];
+function historyBack() {
+  return new Promise((resolve) => {
+    let done = false;
+    const fin = () => { if (!done) { done = true; resolve(); } };
+    backWaiters.push(fin);
+    history.back();
+    setTimeout(() => { const i = backWaiters.indexOf(fin); if (i >= 0) backWaiters.splice(i, 1); fin(); }, 600);
+  });
+}
+// El «atrás» del celular (o del navegador): cierra la hoja de arriba o vuelve a la página anterior.
+window.addEventListener("popstate", () => {
+  if (backWaiters.length) { backWaiters.shift()(); return; }
+  if (sheets.length) { sheets[sheets.length - 1].remove(); return; }
+  if (stack.length > 1) { stack.pop(); render(); }
+});
 function optionsSheet(title, sub, options) {
   sheet((sh, close) => {
     sh.appendChild(el("div", "np-title", title));
@@ -334,7 +401,7 @@ function optionsSheet(title, sub, options) {
     const box = el("div", "opts");
     options.forEach(([label, fn]) => {
       const b = el("button", "", label);
-      b.addEventListener("click", async () => { close(); buzz(); await fn(); });
+      b.addEventListener("click", async () => { buzz(); await close(); await fn(); });
       box.appendChild(b);
     });
     const c = el("button", "", "Cancelar");
@@ -348,10 +415,11 @@ function optionsSheet(title, sub, options) {
 const stack = [];
 function show(page) {
   stack.push(page);
+  history.pushState({page: stack.length}, "");
   render();
 }
-function back() {
-  if (stack.length > 1) { stack.pop(); render(); }
+function back() {  // como el «atrás» del celular: el popstate saca la página
+  if (stack.length > 1) history.back();
 }
 function render() {
   const page = stack[stack.length - 1];
@@ -1440,7 +1508,7 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 // Arranque: #tidal, #musica o #sonido abren directo esa página.
 stack.push(ACTIVITIES);
 const start = {tidal: TIDAL, musica: MUSIC, sonido: SOUND, sound: SOUND}[location.hash.slice(1)];
-if (start) stack.push(start);
+if (start) { stack.push(start); history.pushState({page: 2}, ""); }
 render();
 poll();
 </script>
