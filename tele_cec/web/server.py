@@ -355,6 +355,8 @@ class WebRemote:
         if command == "loop":
             value = track.loop
         act = self._act_of(player)
+        if command in ("shuffle", "loop") and isinstance(act, activities_mod.RadioActivity):
+            return {"ok": False, "error": "La radio es en vivo: no se mezcla ni se repite"}
         if command == "shuffle" and isinstance(act, activities_mod.MpvMediaActivity) and act.running():
             # Música: como el amarillo de la TV (mpv-mpris mezcla, pero al apagarlo no vuelve al orden)
             on = await act.toggle_shuffle()
@@ -700,9 +702,10 @@ class WebRemote:
                 now["art"] = ""
             if not now["art"] and track.url.startswith("file://"):  # Música local: la tapa del disco
                 now["art"] = await self.music.art_for(urllib.parse.unquote(urllib.parse.urlparse(track.url).path))
-            if not now["art"]:  # la Radio: la tapa que se encontró en línea para lo que está sonando
-                act = self._act_of(track.player)
-                if isinstance(act, activities_mod.RadioActivity) and act.cover_path is not None:
+            act = self._act_of(track.player)
+            if isinstance(act, activities_mod.RadioActivity):
+                now["shuffle"], now["loop"] = None, ""  # en vivo no hay lista que mezclar ni repetir: sin esos botones
+                if not now["art"] and act.cover_path is not None:  # la tapa que se encontró en línea para lo que suena
                     self._art = str(act.cover_path)
                     now["art"] = f"/api/art?v={abs(hash(self._art)) % 10 ** 8}"
             now.pop("url", None)
