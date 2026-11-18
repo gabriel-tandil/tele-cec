@@ -590,6 +590,10 @@ async def main() -> int:
         from tele_cec.web import server as server_mod
         check(s.get("ui") and s["ui"] == server_mod._ui_version(),
               f"y la versión de la página (si cambia, la página abierta en el celular se recarga sola): {s.get('ui')}")
+        check(s.get("fullscreen") is False,
+              f"el botón de pantalla completa viene apagado ([web] fullscreen_button): {s.get('fullscreen')}")
+        check(server.WebRemote(ctl, {"fullscreen_button": True}).fullscreen_button is True,
+              "y con [web] fullscreen_button = true la página lo muestra")
         check([o["name"] for o in s["outputs"]] == ["TV (HDMI)", "Auriculares BT"] and s["outputs"][0]["current"]
               and "tocá" in s["outputs"][1]["detail"],
               f"salidas emparejadas, con la actual marcada (las nuevas sin emparejar no): {s['outputs']}")

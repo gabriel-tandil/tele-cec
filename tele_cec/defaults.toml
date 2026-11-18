@@ -647,6 +647,7 @@ port = 8765
 lan_only = true               # rechazar lo que no venga de la red local (direcciones privadas)
 volume_step = 5               # cuánto sube o baja el volumen cada toque (%)
 menu_qr = true                # el menú de actividades de la TV muestra un QR para abrir esta página en el celular
+fullscreen_button = false     # botón ⛶ de pantalla completa en la página (al volver a abrirla pide un toque)
 
 [apps.netflix]
 on_reselect = "continue_watching"   # app:netflix con Netflix ya abierto

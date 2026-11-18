@@ -1333,6 +1333,7 @@ async function poll() {
     stateAt = Date.now();
     failures = 0;
     checkVersion(state.ui);
+    fsAllow(!!state.fullscreen);
   } catch (e) {
     if (++failures === 2) toast("Sin conexión con la Pi", 3000);
     if (failures >= 2) state = null;
@@ -1522,7 +1523,8 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 // Sin las barras del navegador, como una app. El navegador solo la deja pedir con un toque, y la saca al recargar
 // o al volver a abrir la página, o con el «atrás» del celular. Si quedó prendida (el botón de arriba), una cortina
 // pide ese toque y se lo come, para que no apriete también lo que esté abajo.
-const FS = {on: false};
+// Está solo si la Pi lo permite ([web] fullscreen_button = true): llega con el estado.
+const FS = {on: false, allowed: false};
 try { FS.on = localStorage.getItem("tele-cec-fullscreen") === "1"; } catch (e) {}
 function fsNow() { return !!document.fullscreenElement; }
 function fsEnter() {
@@ -1533,9 +1535,16 @@ function fsEnter() {
   } catch (e) {}
 }
 function fsApp() {
-  // Abierta desde el ícono como app (sin barras) o sin la función (Safari en el iPhone): no hace falta.
+  // Apagado en la configuración, abierta desde el ícono como app (sin barras) o sin la función (Safari en el
+  // iPhone): no hace falta.
   const app = window.matchMedia && matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches;
-  return !document.fullscreenEnabled || (app && !fsNow());
+  return !FS.allowed || !document.fullscreenEnabled || (app && !fsNow());
+}
+function fsAllow(on) {
+  if (on === FS.allowed) return;
+  FS.allowed = on;
+  fsButton();
+  fsVeil();
 }
 function fsVeil() { $("fsveil").hidden = !(FS.on && !fsNow() && !fsApp()); }
 function fsButton() {
