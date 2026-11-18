@@ -20,6 +20,10 @@ MOUSE_OFF_HINT = "Modo mouse apagado · las flechas van de enlace en enlace"
 
 # Botón mantenido sin aviso de «soltado» (0x45): si no llega otra repetición en este tiempo, se soltó.
 HOLD_GAP_S = 0.55
+# Tele que no repite la tecla mantenida pero avisa al soltarla: si sigue apretada pasado este tiempo, se desliza
+# (hasta que se suelte, o como mucho GLIDE_MAX_S, por si el aviso se pierde).
+GLIDE_AFTER_S = 0.4
+GLIDE_MAX_S = 6.0
 MOUSE_DIRS = ("up", "down", "left", "right")
 
 
@@ -35,6 +39,20 @@ class WebMixin:
 
     def _web_still_held(self) -> bool:
         return not self._released and time.monotonic() - self._last_key[1] < HOLD_GAP_S
+
+    async def _web_glide_later(self, w: activities_mod.WebActivity, sub: str, key: tuple) -> None:
+        """Un toque de flecha en una tele que avisa al soltar: si pasado un ratito sigue apretada, se desliza."""
+        await asyncio.sleep(GLIDE_AFTER_S)
+        if self._released or self._last_key[0] != key[0] or not w.mouse:  # (otro toque ya la habría cancelado)
+            return
+        t0 = time.monotonic()
+        log.info("Navegador: flecha mantenida (sin repeticiones de la tele): se desliza hasta que se suelte")
+
+        def held() -> bool:
+            if self._last_key[0] != key[0] or time.monotonic() - t0 > GLIDE_MAX_S:
+                return False
+            return not self._released
+        await w.mouse_glide(sub, held)
 
     def _web(self) -> activities_mod.WebActivity | None:
         w = self.activities.get("navegador")
@@ -166,15 +184,19 @@ class WebMixin:
                 await w.mouse_on()
             glide = self._web_glide
             if glide is not None and not glide.done():
-                if self._web_glide_dir == sub:
+                if self._key_held and self._web_glide_dir == sub:
                     return  # otra repetición del botón mantenido: la flecha ya se está deslizando
                 self._web_stop_glide()
+            loop = asyncio.get_running_loop()
             if self._key_held:
                 # Mantenido: se desliza sola (cada vez más rápido) hasta que se suelte el botón.
                 self._web_glide_dir = sub
-                self._web_glide = asyncio.get_running_loop().create_task(w.mouse_glide(sub, self._web_still_held))
+                self._web_glide = loop.create_task(w.mouse_glide(sub, self._web_still_held))
             else:
                 await w.mouse_move(sub)
+                if self._release_works:  # esta tele avisa al soltar: si no lo suelta, se desliza
+                    self._web_glide_dir = sub
+                    self._web_glide = loop.create_task(self._web_glide_later(w, sub, self._last_key))
         elif sub == "click":
             r = await w.mouse_click()
             if r.get("text"):

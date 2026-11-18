@@ -749,15 +749,65 @@
     return Object.assign(target(el), { name: textOf(el), count: links.length });
   }
 
+  // La fila «Seguir viendo», de tres maneras (la primera que funcione): su tipo (data-list-context), su título
+  // («Continuar viendo contenido de…», «¿Seguimos, …?») o, si Netflix la renombró o el perfil está en otro idioma,
+  // la primera fila con tarjetas a medio ver (las de la barrita de progreso).
+  function topRow(el) {
+    let row = closest(el, C.row);
+    while (row && row.parentElement && closest(row.parentElement, C.row)) row = closest(row.parentElement, C.row);
+    return row;
+  }
+  function halfWatched(scope) {
+    const out = [];
+    for (const el of $$(C.cw_card || 'a[data-uia="progress-card"]', scope)) out.push(el);
+    if (C.progress) {
+      for (const p of $$(C.progress, scope)) {
+        // La barrita está al lado de la tarjeta (en su contenedor), no siempre adentro del enlace.
+        let box = p.parentElement;
+        for (let i = 0; box && i < 4 && !$$(C.card, box).length && !matches(box, C.card); i++) box = box.parentElement;
+        if (box) out.push(matches(box, C.card) ? box : $$(C.card, box)[0]);
+      }
+    }
+    return out.filter((x, i) => x && out.indexOf(x) === i);
+  }
   function cwRowEl() {
     let row = $$(C.cw_row)[0] || null;
-    if (!row && C.cw_text) {
+    if (row) return { row, how: 'tipo' };
+    if (C.cw_text) {
       let re = null;
       try { re = new RegExp(C.cw_text, 'i'); } catch (e) { /* nada */ }
       const h = re && $$(C.row_header).find((x) => re.test(x.textContent || ''));
-      if (h) row = closest(h, C.row) || h.parentElement;
+      if (h) return { row: closest(h, C.row) || h.parentElement, how: 'título' };
     }
-    return row;
+    const half = halfWatched(document).filter((c) => !inModal(c));
+    for (const c of half) {
+      row = topRow(c);
+      if (row) return { row, how: 'progreso' };
+    }
+    return null;
+  }
+  function inModal(el) {
+    return !!closest(el, '[role="dialog"], .previewModal--container, [data-uia*="modal"]');
+  }
+
+  // El número del título de una tarjeta: /watch/123, /title/123, ?jbv=123 o el seguimiento de Netflix
+  // (data-ui-tracking-context, con «video_id»). Con eso se abre /watch/123 directo: sin clic en la tarjeta, que
+  // abre la ficha y hay que esperar su botón. Para una serie es la serie: Netflix sigue en el episodio donde quedó.
+  const ID_RES = [/\/watch\/(\d+)/, /\/title\/(\d+)/, /[?&]jbv=(\d+)/, /"?video_?id"?\s*[:=]\s*"?(\d+)/i];
+  function videoId(card) {
+    const els = [card, ...$$('[href], [data-ui-tracking-context], [data-video-id], [data-id]', card)];
+    let up = card.parentElement;
+    for (let i = 0; up && i < 4; i++, up = up.parentElement) els.push(up);
+    for (const el of els) {
+      for (const attr of ['href', 'data-ui-tracking-context', 'data-video-id', 'data-id']) {
+        let v = el.getAttribute && el.getAttribute(attr);
+        if (!v) continue;
+        if (attr === 'data-video-id' || attr === 'data-id') { if (/^\d{5,}$/.test(v)) return v; continue; }
+        try { v = decodeURIComponent(v); } catch (e) { /* nada */ }
+        for (const re of ID_RES) { const m = re.exec(v); if (m) return m[1]; }
+      }
+    }
+    return '';
   }
 
   // Para el log cuando no aparece «Seguir viendo»: las filas que hay (su tipo y su título).
@@ -765,25 +815,34 @@
     return $$(C.row).filter((r) => !(r.parentElement && closest(r.parentElement, C.row))).slice(0, 30).map((r) => {
       const h = $$(C.row_header, r)[0];
       const ctx = r.getAttribute('data-list-context') || '';
-      return (ctx ? ctx + ': ' : '') + ((h && h.textContent) || '').trim().slice(0, 60);
+      const half = halfWatched(r).length;
+      return (ctx ? ctx + ': ' : '') + ((h && h.textContent) || '').trim().slice(0, 60) +
+        ` [${$$(C.card, r).length} tarjetas${half ? `, ${half} a medio ver` : ''}]`;
     });
   }
 
   function cw(scrollIfMissing) {
-    const row = cwRowEl();
-    if (!row) {
+    const found = cwRowEl();
+    if (!found) {
       if (scrollIfMissing) window.scrollBy({ top: vh() * 0.8 });
       return { none: true, seen: rowsSeen(), y: Math.round(window.scrollY) };
     }
-    const links = $$('a[href*="/watch/"]', row);
-    if (links.length) {
-      const a = links.find((x) => usable(x)) || links[0];
-      return { href: new URL(a.getAttribute('href'), location.href).href, title: textOf(a) };
-    }
+    const { row, how } = found;
+    // La primera tarjeta de la fila (la de más a la izquierda que se ve: la última que se vio).
+    const half = halfWatched(row);
     const cards = $$(C.card, row);
-    const card = cards.find((x) => usable(x)) || cards[0];
-    if (card) { scrollToShow(card); return Object.assign(target(card), { opened: true, title: textOf(card) }); }
-    return { none: true, row: true };
+    const pool = cards.length ? cards : half;
+    const card = pool.find((x) => usable(x)) || pool[0];
+    const links = $$('a[href*="/watch/"]', row);
+    if (!card && links.length) {
+      const a = links.find((x) => usable(x)) || links[0];
+      return { href: new URL(a.getAttribute('href'), location.href).href, title: textOf(a), how };
+    }
+    if (!card) return { none: true, row: true, how, seen: rowsSeen() };
+    const id = videoId(card);
+    if (id) return { href: new URL('/watch/' + id, location.href).href, title: textOf(card), how, id };
+    scrollToShow(card);
+    return Object.assign(target(card), { opened: true, title: textOf(card), how });
   }
 
   function playButton() {

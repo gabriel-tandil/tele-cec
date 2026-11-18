@@ -55,6 +55,11 @@ class CoreMixin:
         self._last_key: tuple[int | None, float] = (None, 0.0)
         self._released = True
         self._key_held = False   # la tecla que se está ejecutando es la repetición de un botón mantenido
+        # ¿La pulsación anterior avisó que se soltó (0x45)? Hay teles que no repiten la tecla mantenida pero sí avisan
+        # al soltarla: ahí, «apretado y sin soltar» ya es mantenido (la flecha del mouse se desliza).
+        self._releases = 0
+        self._releases_mark = 0
+        self._release_works = False
         self._macro_task: asyncio.Task | None = None
         from .sleeptimer import SleepTimer  # noqa: PLC0415
         self.sleep_timer = SleepTimer(self)  # temporizador para apagar (Sonido en el menú, o el celular)
@@ -138,6 +143,7 @@ class CoreMixin:
             code, ts = await self.queue.get()
             if code is None:
                 self._released = True
+                self._releases += 1
                 continue
             age = time.monotonic() - ts
             if age > 3:
@@ -222,6 +228,9 @@ class CoreMixin:
         self._last_key = (code, now)
         self._released = False
         self._key_held = held
+        if not held:
+            self._release_works = self._releases > self._releases_mark
+            self._releases_mark = self._releases
         repeatable = isinstance(action, str) and (name in REPEATABLE or action.strip().startswith(REPEATABLE_PREFIXES))
         if held and not repeatable:
             log.debug("Tecla %s mantenida: ignorada", label)

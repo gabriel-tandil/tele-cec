@@ -57,9 +57,9 @@ DEFAULT_BOOKMARKS = [
 SITES_FILE = "navegador-sitios.json"   # en ~/.local/share/tele-cec: los sitios, una vez cambiados desde la TV
 UBLOCK_XPI = "uBlock0@raymondhill.net.xpi"
 # Modo mouse: cuánto se mueve la flecha por cada toque (en píxeles de la página); apretando seguido, cada vez más.
-MOUSE_STEP = 24
-MOUSE_MAX_STEP = 200
-MOUSE_ACCEL = 1.6
+MOUSE_STEP = 14
+MOUSE_MAX_STEP = 140
+MOUSE_ACCEL = 1.5
 MOUSE_REPEAT_S = 0.6
 # Manteniendo la flecha apretada, se desliza sola: empieza a esta velocidad (px por segundo), acelera y llega a la máxima.
 GLIDE_START = 300.0

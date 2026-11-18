@@ -282,7 +282,7 @@ class NetflixMixin:
             r = await self.js("cw", attempt >= 2)  # las filas de más abajo aparecen al bajar
             if r.get("href"):
                 title = r.get("title") or ""
-                log.info("Seguir viendo: %s", title or r["href"])
+                log.info("Seguir viendo: %s → %s (fila por %s)", title or "?", r["href"], r.get("how", "?"))
                 if self._busy_on:
                     await self.busy(loading_text(title), until="playing", ttl=20)
                 else:
@@ -291,7 +291,8 @@ class NetflixMixin:
                 await self.navigate(r["href"])
                 return
             if r.get("opened"):
-                log.info("Seguir viendo: %s", r.get("title", "?"))
+                log.info("Seguir viendo: %s (fila por %s; sin número de título, abro la ficha)", r.get("title", "?"),
+                         r.get("how", "?"))
                 if await self.open_and_play(r):
                     return
             last = r

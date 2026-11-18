@@ -348,10 +348,23 @@ key_echo = true
         print("Perfiles desde el inicio + macro")
         await press("NUMBER0", pause=1.2)
         check(await ctl.context() == "profiles", "0 en el inicio abre ¿Quién está viendo?")
+        before = len((await st())["log"])
         await ctl.run_action(["profile:1", "wait:800", "continue_watching"])
         await asyncio.sleep(1.5)
         s = await st()
         check("profile:Ana:trusted" in s["log"] and s["path"] == "/watch/80001", f"macro perfil 1 + seguir viendo: {s['path']}")
+        check(not any(x.startswith("card:") for x in s["log"][before:]),
+              "seguir viendo abre /watch/<número> directo (sin clic en la tarjeta ni esperar su ficha)")
+        if new:
+            # Otro perfil u otro idioma: la fila no se reconoce por el título ni por el tipo, sí por la barrita.
+            await ctl.navigate(f"{HOST}/browse")
+            await asyncio.sleep(1.0)
+            await ctl.cdp.evaluate("document.querySelectorAll('h2').forEach((h) => { h.textContent = 'Fila ' + h.id; });"
+                                   "document.querySelectorAll('[data-list-context]').forEach((r) => "
+                                   "r.removeAttribute('data-list-context'))")
+            r = await ctl.js("cw", False)
+            check(r.get("how") == "progreso" and str(r.get("href", "")).endswith("/watch/80001"),
+                  f"fila con otro nombre: la encuentra por las tarjetas a medio ver: {r}")
     finally:
         await ctl.disconnect()
         chrome.terminate()

@@ -1802,11 +1802,11 @@ async def main() -> int:
               and any(x.startswith("ov:toast:Modo mouse") for x in out), f"CC prende el modo mouse: {out}")
         nav_mod.MOUSE_REPEAT_S = 10.0
         out = await press("RIGHT", "RIGHT", "DOWN")
-        check(wf.mouse_xy == (640 + 24 + 24 * 1.6, 360 + 24) and "web:move:640.0,384.0" not in out
-              and f"web:move:{640 + 24 + 24 * 1.6},384.0" in out,
+        check(wf.mouse_xy == (640 + 14 + 14 * 1.5, 360 + 14) and "web:move:640.0,374.0" not in out
+              and f"web:move:{640 + 14 + 14 * 1.5},374.0" in out,
               f"las flechas mueven la flecha (apretando seguido, más rápido) y la mueven de verdad (hover): {wf.mouse_xy} {out}")
         out = await press("SELECT")
-        check(f"web:click:{640 + 24 + 24 * 1.6},384" in out, f"OK = clic de verdad donde está la flecha: {out}")
+        check(f"web:click:{640 + 14 + 14 * 1.5},374" in out, f"OK = clic de verdad donde está la flecha: {out}")
         xy0 = wf.mouse_xy
         out = await hold("LEFT", 6, 0.1)  # mantenido ~0,6 s: se desliza sola
         check(ctl._web_glide is not None and not ctl._web_glide.done() and len(out) > 0
@@ -1817,6 +1817,35 @@ async def main() -> int:
         await asyncio.sleep(0.15)
         check(ctl._web_glide.done() and wf.mouse_xy == x_stop and log[-1].startswith("web:move:"),
               f"al soltar se frena (y el puntero de verdad va ahí): {log[-2:]}")
+        check(not ctl._release_works, "sin avisos de «soltado» (0x45): un toque nunca se desliza solo")
+
+        # Una tele que no repite la tecla mantenida pero sí avisa al soltarla.
+        async def tap(name: str, release_after: float | None) -> None:
+            await ctl.handle_key(parse_key(name))
+            if release_after is not None:
+                await asyncio.sleep(release_after)
+                ctl._released = True
+                ctl._releases += 1
+        await tap("RIGHT", 0.05)
+        await asyncio.sleep(0.2)
+        nav_mod.MOUSE_REPEAT_S = 0.0  # cada toque, un paso chico
+        xy0 = wf.mouse_xy
+        await tap("RIGHT", 0.05)
+        await asyncio.sleep(0.6)
+        check(ctl._release_works and wf.mouse_xy[0] == xy0[0] + 14,
+              f"esa tele, un toque (soltado enseguida): un paso, sin deslizarse: {xy0} → {wf.mouse_xy}")
+        xy0 = wf.mouse_xy
+        await tap("LEFT", None)  # apretado y sin soltar
+        await asyncio.sleep(0.8)
+        check(ctl._web_glide is not None and not ctl._web_glide.done() and wf.mouse_xy[0] < xy0[0] - 60,
+              f"esa tele, apretado sin soltar: pasado un ratito se desliza: {xy0} → {wf.mouse_xy}")
+        ctl._released = True
+        ctl._releases += 1
+        await asyncio.sleep(0.15)
+        x_stop = wf.mouse_xy
+        await asyncio.sleep(0.15)
+        check(ctl._web_glide.done() and wf.mouse_xy == x_stop, "y al soltarlo se frena")
+        nav_mod.MOUSE_REPEAT_S = 10.0
         wf.fake.mxy = wf.mouse_xy = (678.4, 384.0)  # de vuelta, para lo que sigue
         wf.fake.ctx = "text"  # un campo con el foco (Google lo enfoca solo al abrir)
         out = await press("RIGHT", "NUMBER2", "SELECT")

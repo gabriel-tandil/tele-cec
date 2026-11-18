@@ -102,6 +102,12 @@ DEFAULT_SELECTORS: dict[str, Any] = {
     # En los perfiles infantiles la fila se llama «¿Seguimos, <perfil>?» (en inglés, «Continue watching for…»).
     "cw_text": "seguir viendo|continuar viendo|seguir mirando|continuar mirando|segu[ií] viendo|continu[aá] viendo|"
                "¿?seguimos, |continue watching|keep watching",
+    # Si la fila no se reconoce por el tipo ni por el título (otro idioma, otro perfil, Netflix la renombró): la primera
+    # fila con tarjetas «a medio ver», las que tienen la barrita de progreso.
+    "cw_card": 'a[data-uia="progress-card"], .continue-watching-card, [data-uia*="continue-watching"], '
+               '[class*="continueWatching"], [class*="continue-watching"]',
+    "progress": '.progress-bar, .progress-completed, .progress, progress, [role="progressbar"], [data-uia*="progress"], '
+                '[class*="progress-bar"], [class*="progressBar"]',
     # Botón inteligente: se prueba en este orden.
     "skip": [
         ['[data-uia="player-skip-intro"]', "Saltar intro"],
