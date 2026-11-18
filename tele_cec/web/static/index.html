@@ -1333,7 +1333,7 @@ async function poll() {
     stateAt = Date.now();
     failures = 0;
     checkVersion(state.ui);
-    fsAllow(!!state.fullscreen);
+    fsPrompt(!!state.fullscreen_prompt);
   } catch (e) {
     if (++failures === 2) toast("Sin conexión con la Pi", 3000);
     if (failures >= 2) state = null;
@@ -1521,10 +1521,10 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 
 // ---------------------------------------------------------------- pantalla completa
 // Sin las barras del navegador, como una app. El navegador solo la deja pedir con un toque, y la saca al recargar
-// o al volver a abrir la página, o con el «atrás» del celular. Si quedó prendida (el botón de arriba), una cortina
-// pide ese toque y se lo come, para que no apriete también lo que esté abajo.
-// Está solo si la Pi lo permite ([web] fullscreen_button = true): llega con el estado.
-const FS = {on: false, allowed: false};
+// o al volver a abrir la página, o con el «atrás» del celular. Si quedó prendida (el botón de arriba), vuelve con el
+// próximo toque; con [web] fullscreen_prompt = true (llega con el estado), una cortina pide ese toque y se lo come,
+// para que no apriete también lo que esté abajo.
+const FS = {on: false, prompt: false};
 try { FS.on = localStorage.getItem("tele-cec-fullscreen") === "1"; } catch (e) {}
 function fsNow() { return !!document.fullscreenElement; }
 function fsEnter() {
@@ -1535,18 +1535,16 @@ function fsEnter() {
   } catch (e) {}
 }
 function fsApp() {
-  // Apagado en la configuración, abierta desde el ícono como app (sin barras) o sin la función (Safari en el
-  // iPhone): no hace falta.
+  // Abierta desde el ícono como app (sin barras) o sin la función (Safari en el iPhone): no hace falta.
   const app = window.matchMedia && matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches;
-  return !FS.allowed || !document.fullscreenEnabled || (app && !fsNow());
+  return !document.fullscreenEnabled || (app && !fsNow());
 }
-function fsAllow(on) {
-  if (on === FS.allowed) return;
-  FS.allowed = on;
-  fsButton();
+function fsPrompt(on) {
+  if (on === FS.prompt) return;
+  FS.prompt = on;
   fsVeil();
 }
-function fsVeil() { $("fsveil").hidden = !(FS.on && !fsNow() && !fsApp()); }
+function fsVeil() { $("fsveil").hidden = !(FS.prompt && FS.on && !fsNow() && !fsApp()); }
 function fsButton() {
   const b = $("fs");
   b.hidden = fsApp();
@@ -1567,6 +1565,7 @@ $("fsveil").addEventListener("click", (ev) => {
   fsEnter();
 });
 document.addEventListener("fullscreenchange", () => { fsButton(); fsVeil(); });
+document.addEventListener("click", () => { if (FS.on && !FS.prompt) fsEnter(); }, true);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") fsVeil(); });
 fsButton();
 fsVeil();

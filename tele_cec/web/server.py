@@ -116,7 +116,7 @@ class WebRemote:
         self.lan_only = bool(cfg.get("lan_only", True))
         self.volume_step = int(cfg.get("volume_step", 5))
         self.menu_qr = bool(cfg.get("menu_qr", True))
-        self.fullscreen_button = bool(cfg.get("fullscreen_button", False))
+        self.fullscreen_prompt = bool(cfg.get("fullscreen_prompt", False))
         self._qr_url = ""
         self._qr_warned = False
         self.server: asyncio.AbstractServer | None = None
@@ -734,7 +734,7 @@ class WebRemote:
             "outputs": [{"id": _out_id(o), "name": o.name, "detail": _detail(o), "kind": o.kind,
                          "current": o.default} for o in self._outputs if o.paired],
             "ui": UI_VERSION,
-            "fullscreen": self.fullscreen_button,  # botón de pantalla completa en la página ([web] fullscreen_button)
+            "fullscreen_prompt": self.fullscreen_prompt,  # cortina «Tocá para pantalla completa» ([web] fullscreen_prompt)
         }
 
     async def _refresh_outputs(self) -> None:
