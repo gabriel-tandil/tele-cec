@@ -174,6 +174,11 @@
   .fsbtn { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); margin-right: -4px; }
   .fsbtn:active { background: var(--row-hover); }
   .fsbtn svg.i { width: 22px; height: 22px; }
+  .fsveil { position: fixed; inset: 0; z-index: 11; background: rgba(11,11,14,0.9); color: var(--text);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 17px; font-weight: 600; }
+  .fsveil[hidden] { display: none; }
+  .fsveil svg.i { width: 64px; height: 64px; color: var(--muted); }
+  .fsveil .sub { font-size: 13px; font-weight: 400; }
   .lockopt { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 6px 4px; text-align: left; }
   .lockopt .tx { flex: 1; min-width: 0; }
   .lockopt .sub { white-space: normal; }
@@ -230,6 +235,7 @@
   <div class="prog" id="miniProg"></div>
 </div>
 <div class="toast" id="toast" role="status"></div>
+<div class="fsveil" id="fsveil" hidden><svg class="i"><use href="#i-full"/></svg>Tocá para pantalla completa<span class="sub">Se saca con el botón de arriba a la derecha</span></div>
 
 <script>
 "use strict";
@@ -1514,7 +1520,8 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 
 // ---------------------------------------------------------------- pantalla completa
 // Sin las barras del navegador, como una app. El navegador solo la deja pedir con un toque, y la saca al recargar
-// la página o con el «atrás» del celular: si quedó prendida (el botón de arriba), vuelve con el próximo toque.
+// o al volver a abrir la página, o con el «atrás» del celular. Si quedó prendida (el botón de arriba), una cortina
+// pide ese toque y se lo come, para que no apriete también lo que esté abajo.
 const FS = {on: false};
 try { FS.on = localStorage.getItem("tele-cec-fullscreen") === "1"; } catch (e) {}
 function fsNow() { return !!document.fullscreenElement; }
@@ -1525,11 +1532,15 @@ function fsEnter() {
     if (p && p.catch) p.catch(() => {});
   } catch (e) {}
 }
+function fsApp() {
+  // Abierta desde el ícono como app (sin barras) o sin la función (Safari en el iPhone): no hace falta.
+  const app = window.matchMedia && matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches;
+  return !document.fullscreenEnabled || (app && !fsNow());
+}
+function fsVeil() { $("fsveil").hidden = !(FS.on && !fsNow() && !fsApp()); }
 function fsButton() {
   const b = $("fs");
-  // Abierta desde el ícono como app (sin barras) o sin la función (Safari en el iPhone): el botón no hace falta.
-  const app = window.matchMedia && matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches;
-  b.hidden = !document.fullscreenEnabled || (app && !fsNow());
+  b.hidden = fsApp();
   b.querySelector("use").setAttribute("href", fsNow() ? "#i-unfull" : "#i-full");
   b.setAttribute("aria-label", fsNow() ? "Salir de pantalla completa" : "Pantalla completa");
 }
@@ -1541,9 +1552,15 @@ $("fs").addEventListener("click", (ev) => {
   if (FS.on) { fsEnter(); toast("Pantalla completa: queda así hasta que la saques con este botón"); }
   else if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
 });
-document.addEventListener("fullscreenchange", fsButton);
-document.addEventListener("click", () => { if (FS.on) fsEnter(); }, true);
+$("fsveil").addEventListener("click", (ev) => {
+  ev.stopPropagation();
+  $("fsveil").hidden = true;  // si el navegador no la da, que no quede trabada la página
+  fsEnter();
+});
+document.addEventListener("fullscreenchange", () => { fsButton(); fsVeil(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") fsVeil(); });
 fsButton();
+fsVeil();
 
 // Arranque: #tidal, #musica o #sonido abren directo esa página.
 stack.push(ACTIVITIES);
