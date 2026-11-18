@@ -368,7 +368,7 @@ a img,a b{{flex:none;width:40px;height:40px;border-radius:9px}}
 a b{{display:flex;align-items:center;justify-content:center;background:#2a2a33;color:#9cc0ff;font-size:1.2em}}
 </style></head><body><main>
 <h1>{html.escape(self.name)}</h1>
-<p class="h">0 = escribir una dirección o buscar · 1 – 9 = estos sitios · flechas y OK · CC = mouse · Atrás vuelve · azul = esta página · amarillo = guardar o borrar sitios</p>
+<p class="h">0 = escribir una dirección o buscar · 1 – 9 = estos sitios · flechas y OK · CC = mouse · Atrás vuelve · azul = esta página</p>
 <nav>
 {body}
 </nav></main></body></html>
