@@ -57,14 +57,14 @@ DEFAULT_BOOKMARKS = [
 SITES_FILE = "navegador-sitios.json"   # en ~/.local/share/tele-cec: los sitios, una vez cambiados desde la TV
 UBLOCK_XPI = "uBlock0@raymondhill.net.xpi"
 # Modo mouse: cuánto se mueve la flecha por cada toque (en píxeles de la página); apretando seguido, cada vez más.
-MOUSE_STEP = 14
-MOUSE_MAX_STEP = 140
-MOUSE_ACCEL = 1.5
+MOUSE_STEP = 8
+MOUSE_MAX_STEP = 80
+MOUSE_ACCEL = 1.3
 MOUSE_REPEAT_S = 0.6
 # Manteniendo la flecha apretada, se desliza sola: empieza a esta velocidad (px por segundo), acelera y llega a la máxima.
-GLIDE_START = 300.0
-GLIDE_ACCEL = 1100.0
-GLIDE_MAX = 1500.0
+GLIDE_START = 120.0
+GLIDE_ACCEL = 350.0
+GLIDE_MAX = 700.0
 GLIDE_TICK_S = 0.04
 # Dónde guarda las extensiones el Firefox de siempre (Firefox 147+ usa ~/.config/mozilla; antes, ~/.mozilla).
 USER_PROFILES = ("~/.config/mozilla/firefox/*/extensions", "~/.mozilla/firefox/*/extensions")
@@ -353,7 +353,8 @@ class WebActivity(Activity):
         return f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><title>{html.escape(self.name)}</title>
 <style>
-html,body{{margin:0;background:#101014;color:#fff;font:500 17px/1.3 system-ui,Helvetica,Arial,sans-serif;cursor:none}}
+html,body{{margin:0;background:#101014;color:#fff;font:500 17px/1.3 system-ui,Helvetica,Arial,sans-serif}}
+*{{cursor:none!important}}
 main{{max-width:1400px;margin:0 auto;padding:3.5vh 3vw}}
 h1{{font-size:1.3em;font-weight:700;margin:0 0 .2em}}
 p.h{{color:#999;margin:0 0 1.1em;font-size:.85em}}

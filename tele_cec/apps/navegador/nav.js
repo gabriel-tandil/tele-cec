@@ -7,10 +7,26 @@
  */
 (() => {
   'use strict';
-  if (window.top !== window) return;
+  // El puntero del sistema no se ve nunca: en el modo mouse está la flecha dibujada, y sin él, el marco. Las páginas
+  // ponen su propio cursor (mano en los enlaces, «I» en los campos), así que va con !important, y también en los
+  // iframes (el «No soy un robot» de un captcha), donde el resto del script no corre.
+  function hideCursor() {
+    const add = () => {
+      if (!document.documentElement || document.getElementById('tcn-nocursor')) return;
+      const st = document.createElement('style');
+      st.id = 'tcn-nocursor';
+      st.textContent = '*,*::before,*::after{cursor:none!important}';
+      (document.head || document.documentElement).appendChild(st);
+    };
+    add();
+    document.addEventListener('DOMContentLoaded', add, { once: true });
+    window.addEventListener('load', add, { once: true });
+  }
+  if (window.top !== window) { hideCursor(); return; }
   const V = "__NAV_VERSION__";
   if (window.__tcnav && window.__tcnav.v === V) return;
   if (window.__tcnav && typeof window.__tcnav.destroy === 'function') { try { window.__tcnav.destroy(); } catch (e) { /* nada */ } }
+  hideCursor();
   const C = __NAV_CONFIG__;
 
   const S = { cur: null, lastRect: null, mouse: null, armed: null, raf: 0, ringKey: '', toastTimer: 0, hintTimer: 0, tickTimer: 0, followUntil: 0, listeners: [] };

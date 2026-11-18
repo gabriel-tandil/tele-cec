@@ -1802,15 +1802,15 @@ async def main() -> int:
               and any(x.startswith("ov:toast:Modo mouse") for x in out), f"CC prende el modo mouse: {out}")
         nav_mod.MOUSE_REPEAT_S = 10.0
         out = await press("RIGHT", "RIGHT", "DOWN")
-        check(wf.mouse_xy == (640 + 14 + 14 * 1.5, 360 + 14) and "web:move:640.0,374.0" not in out
-              and f"web:move:{640 + 14 + 14 * 1.5},374.0" in out,
+        check(wf.mouse_xy == (640 + 8 + 8 * 1.3, 360 + 8) and "web:move:640.0,368.0" not in out
+              and f"web:move:{640 + 8 + 8 * 1.3},368.0" in out,
               f"las flechas mueven la flecha (apretando seguido, más rápido) y la mueven de verdad (hover): {wf.mouse_xy} {out}")
         out = await press("SELECT")
-        check(f"web:click:{640 + 14 + 14 * 1.5},374" in out, f"OK = clic de verdad donde está la flecha: {out}")
+        check(f"web:click:{640 + 8 + 8 * 1.3},368" in out, f"OK = clic de verdad donde está la flecha: {out}")
         xy0 = wf.mouse_xy
         out = await hold("LEFT", 6, 0.1)  # mantenido ~0,6 s: se desliza sola
         check(ctl._web_glide is not None and not ctl._web_glide.done() and len(out) > 0
-              and wf.mouse_xy[0] < xy0[0] - 100, f"◀ mantenido: la flecha se desliza sola y acelera: {xy0} → {wf.mouse_xy}")
+              and wf.mouse_xy[0] < xy0[0] - 40, f"◀ mantenido: la flecha se desliza sola y acelera: {xy0} → {wf.mouse_xy}")
         ctl._released = True  # se soltó
         await asyncio.sleep(0.15)
         x_stop = wf.mouse_xy
@@ -1832,12 +1832,12 @@ async def main() -> int:
         xy0 = wf.mouse_xy
         await tap("RIGHT", 0.05)
         await asyncio.sleep(0.6)
-        check(ctl._release_works and wf.mouse_xy[0] == xy0[0] + 14,
+        check(ctl._release_works and wf.mouse_xy[0] == xy0[0] + nav_mod.MOUSE_STEP,
               f"esa tele, un toque (soltado enseguida): un paso, sin deslizarse: {xy0} → {wf.mouse_xy}")
         xy0 = wf.mouse_xy
         await tap("LEFT", None)  # apretado y sin soltar
         await asyncio.sleep(0.8)
-        check(ctl._web_glide is not None and not ctl._web_glide.done() and wf.mouse_xy[0] < xy0[0] - 60,
+        check(ctl._web_glide is not None and not ctl._web_glide.done() and wf.mouse_xy[0] < xy0[0] - 30,
               f"esa tele, apretado sin soltar: pasado un ratito se desliza: {xy0} → {wf.mouse_xy}")
         ctl._released = True
         ctl._releases += 1
