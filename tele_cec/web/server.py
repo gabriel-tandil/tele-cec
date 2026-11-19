@@ -64,6 +64,7 @@ def _ui_version() -> str:
 
 UI_VERSION = _ui_version()
 ICONS = Path(__file__).resolve().parent.parent / "ui" / "icons"
+REMOTE_APPS = ("netflix", "youtube", "tidal", "navegador", "android")
 TEXT_APPS = {"youtube", "tidal", "android"}  # (el Navegador escribe por su script, no con wtype)
 NETFLIX_SEARCH = "https://www.netflix.com/search?q="   # apps Wayland: el texto se escribe con wtype (Netflix: por el navegador)
 APPS_TTL_S = 30.0
@@ -75,7 +76,7 @@ HEADER = "x-tele-cec"
 # Teclas que acepta la página (las del control remoto que dibuja).
 KEYS = {"UP", "DOWN", "LEFT", "RIGHT", "SELECT", "EXIT", "CONTENTS_MENU", "HELP", "F1_BLUE", "F2_RED", "F3_GREEN",
         "F4_YELLOW", "PAUSE_PLAY_FUNCTION", "PLAY", "PAUSE", "STOP", "FORWARD", "BACKWARD", "REWIND",
-        "FAST_FORWARD", "CLEAR"} | {f"NUMBER{i}" for i in range(10)}
+        "FAST_FORWARD", "CLEAR", "CHANNEL_UP", "CHANNEL_DOWN", "SUB_PICTURE"} | {f"NUMBER{i}" for i in range(10)}
 
 
 def allowed_host(host: str) -> bool:
@@ -117,6 +118,8 @@ class WebRemote:
         self.volume_step = int(cfg.get("volume_step", 5))
         self.menu_qr = bool(cfg.get("menu_qr", True))
         self.fullscreen_prompt = bool(cfg.get("fullscreen_prompt", False))
+        # Actividades que abren solas el control remoto de la página (las que se manejan con flechas y colores).
+        self.remote_apps = {str(a) for a in cfg.get("remote_apps", REMOTE_APPS)}
         self._qr_url = ""
         self._qr_warned = False
         self.server: asyncio.AbstractServer | None = None
@@ -734,6 +737,7 @@ class WebRemote:
             "outputs": [{"id": _out_id(o), "name": o.name, "detail": _detail(o), "kind": o.kind,
                          "current": o.default} for o in self._outputs if o.paired],
             "ui": UI_VERSION,
+            "remote": cur in self.remote_apps,  # la página abre sola su control remoto ([web] remote_apps)
             "fullscreen_prompt": self.fullscreen_prompt,  # cortina «Tocá para pantalla completa» ([web] fullscreen_prompt)
         }
 

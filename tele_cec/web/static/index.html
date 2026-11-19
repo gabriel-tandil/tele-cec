@@ -19,14 +19,15 @@
     --text: #f2f2f2; --muted: rgba(242, 242, 242, 0.72); --faint: rgba(242, 242, 242, 0.5);
     --row-hover: rgba(255, 255, 255, 0.07); --sel-bg: #f2f2f2; --sel-text: #111111;
     --badge: rgba(255, 255, 255, 0.16); --chip-line: rgba(255, 255, 255, 0.28); --msg: #ffd166; --heart: #f43f5e;
-    --radius: 20px; --mini-h: 68px;
+    --radius: 20px; --mini-h: 68px; --dock: 0px;  /* --dock: lo que ocupa el control remoto abierto (ver remoteSize) */
+    --red: #e53935; --green: #43a047; --yellow: #fdd835; --blue: #1e88e5;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   /* abajo, lugar para el reproductor chico solo cuando está a la vista */
-  body { padding: max(10px, env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom)); }
-  body:has(#mini:not([hidden])) { padding-bottom: calc(var(--mini-h) + 22px + env(safe-area-inset-bottom)); }
+  body { padding: max(10px, env(safe-area-inset-top)) 12px calc(12px + var(--dock) + env(safe-area-inset-bottom)); }
+  body:has(#mini:not([hidden])) { padding-bottom: calc(var(--mini-h) + 22px + var(--dock) + env(safe-area-inset-bottom)); }
   main { max-width: 480px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .pill { flex: none; font-size: 13px; padding: 5px 11px; border-radius: 999px; background: var(--badge); color: var(--muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
@@ -39,7 +40,8 @@
   /* el panel, como en la TV */
   .panel { background: var(--panel); border: 2px solid var(--line); border-radius: var(--radius); padding: 14px 12px;
     min-width: 0; }
-  .ptitle { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 4px 8px; }
+  .ptitle { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 4px 8px;
+    position: sticky; top: env(safe-area-inset-top); z-index: 3; background: var(--panel-solid); }
   .ptitle h2 { font-size: 19px; margin: 0; font-weight: 700; flex: 1; min-width: 0; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
   .back { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; margin-left: -4px; }
@@ -123,7 +125,7 @@
   .sndrow .vs { margin: -8px 4px 4px 64px; }
 
   /* reproductor chico (abajo) y grande (hoja) */
-  .mini { position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); height: var(--mini-h);
+  .mini { position: fixed; left: 10px; right: 10px; bottom: calc(10px + var(--dock) + env(safe-area-inset-bottom)); height: var(--mini-h);
     max-width: 500px; margin: 0 auto; background: var(--panel-solid); border: 2px solid var(--line); border-radius: 18px;
     display: grid; grid-template-columns: 48px minmax(0, 1fr) 48px 48px; gap: 10px; align-items: center; padding: 0 10px; z-index: 6;
     box-shadow: 0 8px 30px rgba(0,0,0,.45); overflow: hidden; }
@@ -174,6 +176,45 @@
   .fsbtn { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); margin-right: -4px; }
   .fsbtn:active { background: var(--row-hover); }
   .fsbtn svg.i { width: 22px; height: 22px; }
+  .fsbtn.on { color: var(--sel-text); background: var(--sel-bg); }
+
+  /* control remoto (abajo): las teclas del control de la TV, para lo que no se maneja desde las listas */
+  .dock { position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); max-width: 500px;
+    margin: 0 auto; background: var(--panel-solid); border: 2px solid var(--line); border-radius: 18px; z-index: 6;
+    padding: 6px 10px 10px; display: grid; gap: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+  .dock button { touch-action: none; }
+  .rhead { display: flex; align-items: center; gap: 4px; }
+  .rhead .lbl { flex: 1; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--faint); padding-left: 4px; }
+  .rhead button { height: 34px; min-width: 40px; padding: 0 8px; border-radius: 10px; color: var(--muted); font-weight: 700; font-size: 14px;
+    display: grid; place-items: center; }
+  .rhead button.on { background: var(--sel-bg); color: var(--sel-text); }
+  .rhead button:active { background: var(--row-hover); }
+  .rhead svg.i { width: 22px; height: 22px; }
+  .rk { background: rgba(255,255,255,0.08); border-radius: 12px; font-weight: 700; display: grid; place-items: center; color: var(--text); }
+  .rk:active, .rk.down { background: var(--sel-bg); color: var(--sel-text); }
+  .rk svg.i { width: 26px; height: 26px; }
+  .rmid { display: grid; grid-template-columns: 52px minmax(0, 1fr) 52px; gap: 10px; align-items: stretch; }
+  .rside { display: grid; grid-template-rows: 1fr auto 1fr; gap: 4px; }
+  .rside .rk { font-size: 22px; }
+  .rside span { text-align: center; font-size: 11px; font-weight: 700; color: var(--faint); letter-spacing: .5px; }
+  .pad { display: grid; grid-template-columns: repeat(3, minmax(0, 58px)); grid-auto-rows: 50px; gap: 5px; justify-content: center; }
+  .pad .sm { font-size: 13px; color: var(--muted); background: rgba(255,255,255,0.04); }
+  .pad .ok { border-radius: 50%; background: var(--badge); font-size: 16px; }
+  .pad .ar svg.i { width: 30px; height: 30px; }
+  .ar.up svg { transform: rotate(180deg); }
+  .ar.left svg { transform: rotate(90deg); }
+  .ar.right svg { transform: rotate(-90deg); }
+  .numpad { grid-auto-rows: 37px; }
+  .numpad .rk { font-size: 18px; }
+  .rcolors { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .rcolors .rk { height: 30px; }
+  .rcolors .rk:active { filter: brightness(1.35); }
+  .rcolors .c-red { background: var(--red); } .rcolors .c-green { background: var(--green); }
+  .rcolors .c-yellow { background: var(--yellow); } .rcolors .c-blue { background: var(--blue); }
+  .rmedia { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .rmedia .rk { height: 44px; }
+  .rtext { display: grid; grid-template-columns: minmax(0, 1fr) 46px 46px; gap: 6px; }
+  .rtext .rk { height: 46px; }
   .fsveil { position: fixed; inset: 0; z-index: 11; background: rgba(11,11,14,0.9); color: var(--text);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 17px; font-weight: 600; }
   .fsveil[hidden] { display: none; }
@@ -187,7 +228,7 @@
   .lockopt.on .switch { background: var(--sel-bg); }
   .lockopt.on .switch::after { left: 21px; background: var(--sel-text); }
   .timeropt.on .name { color: var(--msg); }
-  .toast { position: fixed; left: 50%; bottom: calc(var(--mini-h) + 22px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  .toast { position: fixed; left: 50%; bottom: calc(var(--mini-h) + 22px + var(--dock) + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: var(--sel-bg); color: var(--sel-text); padding: 10px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; z-index: 10;
     opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100vw - 32px); }
   .toast.show { opacity: .97; }
@@ -212,6 +253,13 @@
   <symbol id="i-mute" viewBox="0 0 24 24"><path d="M3 9h4l5-5v16l-5-5H3V9z"/><path d="M15 9l6 6M21 9l-6 6" stroke="currentColor" stroke-width="2" fill="none"/></symbol>
   <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z"/></symbol>
   <symbol id="i-unfull" viewBox="0 0 24 24"><path d="M8 4h2v6H4V8h4V4zm6 0h2v4h4v2h-6V4zM4 14h6v6H8v-4H4v-2zm10 0h6v2h-4v4h-2v-6z"/></symbol>
+  <symbol id="i-remote" viewBox="0 0 24 24"><path d="M8 2h8a2 2 0 012 2v16a2 2 0 01-2 2H8a2 2 0 01-2-2V4a2 2 0 012-2zm0 2v16h8V4H8zm4 1.5a2.5 2.5 0 110 5 2.5 2.5 0 010-5zM9.5 13h1.8v1.8H9.5zm3.2 0h1.8v1.8h-1.8zm-3.2 3h1.8v1.8H9.5zm3.2 0h1.8v1.8h-1.8z"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><path d="M3 6h18a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V7a1 1 0 011-1zm1 2v8h16V8H4zm1 1h2v2H5zm3 0h2v2H8zm3 0h2v2h-2zm3 0h2v2h-2zm3 0h2v2h-2zM5 12h2v2H5zm3 0h8v2H8zm9 0h2v2h-2z"/></symbol>
+  <symbol id="i-rew" viewBox="0 0 24 24"><path d="M11 6v12l-8.5-6zm9.5 0v12L12 12z"/></symbol>
+  <symbol id="i-ff" viewBox="0 0 24 24"><path d="M13 6v12l8.5-6zM3.5 6v12L12 12z"/></symbol>
+  <symbol id="i-pp" viewBox="0 0 24 24"><path d="M2.5 5v14l9-7zM14 5h3v14h-3zm5 0h3v14h-3z"/></symbol>
+  <symbol id="i-bksp" viewBox="0 0 24 24"><path d="M8 5h13a1 1 0 011 1v12a1 1 0 01-1 1H8l-6-7 6-7zm3.4 3.6L10 10l2 2-2 2 1.4 1.4 2-2 2 2 1.4-1.4-2-2 2-2-1.4-1.4-2 2-2-2z"/></symbol>
+  <symbol id="i-enter" viewBox="0 0 24 24"><path d="M19 6h2v7H7.8l3.6 3.6L10 18l-6-6 6-6 1.4 1.4L7.8 11H19V6z"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.4-1.4z"/></symbol>
 </svg>
 
@@ -221,6 +269,7 @@
       <button class="back" id="back" hidden aria-label="Volver"><svg class="i"><use href="#i-back"/></svg></button>
       <h2 id="ptitle">Actividades</h2>
       <span class="pill" id="status">Conectando…</span>
+      <button class="fsbtn" id="rbtn" aria-label="Control remoto" aria-expanded="false"><svg class="i"><use href="#i-remote"/></svg></button>
       <button class="fsbtn" id="fs" hidden aria-label="Pantalla completa"><svg class="i"><use href="#i-full"/></svg></button>
     </div>
     <div id="pbody"></div>
@@ -233,6 +282,62 @@
   <button id="miniPP" aria-label="Play o pausa"><svg class="i"><use href="#i-play"/></svg></button>
   <button id="miniNext" aria-label="Siguiente"><svg class="i"><use href="#i-next"/></svg></button>
   <div class="prog" id="miniProg"></div>
+</div>
+<div class="dock" id="remote" hidden role="group" aria-label="Control remoto">
+  <div class="rhead">
+    <span class="lbl">Control remoto</span>
+    <button id="rType" hidden aria-label="Escribir en la TV"><svg class="i"><use href="#i-keyboard"/></svg></button>
+    <button id="rNum" aria-label="Números">123</button>
+    <button id="rClose" aria-label="Cerrar el control"><svg class="i"><use href="#i-down"/></svg></button>
+  </div>
+  <form class="rtext" id="rText" hidden autocomplete="off">
+    <input type="text" id="rTextIn" placeholder="Escribir en la TV" enterkeyhint="send" autocomplete="off" autocapitalize="off">
+    <button type="button" class="rk" data-text-key="BackSpace" aria-label="Borrar una letra"><svg class="i"><use href="#i-bksp"/></svg></button>
+    <button type="button" class="rk" data-text-key="Enter" aria-label="Enter"><svg class="i"><use href="#i-enter"/></svg></button>
+  </form>
+  <div class="rmid">
+    <div class="rside">
+      <button class="rk" data-key="CHANNEL_UP" data-repeat="1" aria-label="Canal más">+</button>
+      <span>CANAL</span>
+      <button class="rk" data-key="CHANNEL_DOWN" data-repeat="1" aria-label="Canal menos">−</button>
+    </div>
+    <div class="pad" id="rPad">
+      <button class="rk sm" data-key="CONTENTS_MENU">Menú</button>
+      <button class="rk ar up" data-key="UP" data-repeat="1" aria-label="Arriba"><svg class="i"><use href="#i-down"/></svg></button>
+      <button class="rk sm" data-key="SUB_PICTURE" aria-label="CC (subtítulos)">CC</button>
+      <button class="rk ar left" data-key="LEFT" data-repeat="1" aria-label="Izquierda"><svg class="i"><use href="#i-down"/></svg></button>
+      <button class="rk ok" data-key="SELECT">OK</button>
+      <button class="rk ar right" data-key="RIGHT" data-repeat="1" aria-label="Derecha"><svg class="i"><use href="#i-down"/></svg></button>
+      <button class="rk sm" data-key="EXIT">Atrás</button>
+      <button class="rk ar" data-key="DOWN" data-repeat="1" aria-label="Abajo"><svg class="i"><use href="#i-down"/></svg></button>
+      <button class="rk sm" data-key="HELP" aria-label="Ayuda: qué hace cada tecla">?</button>
+    </div>
+    <div class="pad numpad" id="rNumpad" hidden>
+      <button class="rk" data-key="NUMBER1">1</button><button class="rk" data-key="NUMBER2">2</button><button class="rk" data-key="NUMBER3">3</button>
+      <button class="rk" data-key="NUMBER4">4</button><button class="rk" data-key="NUMBER5">5</button><button class="rk" data-key="NUMBER6">6</button>
+      <button class="rk" data-key="NUMBER7">7</button><button class="rk" data-key="NUMBER8">8</button><button class="rk" data-key="NUMBER9">9</button>
+      <button class="rk" data-key="CLEAR" aria-label="Borrar"><svg class="i"><use href="#i-bksp"/></svg></button>
+      <button class="rk" data-key="NUMBER0">0</button>
+      <button class="rk" data-key="SELECT">OK</button>
+    </div>
+    <div class="rside">
+      <button class="rk" data-volume="+" data-repeat="1" aria-label="Subir el volumen">+</button>
+      <span>VOL</span>
+      <button class="rk" data-volume="-" data-repeat="1" aria-label="Bajar el volumen">−</button>
+    </div>
+  </div>
+  <div class="rcolors">
+    <button class="rk c-red" data-key="F2_RED" aria-label="Rojo"></button>
+    <button class="rk c-green" data-key="F3_GREEN" aria-label="Verde"></button>
+    <button class="rk c-yellow" data-key="F4_YELLOW" aria-label="Amarillo"></button>
+    <button class="rk c-blue" data-key="F1_BLUE" aria-label="Azul"></button>
+  </div>
+  <div class="rmedia">
+    <button class="rk" data-key="REWIND" aria-label="Retroceder"><svg class="i"><use href="#i-rew"/></svg></button>
+    <button class="rk" data-key="PAUSE_PLAY_FUNCTION" aria-label="Play o pausa"><svg class="i"><use href="#i-pp"/></svg></button>
+    <button class="rk" data-key="STOP" aria-label="Stop"><svg class="i"><use href="#i-stop"/></svg></button>
+    <button class="rk" data-key="FAST_FORWARD" aria-label="Adelantar"><svg class="i"><use href="#i-ff"/></svg></button>
+  </div>
 </div>
 <div class="toast" id="toast" role="status"></div>
 <div class="fsveil" id="fsveil" hidden><svg class="i"><use href="#i-full"/></svg>Tocá para pantalla completa<span class="sub">Se saca con el botón de arriba a la derecha</span></div>
@@ -1334,6 +1439,7 @@ async function poll() {
     failures = 0;
     checkVersion(state.ui);
     fsPrompt(!!state.fullscreen_prompt);
+    remoteAuto();
   } catch (e) {
     if (++failures === 2) toast("Sin conexión con la Pi", 3000);
     if (failures >= 2) state = null;
@@ -1569,6 +1675,102 @@ document.addEventListener("click", () => { if (FS.on && !FS.prompt) fsEnter(); }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") fsVeil(); });
 fsButton();
 fsVeil();
+
+// ---------------------------------------------------------------- control remoto
+// Las teclas del control de la TV (flechas, OK, colores, ⏯…), para lo que no se maneja desde las listas: van a la
+// Pi como si se apretaran en el control. Se abre y se cierra con el botón de arriba; solo, al elegir en la TV una
+// actividad que se maneja con flechas ([web] remote_apps: Netflix, YouTube, Tidal…). Si se cierra a mano, no vuelve
+// a abrirse solo hasta que cambie la actividad; y si se abrió solo, se cierra solo al pasar a otra que no lo usa.
+const REMOTE = {open: false, auto: false, app: undefined};
+function remoteSize() {
+  const h = REMOTE.open ? $("remote").offsetHeight + 8 : 0;
+  document.documentElement.style.setProperty("--dock", h + "px");
+  fit();
+}
+function remoteShow(open, auto) {
+  REMOTE.open = open;
+  REMOTE.auto = open && !!auto;
+  $("remote").hidden = !open;
+  $("rbtn").classList.toggle("on", open);
+  $("rbtn").setAttribute("aria-expanded", String(open));
+  if (!open) { remoteText(false); remoteRelease(); }
+  remoteSize();
+}
+function remoteAuto() {
+  $("rType").hidden = !state.text;
+  if (!state.text && !$("rText").hidden) remoteText(false);
+  const app = (state.app && state.app.id) || "";
+  if (app === REMOTE.app) return;
+  REMOTE.app = app;
+  if (state.remote && !REMOTE.open) remoteShow(true, true);
+  else if (!state.remote && REMOTE.open && REMOTE.auto) remoteShow(false);
+}
+function remoteKey(key) { return post("/api/key", {key}, true); }
+function remoteVolume(change) { return post("/api/volume", {change}, true); }
+// Mantener apretada una flecha (o Canal, o el volumen) repite, como en el control.
+let rHold = null;
+function remoteRelease() {
+  if (!rHold) return;
+  clearTimeout(rHold.timer);
+  rHold.btn.classList.remove("down");
+  rHold = null;
+}
+function remotePress(btn) {
+  buzz();
+  if (btn.dataset.key) remoteKey(btn.dataset.key);
+  else if (btn.dataset.volume) remoteVolume(btn.dataset.volume);
+}
+$("remote").addEventListener("pointerdown", (ev) => {
+  const btn = ev.target.closest("button[data-repeat]");
+  if (!btn) return;
+  ev.preventDefault();
+  remoteRelease();
+  try { btn.setPointerCapture(ev.pointerId); } catch (e) {}
+  btn.classList.add("down");
+  remotePress(btn);
+  rHold = {btn, timer: null};
+  const again = (ms) => { rHold.timer = setTimeout(() => { if (!rHold || rHold.btn !== btn) return; remotePress(btn); again(170); }, ms); };
+  again(450);
+});
+["pointerup", "pointercancel", "lostpointercapture"].forEach((e) => $("remote").addEventListener(e, remoteRelease));
+$("remote").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-key]");
+  if (!btn || btn.dataset.repeat) return;  // las que repiten ya salieron al apoyar el dedo
+  remotePress(btn);
+});
+$("rbtn").addEventListener("click", () => { buzz(); remoteShow(!REMOTE.open); });
+$("rClose").addEventListener("click", () => { buzz(); remoteShow(false); });
+$("rNum").addEventListener("click", () => {
+  buzz();
+  const num = $("rNumpad").hidden;
+  $("rNumpad").hidden = !num;
+  $("rPad").hidden = num;
+  $("rNum").classList.toggle("on", num);
+});
+// Escribir con el teclado del celular (en la actividad que lo permite: Netflix, YouTube, el Navegador, Tidal…).
+function remoteText(open) {
+  $("rText").hidden = !open;
+  $("rType").classList.toggle("on", open);
+  if (open) setTimeout(() => $("rTextIn").focus(), 30);
+  else $("rTextIn").blur();
+  remoteSize();
+}
+$("rType").addEventListener("click", () => { buzz(); remoteText($("rText").hidden); });
+$("rText").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const text = $("rTextIn").value;
+  if (!text.trim()) return;
+  buzz();
+  const r = await post("/api/text", {text});
+  if (r.ok) $("rTextIn").value = "";
+});
+$("rText").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-text-key]");
+  if (!btn) return;
+  buzz();
+  post("/api/text", {text: "", key: btn.dataset.textKey}, true);
+});
+window.addEventListener("resize", () => { if (REMOTE.open) remoteSize(); });
 
 // Arranque: #tidal, #musica o #sonido abren directo esa página.
 stack.push(ACTIVITIES);

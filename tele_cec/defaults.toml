@@ -647,6 +647,9 @@ port = 8765
 lan_only = true               # rechazar lo que no venga de la red local (direcciones privadas)
 volume_step = 5               # cuánto sube o baja el volumen cada toque (%)
 menu_qr = true                # el menú de actividades de la TV muestra un QR para abrir esta página en el celular
+# Actividades que, al elegirlas, abren solas el control remoto de la página (flechas, colores, ⏯…). Se abre
+# y se cierra a mano con el botón de arriba; [] = nunca solo.
+remote_apps = ["netflix", "youtube", "tidal", "navegador", "android"]
 fullscreen_prompt = false     # con la pantalla completa prendida (botón ⛶), al abrir la página una cortina pide el toque
 
 [apps.netflix]

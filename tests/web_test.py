@@ -590,6 +590,9 @@ async def main() -> int:
         from tele_cec.web import server as server_mod
         check(s.get("ui") and s["ui"] == server_mod._ui_version(),
               f"y la versión de la página (si cambia, la página abierta en el celular se recarga sola): {s.get('ui')}")
+        check(s.get("remote") is True, f"con Tidal en la TV, la página abre sola el control remoto: {s.get('remote')}")
+        check(server.WebRemote(ctl, {"remote_apps": ["videos"]}).remote_apps == {"videos"},
+              "las actividades que lo abren solo se eligen en [web] remote_apps")
         check(s.get("fullscreen_prompt") is False,
               f"la cortina para volver a la pantalla completa viene apagada ([web] fullscreen_prompt): {s.get('fullscreen_prompt')}")
         check(server.WebRemote(ctl, {"fullscreen_prompt": True}).fullscreen_prompt is True,
@@ -619,6 +622,12 @@ async def main() -> int:
               f"una tecla entra a la cola como la del control (con su «soltar»): {ctl.keys}")
         _, _, body = await http(port, "POST", "/api/key", {"key": "POWER"}, {"X-Tele-CEC": "1"})
         check(not json.loads(body)["ok"] and ctl.keys == [1, None], "teclas que no están en la página: no")
+        for name in ("CHANNEL_UP", "CHANNEL_DOWN", "SUB_PICTURE", "F3_GREEN", "NUMBER7", "CONTENTS_MENU"):
+            ctl.keys.clear()
+            _, _, body = await http(port, "POST", "/api/key", {"key": name}, {"X-Tele-CEC": "1"})
+            check(json.loads(body)["ok"] and ctl.keys and ctl.keys[0] == server.parse_key(name),
+                  f"el control remoto de la página manda {name}")
+        ctl.keys[:] = [1, None]
 
         _, _, body = await http(port, "POST", "/api/media", {"command": "play-pause", "player": "vlc"},
                                 {"X-Tele-CEC": "1"})
