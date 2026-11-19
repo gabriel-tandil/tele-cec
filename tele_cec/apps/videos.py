@@ -27,9 +27,19 @@ class VideosActivity(MpvMediaActivity):
     TITLE = "tele-cec videos"
     UNIT = "Video"
 
+    SUB_SCALE = 1.15   # tamaño de la letra de los subtítulos (1 = el de mpv)
+
+    def sub_scale(self) -> float:
+        try:
+            scale = float(self.cfg.get("sub_scale", self.SUB_SCALE))
+        except (TypeError, ValueError):
+            return self.SUB_SCALE
+        return scale if 0.3 <= scale <= 4 else self.SUB_SCALE
+
     def extra_args(self) -> list[str]:
         # Subtítulos: los que estén al lado del video aunque el nombre no sea idéntico; idioma preferido español.
         args = ["--sub-auto=fuzzy", "--slang=spa,es,es-419,eng,en", "--alang=spa,es,es-419"]
+        args.append(f"--sub-scale={self.sub_scale():g}")   # letra de los subtítulos un poco más grande, para la TV
         if self.cfg.get("resume", True):  # Seguir viendo: mpv guarda dónde quedó al cerrarlo (ver resume.py)
             args += resume.mpv_args()
         if self.cfg.get("hide_title"):

@@ -1272,6 +1272,10 @@ async def main() -> int:
               and "--write-filename-in-watch-later-config" in vargs
               and not any("watch-later" in a for a in activities_mod.VideosActivity({"resume": False}).extra_args()),
               f"mpv guarda dónde quedó al cerrarlo (salvo resume = false): {vargs}")
+        check("--sub-scale=1.15" in vargs
+              and "--sub-scale=1.3" in activities_mod.VideosActivity({"sub_scale": 1.3}).extra_args()
+              and "--sub-scale=1.15" in activities_mod.VideosActivity({"sub_scale": "grande"}).extra_args(),
+              f"subtítulos un poco más grandes (sub_scale; uno que no es número queda en 1.15): {vargs}")
         vi_items = menu_ctl._file_items(vdir, activities_mod.VideosActivity({}))
         check(vi_items[0]["sub"].startswith("quedó en 1:06:40 · 1 h 30 min") and vi_items[0]["resume"] == 4000.5
               and not (wdir / "BBB").exists(),

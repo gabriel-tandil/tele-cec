@@ -36,6 +36,7 @@
 # [apps.videos]               # Videos con mpv (la primera carpeta con videos: pendrive o la local)
 # folders = ["/media/*/*", "~/Vídeos", "/mnt/nas/peliculas"]
 # shuffle = true
+# sub_scale = 1.15            # tamaño de la letra de los subtítulos (1 = el de mpv)
 
 # [apps.radio]                # Radio por internet con mpv (no viene ninguna). OK en el menú pone la última que
 #                             # sonó; el botoncito «Radios» (o ▶) muestra la lista. covers = false: sin buscar tapas

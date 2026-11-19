@@ -358,6 +358,7 @@ resume_apps = false           # al volver: el menú (false) o lo que estaba abie
 folders = ["/media/*/*", "~/Vídeos", "~/Videos"]
 shuffle = false
 resume = true     # Seguir viendo: recordar dónde quedó cada video
+sub_scale = 1.15  # tamaño de la letra de los subtítulos (1 = el de mpv; 1.3 = más grande)
 command = []      # otro programa en vez de mpv; {carpeta} = la carpeta elegida, p. ej.:
                   # ["vlc", "--fullscreen", "{carpeta}"]
 
