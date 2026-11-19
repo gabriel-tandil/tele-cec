@@ -5,13 +5,7 @@
  */
 (() => {
   'use strict';
-  if (window.top !== window) {
-    // El marco invisible que abre ♥ en el reproductor (Mi lista): que la ficha no reproduzca nada encima.
-    if (window.name === 'nfx-mylist') {
-      try { HTMLMediaElement.prototype.play = function play() { return Promise.reject(new DOMException('Mi lista', 'NotAllowedError')); }; } catch (e) { /* nada */ }
-    }
-    return;
-  }
+  if (window.top !== window) return;
   const V = "__NFX_VERSION__";
   if (window.__nfx && window.__nfx.v === V) return;
   if (window.__nfx && typeof window.__nfx.destroy === 'function') { try { window.__nfx.destroy(); } catch (e) { /* nada */ } }
@@ -900,28 +894,15 @@
     return IN_LIST_RE.test([el.getAttribute('aria-label'), el.getAttribute('data-uia'), el.getAttribute('title'),
       el.textContent].join(' '));
   }
-  // El título que se está viendo: para una serie, la serie (no el episodio), que es lo que va a Mi lista.
-  function playingTitle() {
-    const m = /\/watch\/(\d+)/.exec(location.pathname);
-    let id = m ? m[1] : ''; let title = '';
-    try {
-      const vm = window.netflix.appContext.state.playerApp.getState().videoPlayer.videoMetadata || {};
-      const md = vm[id] || Object.values(vm)[0];
-      const v = md && ((md._metadata && md._metadata.video) || md.video);
-      if (v && v.id) { id = String(v.id); title = v.title || ''; }
-    } catch (e) { /* nada */ }
-    return { id, title };
-  }
-  // ♥: qué hacer. En la ficha abierta, su botón; sobre una tarjeta, abrir su ficha; en el reproductor, el marco
-  // invisible con la ficha del título.
+  // ♥: qué hacer. En la ficha abierta, su botón; sobre una tarjeta, abrir su ficha. (Viendo un video, todavía no:
+  // el reproductor no tiene botón de Mi lista.)
   function myList() {
-    if (inPlayer()) return Object.assign({ frame: true, player: true }, playingTitle());
+    if (inPlayer()) return { none: true, player: true };
     const { modal } = current();
     if (modal) {
       const b = listButtons(modal)[0];
       if (b) return Object.assign(target(b), { inList: listState(b), modal: true });
-      const jbv = new URLSearchParams(location.search).get('jbv') || '';
-      return jbv ? { frame: true, id: jbv } : { none: true, modal: true };
+      return { none: true, modal: true };
     }
     const el = S.cur;
     const card = el && el.isConnected && (matches(el, C.card) ? el : closest(el, C.card));
@@ -934,51 +915,6 @@
     const { modal } = current();
     const b = modal && listButtons(modal)[0];
     return b ? { inList: listState(b) } : { none: true };
-  }
-  // Sin abrir nada a la vista: la ficha del título (/title/<id>) en un marco invisible, su botón, y fuera el marco.
-  function myListFrame(id) {
-    if (!/^\d+$/.test(String(id || ''))) return { none: true, noid: true };
-    return new Promise((resolve) => {
-      const old = document.getElementById('nfx-mylist');
-      if (old) old.parentNode.removeChild(old);
-      const f = document.createElement('iframe');
-      f.id = 'nfx-mylist'; f.name = 'nfx-mylist'; f.tabIndex = -1;
-      f.setAttribute('aria-hidden', 'true');
-      f.setAttribute('allow', "autoplay 'none'");
-      f.style.cssText = 'position:fixed;left:0;top:0;width:1280px;height:720px;border:0;opacity:0;pointer-events:none;z-index:-1';
-      const t0 = Date.now();
-      let was = null; let btn = null; let clickedAt = 0; let timer = 0;
-      const end = (r) => {
-        clearInterval(timer);
-        try { if (f.parentNode) f.parentNode.removeChild(f); } catch (e) { /* nada */ }
-        resolve(r);
-      };
-      timer = setInterval(() => {
-        let d;
-        try { d = f.contentDocument; } catch (e) { end({ none: true, blocked: true }); return; }
-        if (Date.now() - t0 > 20000) {
-          let url = '';
-          try { url = d && d.location ? d.location.href : ''; } catch (e) { /* nada */ }
-          end({ none: true, timeout: true, url }); return;
-        }
-        if (!d || !d.body) return;
-        for (const v of d.querySelectorAll('video, audio')) {
-          try { v.muted = true; v.autoplay = false; if (!v.paused) v.pause(); } catch (e) { /* nada */ }
-        }
-        const b = listButtons(d)[0];
-        if (!clickedAt) {
-          if (!b) return;
-          was = listState(b); btn = b; clickedAt = Date.now();
-          try { b.click(); } catch (e) { end({ none: true, error: String(e) }); }
-          return;
-        }
-        const now = listState(b || btn);
-        if (now !== was) end({ done: true, inList: now });
-        else if (Date.now() - clickedAt > 4000) end({ done: true, inList: now, unchanged: true });
-      }, 300);
-      (document.body || document.documentElement).appendChild(f);
-      f.src = '/title/' + id;
-    });
   }
 
   // ------------------------------------------------------------ diagnóstico
@@ -1035,7 +971,7 @@
   // ------------------------------------------------------------ API
   const API = {
     ctx, nav, afterPage, activate, back, restore, smart, cw, profile, playButton, playSelected, nextEpisode, navMode, toast, dump,
-    myList, myListState, myListFrame,
+    myList, myListState,
     busy, done, echo,
     perf: () => perfInfo(),
     profiles: () => ({ names: profileLinks().map(textOf) }),

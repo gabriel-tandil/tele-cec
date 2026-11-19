@@ -188,7 +188,7 @@ PAUSE = "pause"
 PAUSE_PLAY_FUNCTION = "play_pause"
 FORWARD = "smart_skip"
 NUMBER0 = "nav_mode"          # fuerza navegación con flechas dentro del reproductor (otra vez = volver)
-NUMBER1 = "my_list_toggle"    # 1 = ♥ agregar o quitar de Mi lista lo que se está viendo (la serie, no el episodio)
+NUMBER1 = "my_list_toggle"    # 1 = ♥ Mi lista: viendo un video todavía no (avisa que se hace desde la ficha)
 STOP = "back"                 # ■ = salir del video (vuelve a la lista)
 
 [keys.player_menu]

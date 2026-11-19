@@ -80,7 +80,7 @@ ACTIONS = {
     "nav": "Moverse", "ok": "Abrir / elegir (la 1.ª vez muestra el resaltado)", "back": "Volver · cerrar ficha o menú",
     "smart_skip": "Saltar intro o resumen · siguiente episodio", "continue_watching": "Seguir viendo",
     "profiles": "¿Quién está viendo?", "profile": "Elegir perfil", "home": "Ir al inicio", "my_list": "Mi lista",
-    "my_list_toggle": "♥ Agregar o quitar de Mi lista (el resaltado, la ficha o lo que se ve)",
+    "my_list_toggle": "♥ Agregar o quitar de Mi lista (el título resaltado o la ficha)",
     "pause": "Pausa", "mute": "Silencio", "subtitles": "Subtítulos", "audio": "Idioma de audio",
     "next_episode": "Siguiente episodio", "nav_mode": "Recorrer los controles con las flechas",
     "type": "Escribir el número", "fullscreen": "Pantalla completa", "launch": "Abrir Netflix", "reload": "Recargar",

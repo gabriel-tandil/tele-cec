@@ -359,12 +359,10 @@ key_echo = true
         await ctl.cdp.evaluate("delete window.netflix")
         await press("RIGHT", pause=0.3)
         check((await st())["log"][-1] == "key:ArrowRight:trusted", "sin la API interna usa la tecla de Netflix (fallback)")
-        watching = (await st())["path"].split("/")[-1]
+        before = await ctl.cdp.evaluate(mylist)
         await press("NUMBER1", pause=0.3)
-        check(watching in await ctl.cdp.evaluate(mylist),
-              f"1 viendo un video lo agrega a Mi lista (con la ficha en un marco invisible): {await ctl.cdp.evaluate(mylist)}")
-        check(not await ctl.cdp.evaluate("!!document.getElementById('nfx-mylist')"), "y el marco ya no está")
-        check((await st())["path"].startswith("/watch/"), "sin salir del video")
+        check(await ctl.cdp.evaluate(mylist) == before and (await st())["path"].startswith("/watch/"),
+              "1 viendo un video todavía no toca Mi lista (solo avisa) ni sale del video")
         await asyncio.sleep(2.0)  # controles ocultos: Atrás igual tiene que usar «volver», no el historial
         await press("EXIT", pause=1.2)
         s = await st()

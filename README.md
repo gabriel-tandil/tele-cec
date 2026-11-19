@@ -108,9 +108,9 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 | ⏪ ⏩ | — | −/+1 minuto |
 | Canal + | — | Siguiente episodio |
 | 0 | ¿Quién está viendo? (perfiles) | Modo navegación (flechas para moverse por los controles) |
-| 1 | ♥ Agregar a **Mi lista** el título resaltado o el de la ficha abierta (otra vez lo saca) | ♥ Agregar a Mi lista lo que se está viendo (una serie, la serie entera); otra vez lo saca |
+| 1 | ♥ Agregar a **Mi lista** el título resaltado o el de la ficha abierta (otra vez lo saca) | — (todavía no: avisa que se hace desde la ficha) |
 
-**1 = ♥ Mi lista:** sobre una tarjeta abre su ficha, aprieta «Mi lista» y la cierra; con la ficha abierta aprieta su botón. Viendo un video no hay botón: tele-cec carga la ficha del título en un marco invisible (sin que reproduzca nada), aprieta ahí y lo saca, sin cortar el video; tarda unos segundos. El botón se reconoce por su rótulo («Agregar a Mi lista» / «Quitar de Mi lista», o en inglés): si Netflix lo cambia, se ajusta con `[selectors] my_list`.
+**1 = ♥ Mi lista:** sobre una tarjeta abre su ficha, aprieta «Mi lista» y la cierra; con la ficha abierta aprieta su botón. Viendo un video todavía no (el reproductor no tiene ese botón). El botón se reconoce por su rótulo: si Netflix lo cambia, se ajusta con `[selectors] my_list`.
 
 **Tidal** (ver [Tidal](#tidal)). Abre en **Inicio**, en pausa, con las flechas recorriendo la interfaz; **0** cambia las flechas a controles (y otra vez 0, de vuelta):
 
@@ -768,7 +768,7 @@ Las teclas se nombran como en libcec (`UP`, `SELECT`, `EXIT`, `F2_RED`, `NUMBER1
 | `music:play_pause` `music:play` `music:pause` `music:next` `music:previous` | Tidal: reproducción |
 | `music:volume:+` · `music:seek:-10` | Tidal: volumen · saltar segundos |
 | `music:like` · `music:shuffle` | Tidal: me gusta · aleatorio |
-| `my_list_toggle` | Netflix: ♥ agregar o quitar de Mi lista (el título resaltado, la ficha o lo que se ve) |
+| `my_list_toggle` | Netflix: ♥ agregar o quitar de Mi lista (el título resaltado o la ficha) |
 | `yt:like` | YouTube: ♥ me gusta en el video (otra vez lo saca) |
 | `music:my_tracks` | Tidal: reproducir "Mis canciones" (tus favoritos) |
 | `music:nav` · `music:move:Down` · `music:key:Down` · `music:back` | Tidal: cambiar las flechas (recorrer la interfaz ↔ controles) · mover el foco (con Tab de respaldo) · mandar una tecla sola · botón Atrás |

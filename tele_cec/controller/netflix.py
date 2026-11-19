@@ -216,16 +216,14 @@ class NetflixMixin:
         await self.navigate(self.cfg.netflix.get("my_list_url") or "https://www.netflix.com/browse/my-list")
 
     async def a_my_list_toggle(self, arg: str) -> None:
-        """♥ (1): agrega o quita de Mi lista el título resaltado, el de la ficha abierta o el que se está viendo."""
+        """♥ (1): agrega o quita de Mi lista el título resaltado o el de la ficha abierta."""
         r = await self.js("myList")
         if r.get("none"):
-            await self.toast("No encontré «Mi lista» en la ficha" if r.get("modal")
-                             else "Elegí un título con las flechas", 2000)
+            await self.toast("Mi lista: desde la ficha (viendo un video, todavía no)" if r.get("player")
+                             else "No encontré «Mi lista» en la ficha" if r.get("modal")
+                             else "Elegí un título con las flechas", 2500)
             return
         title = str(r.get("title") or "")
-        if r.get("frame"):
-            await self._my_list_frame(str(r.get("id") or ""), title)
-            return
         opened = False
         if r.get("open"):
             # Una tarjeta de la fila: se abre su ficha, que es la que tiene el botón.
@@ -241,9 +239,6 @@ class NetflixMixin:
                     log.warning("Mi lista: la ficha de «%s» no mostró el botón", title or "?")
                     await self.toast("No encontré «Mi lista» en la ficha", 2000)
                     return
-            if r.get("frame"):
-                await self._my_list_frame(str(r.get("id") or ""), title)
-                return
         was = bool(r.get("inList"))
         await self.apply_click(r)
         now = was
@@ -259,16 +254,6 @@ class NetflixMixin:
         if opened:
             await self.key("Escape")
             await self.js("restore", 800)
-
-    async def _my_list_frame(self, video_id: str, title: str) -> None:
-        """En el reproductor (o una tarjeta que lleva directo al video): la ficha en un marco invisible."""
-        await self.toast("Mi lista…", 6000)
-        r = await self.js("myListFrame", video_id, timeout=30)
-        log.info("Mi lista (marco invisible, título %s): %s", video_id or "?", r)
-        if r.get("done"):
-            await self._my_list_done(title, bool(r.get("inList")), changed=not r.get("unchanged"))
-        else:
-            await self.toast("No pude cambiar Mi lista desde acá: probá desde la ficha", 2500)
 
     async def _my_list_done(self, title: str, in_list: bool, changed: bool) -> None:
         if not changed:
