@@ -29,8 +29,9 @@ import shutil
 import subprocess
 import time
 import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from .. import apps as activities_mod
 from ..apps import resume
@@ -73,7 +74,8 @@ MAX_BODY = 16 * 1024
 STATE_TTL_S = 0.8       # varios celulares mirando: el estado se arma como mucho una vez por este lapso
 OUTPUTS_TTL_S = 6.0     # las salidas de sonido cambian poco (pw-dump y bluetoothctl tardan un poco)
 HEADER = "x-tele-cec"
-PHOTO_MAX_BYTES = 40 * 1024 * 1024  # Fotos: lo más grande que se baja al celular (una foto, no un video)
+SHARE_MAX_MB = 100.0  # Fotos: lo más grande que se baja al celular ([web] share_max_mb)
+CHUNK = 256 * 1024   # un archivo grande se manda de a pedazos (no entero en memoria)
 
 # Teclas que acepta la página (las del control remoto que dibuja).
 KEYS = {"UP", "DOWN", "LEFT", "RIGHT", "SELECT", "EXIT", "CONTENTS_MENU", "HELP", "F1_BLUE", "F2_RED", "F3_GREEN",
@@ -120,6 +122,8 @@ class WebRemote:
         self.volume_step = int(cfg.get("volume_step", 5))
         self.menu_qr = bool(cfg.get("menu_qr", True))
         self.fullscreen_prompt = bool(cfg.get("fullscreen_prompt", False))
+        # Fotos: hasta qué tamaño se baja al celular una foto o un video (MB; 0 = nada).
+        self.share_max_mb = max(0.0, float(cfg.get("share_max_mb", SHARE_MAX_MB)))
         # Actividades que abren solas el control remoto de la página (las que se manejan con flechas y colores).
         self.remote_apps = {str(a) for a in cfg.get("remote_apps", REMOTE_APPS)}
         self._qr_url = ""
@@ -201,7 +205,10 @@ class WebRemote:
                 await _respond(writer, 403, b"Nombre no permitido\n", "text/plain; charset=utf-8")
                 return
             status, payload, ctype, extra = await self.route(method, path, query, headers, body)
-            await _respond(writer, status, payload, ctype, extra)
+            if isinstance(payload, FileSlice):
+                await _respond_file(writer, status, payload, ctype, extra)
+            else:
+                await _respond(writer, status, payload, ctype, extra)
         except (asyncio.TimeoutError, ConnectionError, ValueError):
             pass
         except Exception:  # noqa: BLE001
@@ -218,7 +225,7 @@ class WebRemote:
 
     # ---------------------------------------------------------------- rutas
     async def route(self, method: str, path: str, query: dict[str, str], headers: dict[str, str],
-                    body: bytes) -> tuple[int, bytes, str, dict[str, str]]:
+                    body: bytes) -> tuple[int, bytes | FileSlice, str, dict[str, str]]:
         if method == "GET":
             if path == "/api/state":
                 return _json(await self.state())
@@ -262,7 +269,7 @@ class WebRemote:
             if path == "/api/fotos/actual":  # la foto que se ve en la TV, para bajarla al celular
                 return _json(await self.photo_current())
             if path == "/api/fotos/archivo":  # el archivo de una foto (solo imágenes de las carpetas de Fotos)
-                return await self.photo_file(query)
+                return await self.photo_file(query, headers)
             if path == "/api/music/art":
                 art = await self.music.art(query)
                 if art is None:
@@ -535,63 +542,73 @@ class WebRemote:
                 "message": f"♥ Guardada en Favoritas ({n})" if added else f"Sacada de Favoritas ({n})"}
 
     # ---------------------------------------------------------------- Fotos: bajar al celular
+    @property
+    def share_max(self) -> int:
+        return int(self.share_max_mb * 1024 * 1024)
+
     async def photo_current(self) -> dict[str, Any]:
-        """La foto que se ve en la TV, fija: la página la muestra y la baja por su ruta aunque la presentación siga."""
+        """La foto (o el video) que se ve en la TV, fija: la página la muestra y la baja por su ruta aunque la
+        presentación siga. Lo que pase de [web] share_max_mb, no."""
         act = self.ctl.activities.get("fotos")
         if not isinstance(act, activities_mod.PhotosActivity) or not act.running():
             return {"ok": False, "error": "Fotos no está abierto en la TV"}
         info = await act.photo_info()
         if not info:
             return {"ok": False, "error": "No sé qué foto se está viendo"}
-        if Path(info["path"]).suffix.lower() in activities_mod.VIDEO_EXT:
-            return {"ok": False, "error": "Es un video: al celular se bajan solo fotos"}
         found = await asyncio.to_thread(self._photo_path, act, info["path"])
         if found is None:
-            return {"ok": False, "error": "Esa foto no se puede bajar"}
+            return {"ok": False, "error": "Ese archivo no se puede bajar"}
         path, size = found
+        if size > self.share_max:
+            log.info("Celular: %s es demasiado grande para compartir (%s)", path.name, _size_text(size))
+            return {"ok": False, "error": f"El archivo es demasiado grande para compartir ({_size_text(size)}; "
+                                          f"el límite es {_size_text(self.share_max)})"}
         lines = act.describe_photo(info).split("\n")
         log.info("Celular: muestro para bajar %s", path.name)
         return {"ok": True, "name": path.name, "where": lines[0], "pos": lines[2] if len(lines) > 2 else "",
-                "size": size, "url": "/api/fotos/archivo?" + urllib.parse.urlencode({"p": str(path)})}
+                "size": size, "video": path.suffix.lower() in activities_mod.VIDEO_EXT,
+                "url": "/api/fotos/archivo?" + urllib.parse.urlencode({"p": str(path)})}
 
     @staticmethod
     def _photo_path(act: Any, raw: str) -> tuple[Path, int] | None:
-        """La foto (y su tamaño) si es una imagen dentro de una de las carpetas de Fotos; si no, None."""
+        """La foto o el video (y su tamaño) si está dentro de una de las carpetas de Fotos; si no, None."""
         try:
             path = Path(raw).resolve()
-            if path.suffix.lower() not in activities_mod.IMAGE_EXT or not path.is_file():
+            if path.suffix.lower() not in activities_mod.IMAGE_EXT | activities_mod.VIDEO_EXT or not path.is_file():
                 return None
             size = path.stat().st_size
             roots = [Path(r).resolve() for r in act.roots()]
         except (OSError, RuntimeError, ValueError):
             return None
-        if not any(path.is_relative_to(r) for r in roots) or not 0 < size <= PHOTO_MAX_BYTES:
+        if not any(path.is_relative_to(r) for r in roots) or size <= 0:
             return None
         return path, size
 
-    async def photo_file(self, query: dict[str, str]) -> tuple[int, bytes, str, dict[str, str]]:
+    async def photo_file(self, query: dict[str, str],
+                         headers: dict[str, str]) -> tuple[int, bytes | FileSlice, str, dict[str, str]]:
+        """El archivo, de a pedazos y con Range (para ver un video en el celular sin bajarlo entero)."""
         act = self.ctl.activities.get("fotos")
-        if not isinstance(act, activities_mod.PhotosActivity):
-            return 404, b"", "text/plain", {}
-
-        def read() -> tuple[Path, bytes] | None:
-            found = self._photo_path(act, query.get("p", ""))
-            if found is None:
-                return None
-            try:
-                return found[0], found[0].read_bytes()
-            except OSError:
-                return None
-        got = await asyncio.to_thread(read)  # puede estar en la otra Pi (Samba): que no frene lo demás
-        if got is None:
-            return 404, "Esa foto no se puede bajar\n".encode(), "text/plain; charset=utf-8", {}
-        path, data = got
+        found = None
+        if isinstance(act, activities_mod.PhotosActivity):
+            found = await asyncio.to_thread(self._photo_path, act, query.get("p", ""))  # puede estar en Samba
+        if found is None:
+            return 404, "Ese archivo no se puede bajar\n".encode(), "text/plain; charset=utf-8", {}
+        path, size = found
+        if size > self.share_max:
+            return 413, "Demasiado grande para compartir\n".encode(), "text/plain; charset=utf-8", {}
+        extra = {"Content-Disposition": _disposition("attachment" if query.get("dl") else "inline", path.name),
+                 "Cache-Control": "private, max-age=3600", "Accept-Ranges": "bytes"}
         ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        if query.get("dl"):
-            log.info("Celular: bajo %s (%d KB)", path.name, len(data) // 1024)
-        return 200, data, ctype, {"Content-Disposition": _disposition("attachment" if query.get("dl") else "inline",
-                                                                      path.name),
-                                  "Cache-Control": "private, max-age=3600"}
+        rng = _byte_range(headers.get("range", ""), size)
+        if rng is False:
+            return 416, b"", "text/plain", {"Content-Range": f"bytes */{size}"}
+        if rng is None:
+            if query.get("dl"):
+                log.info("Celular: bajo %s (%s)", path.name, _size_text(size))
+            return 200, FileSlice(path, 0, size), ctype, extra
+        start, end = rng
+        extra["Content-Range"] = f"bytes {start}-{end}/{size}"
+        return 206, FileSlice(path, start, end - start + 1), ctype, extra
 
     # ---------------------------------------------------------------- escribir
     async def type_text(self, text: str, key: str) -> dict[str, Any]:
@@ -860,6 +877,42 @@ class WebRemote:
 
 
 # ---------------------------------------------------------------- HTTP mínimo
+@dataclass(frozen=True)
+class FileSlice:
+    """Un pedazo de un archivo para mandar de a poco (una foto o un video, sin cargarlo entero en memoria)."""
+    path: Path
+    start: int
+    length: int
+
+
+def _byte_range(header: str, size: int) -> tuple[int, int] | None | Literal[False]:
+    """El pedazo que pide «Range: bytes=…» (desde, hasta, inclusive). None = el archivo entero (sin Range, o uno que
+    no se entiende o con varios pedazos); False = fuera del archivo (416)."""
+    m = re.fullmatch(r"\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*", header or "")
+    if not m or m.group(1) == m.group(2) == "":
+        return None
+    if m.group(1) == "":  # los últimos N
+        n = int(m.group(2))
+        return (max(0, size - n), size - 1) if n > 0 else False
+    start = int(m.group(1))
+    end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+    if start >= size or end < start:
+        return False
+    return start, end
+
+
+def _size_text(n: int) -> str:
+    """«3,4 MB», «100 MB», «2,9 GB»."""
+    mb = n / (1024 * 1024)
+    if mb >= 1024:
+        txt = f"{mb / 1024:.1f} GB"
+    elif mb >= 10 or mb == int(mb):
+        txt = f"{mb:.0f} MB"
+    else:
+        txt = f"{mb:.1f} MB"
+    return txt.replace(".", ",")
+
+
 def _disposition(kind: str, name: str) -> str:
     """Content-Disposition con el nombre del archivo: en ASCII para los navegadores viejos y en UTF-8 (RFC 6266)."""
     plain = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;' else "_" for c in name) or "foto"
@@ -950,10 +1003,34 @@ async def _read_request(reader: asyncio.StreamReader):
 
 async def _respond(writer: asyncio.StreamWriter, status: int, body: bytes, ctype: str,
                    extra: dict[str, str] | None = None) -> None:
-    reason = {200: "OK", 400: "Bad Request", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed",
+    writer.write(_head(status, len(body), ctype, extra) + body)
+    await writer.drain()
+
+
+def _head(status: int, length: int, ctype: str, extra: dict[str, str] | None) -> bytes:
+    reason = {200: "OK", 206: "Partial Content", 400: "Bad Request", 403: "Forbidden", 404: "Not Found",
+              405: "Method Not Allowed", 413: "Content Too Large", 416: "Range Not Satisfiable",
               500: "Internal Server Error"}.get(status, "OK")
-    head = [f"HTTP/1.1 {status} {reason}", f"Content-Type: {ctype}", f"Content-Length: {len(body)}",
+    head = [f"HTTP/1.1 {status} {reason}", f"Content-Type: {ctype}", f"Content-Length: {length}",
             "Connection: close", "X-Content-Type-Options: nosniff", "Referrer-Policy: no-referrer"]
     head += [f"{k}: {v}" for k, v in (extra or {}).items()]
-    writer.write(("\r\n".join(head) + "\r\n\r\n").encode("latin-1") + body)
-    await writer.drain()
+    return ("\r\n".join(head) + "\r\n\r\n").encode("latin-1")
+
+
+async def _respond_file(writer: asyncio.StreamWriter, status: int, part: FileSlice, ctype: str,
+                        extra: dict[str, str] | None = None) -> None:
+    """Manda un pedazo de archivo de a CHUNK: leer en otro hilo (puede estar en Samba) y esperar al celular."""
+    fh = await asyncio.to_thread(open, part.path, "rb")
+    try:
+        writer.write(_head(status, part.length, ctype, extra))
+        await asyncio.to_thread(fh.seek, part.start)
+        left = part.length
+        while left > 0:
+            chunk = await asyncio.to_thread(fh.read, min(CHUNK, left))
+            if not chunk:
+                break
+            writer.write(chunk)
+            await writer.drain()
+            left -= len(chunk)
+    finally:
+        fh.close()

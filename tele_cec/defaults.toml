@@ -657,6 +657,7 @@ menu_qr = true                # el menú de actividades de la TV muestra un QR p
 # y se cierra a mano con el botón de arriba; [] = nunca solo.
 remote_apps = ["netflix", "youtube", "tidal", "navegador", "android"]
 fullscreen_prompt = false     # con la pantalla completa prendida (botón ⛶), al abrir la página una cortina pide el toque
+share_max_mb = 100            # Fotos: hasta qué tamaño se baja al celular la foto o el video de la TV (MB; 0 = nada)
 
 [apps.netflix]
 on_reselect = "continue_watching"   # app:netflix con Netflix ya abierto

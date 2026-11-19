@@ -1022,10 +1022,38 @@ async def main() -> int:
                 st, _, data = await http(port, "GET", "/api/fotos/archivo?" + urllib.parse.urlencode({"p": str(bad)}))
                 check(st == 404 and data != b"\xff\xd8ajena", f"{what}: no ({st})")
             shown[0] = str(sub / "video.mp4")
-            (sub / "video.mp4").write_bytes(b"v")
+            vid = bytes(range(256)) * 1200  # 300 KB: más de un pedazo (CHUNK)
+            (sub / "video.mp4").write_bytes(vid)
             _, _, body = await http(port, "GET", "/api/fotos/actual")
             r = json.loads(body)
-            check(not r["ok"] and "video" in r["error"], f"un video no: {r}")
+            check(r["ok"] and r["video"] and r["size"] == len(vid), f"un video también (lo que cuenta es el tamaño): {r}")
+            st, hd, data = await http(port, "GET", r["url"])
+            check(st == 200 and data == vid and hd["Content-Type"] == "video/mp4" and hd["Accept-Ranges"] == "bytes",
+                  f"entero, de a pedazos: {st} {len(data)} {hd}")
+            st, hd, data = await http(port, "GET", r["url"], headers={"Range": "bytes=1000-1999"})
+            check(st == 206 and data == vid[1000:2000] and hd["Content-Range"] == f"bytes 1000-1999/{len(vid)}"
+                  and hd["Content-Length"] == "1000", f"un tramo (para ver el video en el celular): {st} {hd}")
+            st, hd, data = await http(port, "GET", r["url"], headers={"Range": "bytes=300000-"})
+            check(st == 206 and data == vid[300000:], f"desde un punto hasta el final: {st} {len(data)}")
+            st, hd, data = await http(port, "GET", r["url"], headers={"Range": "bytes=-10"})
+            check(st == 206 and data == vid[-10:], f"los últimos 10: {st} {data!r}")
+            st, hd, _ = await http(port, "GET", r["url"], headers={"Range": f"bytes={len(vid)}-"})
+            check(st == 416 and hd["Content-Range"] == f"bytes */{len(vid)}", f"fuera del archivo: {st} {hd}")
+            real_max = web.share_max_mb
+            web.share_max_mb = 0.25  # 256 KB: el video (300 KB) se pasa
+            try:
+                _, _, body = await http(port, "GET", "/api/fotos/actual")
+                r2 = json.loads(body)
+                check(not r2["ok"] and r2["error"] == "El archivo es demasiado grande para compartir (0,3 MB; el límite es 0,2 MB)",
+                      f"más grande que [web] share_max_mb: lo dice: {r2}")
+                st, _, _ = await http(port, "GET", r["url"])
+                check(st == 413, f"y tampoco se baja por la dirección: {st}")
+            finally:
+                web.share_max_mb = real_max
+            check(server._size_text(100 * 1024 * 1024) == "100 MB" and server._size_text(3554611) == "3,4 MB"
+                  and server._size_text(2890234494) == "2,7 GB", "tamaños para leer")
+            check(server.WebRemote(ctl, {}).share_max_mb == 100 and server.WebRemote(ctl, {"share_max_mb": 20}).share_max == 20 * 1024 * 1024,
+                  "el límite: 100 MB si no se dice otra cosa")
             fotos_on[0] = False
             _, _, body = await http(port, "GET", "/api/fotos/actual")
             check(not json.loads(body)["ok"], "con Fotos cerrado: no")

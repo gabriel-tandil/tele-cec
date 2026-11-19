@@ -175,6 +175,7 @@
   /* Fotos: la foto de la TV para bajarla (mantenerla apretada: el menú del navegador, con «Compartir imagen») */
   .ph-box { display: grid; place-items: center; min-height: 34vh; margin: 2px 0 12px; border-radius: 14px;
     background: rgba(255,255,255,0.04); color: var(--muted); font-size: 14px; overflow: hidden; }
+  .ph-box video { display: block; width: 100%; max-height: 56vh; background: #000; }
   .ph-box img { display: block; max-width: 100%; max-height: 56vh; object-fit: contain; -webkit-touch-callout: default; }
   .ph-hint { color: var(--muted); font-size: 13px; text-align: center; margin-top: 10px; }
   a.go.ph-dl { display: flex; justify-content: center; align-items: center; gap: 8px; text-decoration: none; margin-top: 12px; }
@@ -311,7 +312,7 @@
 <div class="dock" id="remote" hidden role="group" aria-label="Control remoto">
   <div class="rhead">
     <span class="lbl">Control remoto</span>
-    <button id="rGet" hidden aria-label="Bajar la foto al celular" data-tip="Bajar al celular la foto que se ve en la TV, para guardarla o compartirla"><svg class="i"><use href="#i-dl"/></svg></button>
+    <button id="rGet" hidden aria-label="Bajar la foto al celular" data-tip="Bajar al celular la foto o el video que se ve en la TV, para guardarlo o compartirlo"><svg class="i"><use href="#i-dl"/></svg></button>
     <button id="rType" hidden aria-label="Escribir en la TV" data-tip="Escribir en la TV con el teclado del celular"><svg class="i"><use href="#i-keyboard"/></svg></button>
     <button id="rClose" aria-label="Cerrar el control" data-tip="Cerrar el control (el botoncito redondo lo vuelve a abrir)"><svg class="i"><use href="#i-down"/></svg></button>
   </div>
@@ -646,7 +647,7 @@ function tapActivity(it) {
     const options = [];
     if (it.option) options.push([it.chip, () => openOption(it)]);
     if (it.id === "fotos") {
-      options.push(["⤓ Bajar esta foto al celular", photoSheet]);
+      options.push(["⤓ Bajar al celular lo que se ve", photoSheet]);
       options.push(["♥ Guardar esta foto en Favoritas", async () => {
         const r = await post("/api/fotos/favorite", {});
         if (r.ok) toast(r.message);
@@ -673,32 +674,47 @@ function openOption(it) {
   else if (it.option === "sites") show(sitesPage(it));
 }
 
-// Fotos: la foto que se ve en la TV, para bajarla al celular. Queda fija aunque la presentación siga. El botón
-// «Compartir» directo del navegador pide https (esta página es http): manteniendo apretada la foto, el navegador
-// ofrece «Descargar imagen» y «Compartir imagen».
+// Fotos: la foto (o el video) que se ve en la TV, para bajarla al celular. Queda fija aunque la presentación siga.
+// Hasta [web] share_max_mb: si no, la Pi avisa que es demasiado grande. El botón «Compartir» directo del navegador
+// pide https (esta página es http): manteniendo apretada la foto, el navegador ofrece «Compartir imagen».
+function sizeText(n) {
+  const mb = n / 1048576;
+  const t = mb >= 1024 ? (mb / 1024).toFixed(1) + " GB" : mb >= 10 ? mb.toFixed(0) + " MB" : mb.toFixed(1) + " MB";
+  return t.replace(".", ",");
+}
 async function photoSheet() {
   const r = await get("/api/fotos/actual");
-  if (!r.ok) { toast(r.error || "No pude ver qué foto está en la TV", 3200); return; }
+  if (!r.ok) { toast(r.error || "No pude ver qué foto está en la TV", 4000); return; }
+  let media;  // al cerrar la hoja, el video deja de bajar
   sheet((sh) => {
     sh.appendChild(el("div", "np-title", r.name));
     const sub = el("div", "np-sub", [r.where, r.pos].filter(Boolean).join(" · "));
     sub.style.whiteSpace = "normal";  // la carpeta puede ser larga: que se lea entera
     sh.appendChild(sub);
-    const box = el("div", "ph-box", "Cargando la foto…");
-    const img = el("img");
-    img.alt = r.name;
-    img.addEventListener("load", () => box.replaceChildren(img));
-    img.addEventListener("error", () => { box.textContent = "No pude traer la foto"; });
-    img.src = r.url;
+    const box = el("div", "ph-box", r.video ? "Cargando el video…" : "Cargando la foto…");
+    if (r.video) {  // con sus controles; solo trae el principio hasta que se le dé ▶
+      media = el("video");
+      media.controls = true; media.preload = "metadata"; media.playsInline = true;
+      media.addEventListener("loadedmetadata", () => box.replaceChildren(media));
+      media.addEventListener("error", () => { box.textContent = "Este video no se puede ver acá, pero se puede descargar"; });
+    } else {
+      media = el("img");
+      media.alt = r.name;
+      media.addEventListener("load", () => box.replaceChildren(media));
+      media.addEventListener("error", () => { box.textContent = "No pude traer la foto"; });
+    }
+    media.src = r.url;
     sh.appendChild(box);
     const a = el("a", "go ph-dl");
     a.href = r.url + "&dl=1";
     a.download = r.name;
-    a.append(svg("dl"), el("span", "", `Descargar (${(r.size / 1048576).toFixed(1).replace(".", ",")} MB)`));
-    a.addEventListener("click", () => { buzz(); toast("Bajando la foto…"); });
+    a.append(svg("dl"), el("span", "", `Descargar (${sizeText(r.size)})`));
+    a.addEventListener("click", () => { buzz(); toast(r.video ? "Bajando el video…" : "Bajando la foto…"); });
     sh.appendChild(a);
-    sh.appendChild(el("div", "ph-hint", "Para compartirla: mantené apretada la foto y elegí «Compartir imagen»"));
-  });
+    sh.appendChild(el("div", "ph-hint", r.video
+      ? "Para compartirlo: descargalo y compartilo desde la galería o Descargas"
+      : "Para compartirla: mantené apretada la foto y elegí «Compartir imagen»"));
+  }, () => { if (r.video) { try { media.pause(); media.removeAttribute("src"); media.load(); } catch (e) {} } });
 }
 
 // Navegador: escribir una dirección o qué buscar, y los sitios guardados
