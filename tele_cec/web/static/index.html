@@ -19,15 +19,17 @@
     --text: #f2f2f2; --muted: rgba(242, 242, 242, 0.72); --faint: rgba(242, 242, 242, 0.5);
     --row-hover: rgba(255, 255, 255, 0.07); --sel-bg: #f2f2f2; --sel-text: #111111;
     --badge: rgba(255, 255, 255, 0.16); --chip-line: rgba(255, 255, 255, 0.28); --msg: #ffd166; --heart: #f43f5e;
-    --radius: 20px; --mini-h: 68px; --dock: 0px;  /* --dock: lo que ocupa el control remoto abierto (ver remoteSize) */
+    --radius: 20px; --mini-h: 68px;
+    --dock: 0px;   /* lo que tapa el control remoto abierto (ver remoteSize): lugar abajo para llegar con scroll */
+    --fab: 66px;   /* lo mismo con el botoncito redondo que lo abre (control cerrado) */
     --red: #e53935; --green: #43a047; --yellow: #fdd835; --blue: #1e88e5;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   /* abajo, lugar para el reproductor chico solo cuando está a la vista */
-  body { padding: max(10px, env(safe-area-inset-top)) 12px calc(12px + var(--dock) + env(safe-area-inset-bottom)); }
-  body:has(#mini:not([hidden])) { padding-bottom: calc(var(--mini-h) + 22px + var(--dock) + env(safe-area-inset-bottom)); }
+  body { padding: max(10px, env(safe-area-inset-top)) 12px calc(12px + var(--dock) + var(--fab) + env(safe-area-inset-bottom)); }
+  body:has(#mini:not([hidden])) { padding-bottom: calc(var(--mini-h) + 22px + var(--dock) + var(--fab) + env(safe-area-inset-bottom)); }
   main { max-width: 480px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .pill { flex: none; font-size: 13px; padding: 5px 11px; border-radius: 999px; background: var(--badge); color: var(--muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
@@ -125,7 +127,7 @@
   .sndrow .vs { margin: -8px 4px 4px 64px; }
 
   /* reproductor chico (abajo) y grande (hoja) */
-  .mini { position: fixed; left: 10px; right: 10px; bottom: calc(10px + var(--dock) + env(safe-area-inset-bottom)); height: var(--mini-h);
+  .mini { position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); height: var(--mini-h);
     max-width: 500px; margin: 0 auto; background: var(--panel-solid); border: 2px solid var(--line); border-radius: 18px;
     display: grid; grid-template-columns: 48px minmax(0, 1fr) 48px 48px; gap: 10px; align-items: center; padding: 0 10px; z-index: 6;
     box-shadow: 0 8px 30px rgba(0,0,0,.45); overflow: hidden; }
@@ -178,10 +180,16 @@
   .fsbtn svg.i { width: 22px; height: 22px; }
   .fsbtn.on { color: var(--sel-text); background: var(--sel-bg); }
 
-  /* control remoto (abajo): las teclas del control de la TV, para lo que no se maneja desde las listas */
-  .dock { position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); max-width: 500px;
-    margin: 0 auto; background: var(--panel-solid); border: 2px solid var(--line); border-radius: 18px; z-index: 6;
-    padding: 6px 10px 10px; display: grid; gap: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+  /* control remoto: flota abajo, encima de la lista (y del reproductor chico); cerrado, un botoncito redondo */
+  .dock { position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); max-width: 440px;
+    margin: 0 auto; background: var(--panel-solid); border: 2px solid rgba(255,255,255,0.18); border-radius: 20px; z-index: 7;
+    padding: 6px 10px 10px; display: grid; gap: 8px; box-shadow: 0 -4px 40px rgba(0,0,0,.7); }
+  .fab { position: fixed; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); width: 54px; height: 54px; border-radius: 50%;
+    background: var(--panel-solid); border: 2px solid rgba(255,255,255,0.18); color: var(--text); z-index: 7;
+    display: grid; place-items: center; box-shadow: 0 6px 24px rgba(0,0,0,.6); }
+  .fab:active { background: var(--sel-bg); color: var(--sel-text); }
+  .fab svg.i { width: 28px; height: 28px; }
+  body:has(#mini:not([hidden])) .fab { bottom: calc(var(--mini-h) + 24px + env(safe-area-inset-bottom)); }
   .dock button { touch-action: none; }
   .rhead { display: flex; align-items: center; gap: 4px; }
   .rhead .lbl { flex: 1; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--faint); padding-left: 4px; }
@@ -270,7 +278,6 @@
       <button class="back" id="back" hidden aria-label="Volver"><svg class="i"><use href="#i-back"/></svg></button>
       <h2 id="ptitle">Actividades</h2>
       <span class="pill" id="status">Conectando…</span>
-      <button class="fsbtn" id="rbtn" aria-label="Control remoto" aria-expanded="false"><svg class="i"><use href="#i-remote"/></svg></button>
       <button class="fsbtn" id="fs" hidden aria-label="Pantalla completa"><svg class="i"><use href="#i-full"/></svg></button>
     </div>
     <div id="pbody"></div>
@@ -284,6 +291,7 @@
   <button id="miniNext" aria-label="Siguiente"><svg class="i"><use href="#i-next"/></svg></button>
   <div class="prog" id="miniProg"></div>
 </div>
+<button class="fab" id="rbtn" aria-label="Abrir el control remoto" aria-expanded="false"><svg class="i"><use href="#i-remote"/></svg></button>
 <div class="dock" id="remote" hidden role="group" aria-label="Control remoto">
   <div class="rhead">
     <span class="lbl">Control remoto</span>
@@ -556,13 +564,14 @@ function fit() {
   const dense = [1, 2, 3].map((n) => "dense-" + n);
   panel.classList.remove(...dense);
   if (!(top === ACTIVITIES || (top && top.group))) return;
-  const over = () => document.documentElement.scrollHeight > window.innerHeight + 1;
+  // El lugar de abajo para el control remoto (flota encima) no cuenta: con él la lista no se achica, se hace scroll.
+  const over = () => document.documentElement.scrollHeight - dockPad > window.innerHeight + 1;
   for (const cls of dense) {  // se suman: dense-2 es dense-1 y un poco más
     if (!over()) return;
     panel.classList.add(cls);
   }
 }
-let fitTimer = null;
+let fitTimer = null, dockPad = 66;
 window.addEventListener("resize", () => { clearTimeout(fitTimer); fitTimer = setTimeout(fit, 150); });
 function retitle(page, title) {
   page.title = title;
@@ -1680,20 +1689,23 @@ fsVeil();
 
 // ---------------------------------------------------------------- control remoto
 // Las teclas del control de la TV (flechas, OK, colores, ⏯…), para lo que no se maneja desde las listas: van a la
-// Pi como si se apretaran en el control. Se abre y se cierra con el botón de arriba; solo, al elegir en la TV una
+// Pi como si se apretaran en el control. Flota encima de la lista. Se abre con el botoncito redondo de abajo y se
+// cierra con ⌄; solo, al elegir en la TV una
 // actividad que se maneja con flechas ([web] remote_apps: Netflix, YouTube, Tidal…). Si se cierra a mano, no vuelve
 // a abrirse solo hasta que cambie la actividad; y si se abrió solo, se cierra solo al pasar a otra que no lo usa.
 const REMOTE = {open: false, auto: false, app: undefined};
 function remoteSize() {
-  const h = REMOTE.open ? $("remote").offsetHeight + 8 : 0;
+  const h = REMOTE.open ? $("remote").offsetHeight + 8 : 0, fab = REMOTE.open ? 0 : 66;
   document.documentElement.style.setProperty("--dock", h + "px");
+  document.documentElement.style.setProperty("--fab", fab + "px");
+  dockPad = h + fab;
   fit();
 }
 function remoteShow(open, auto) {
   REMOTE.open = open;
   REMOTE.auto = open && !!auto;
   $("remote").hidden = !open;
-  $("rbtn").classList.toggle("on", open);
+  $("rbtn").hidden = open;
   $("rbtn").setAttribute("aria-expanded", String(open));
   if (!open) { remoteText(false); remoteRelease(); }
   remoteSize();
