@@ -3684,6 +3684,32 @@ echo '</mame>'
           and Path(pi_args[3].split("=", 1)[1]).is_file(),
           f"en la Pi: fotos con OpenGL (8 bits), sin hardware, y el script elige la salida de cada archivo: {pi_args}")
     check(other == ["--hwdec=auto-safe"], f"fuera de la Pi: lo que elija mpv: {other}")
+    # El servicio se reinició con la presentación abierta: nadie escuchaba a su mpv (la fecha quedaba fija).
+    real_pids = mpv_mod.mpv_pids
+    try:
+        mpv_mod.mpv_pids = lambda sock, fresh=False: [4321]
+        fa = activities_mod.PhotosActivity({})
+        fa.mpv.socket_path = tmp / "fotos-test.sock"
+        check(not fa.mpv.lost_watch() and not fa.rewatch(), "sin el canal de mpv (Fotos cerrado): nada que escuchar")
+        fa.mpv.socket_path.touch()
+        check(fa.mpv.lost_watch() and fa.rewatch() and not fa.rewatch(),
+              "Fotos abierto y nadie escuchando a su mpv (reinicio del servicio): lo vuelve a escuchar, una vez")
+        fa.mpv.stop_watch()
+        check(not fa.mpv.lost_watch() and not fa.rewatch(),
+              "al cerrar se deja de escuchar a propósito: aunque mpv tarde en irse, no lo vuelve a escuchar")
+        ra = activities_mod.RadioActivity({"stations": [{"name": "X", "url": "http://x"}]})
+        ra.mpv.socket_path = fa.mpv.socket_path
+        check(ra.rewatch() == bool(ra.covers), "la Radio también (si busca tapas)")
+        ra.mpv.stop_watch()
+        ctl_rw = SimpleNamespace(activities={"fotos": activities_mod.PhotosActivity({})})
+        ctl_rw.activities["fotos"].mpv.socket_path = fa.mpv.socket_path
+        Controller._rewatch(ctl_rw)
+        check(ctl_rw.activities["fotos"].mpv._watch is not None, "watch_apps lo revisa cada 1,5 s")
+        ctl_rw.activities["fotos"].mpv.stop_watch()
+        await asyncio.sleep(0)
+    finally:
+        mpv_mod.mpv_pids = real_pids
+        (tmp / "fotos-test.sock").unlink(missing_ok=True)
     real_which = photos_mod.shutil.which
     try:
         photos_mod.shutil.which = lambda name: "/usr/bin/" + name

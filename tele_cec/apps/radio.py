@@ -170,6 +170,13 @@ class RadioActivity(ProcActivity):
             self.mpv.watch(self._on_metadata, "metadata")  # el tema que sale: para buscarle la tapa
         return True
 
+    def rewatch(self) -> bool:
+        """Vuelve a escuchar qué tema sale si el mpv de la Radio quedó abierto sin nadie que lo escuche."""
+        if not self.covers or not self.mpv.lost_watch():
+            return False
+        self.mpv.watch(self._on_metadata, "metadata")
+        return True
+
     async def close(self) -> None:
         self.mpv.stop_watch()
         self._cancel_cover()

@@ -88,6 +88,7 @@ class Mpv:
         self.socket_path = socket_path
         self._ids = itertools.count(1)
         self._watch: asyncio.Task | None = None
+        self._stopped = False   # se dejó de escuchar a propósito (al cerrar): no volver a escucharlo solo
 
     async def command(self, *args: Any, timeout: float = 3.0) -> tuple[bool, Any]:
         """Un comando (p. ej. "playlist-next"); (salió bien, lo que devolvió)."""
@@ -141,12 +142,22 @@ class Mpv:
         """Llama a on_change(valor) cada vez que cambia esa propiedad de mpv (de entrada, "path": pasa a otro
         archivo; y una vez al empezar). Con "metadata" (la Radio): el diccionario con lo que manda la emisora."""
         self.stop_watch()
+        self._stopped = False
         self._watch = asyncio.get_running_loop().create_task(self._watch_loop(on_change, prop))
 
     def stop_watch(self) -> None:
         if self._watch and not self._watch.done():
             self._watch.cancel()
         self._watch = None
+        self._stopped = True
+
+    def lost_watch(self) -> bool:
+        """¿Este mpv está abierto y nadie escucha sus avisos, sin que se haya dejado de escucharlo a propósito? Pasa
+        si el servicio se reinició con mpv abierto (la presentación seguía, pero ya no se sabía qué foto se veía: la
+        fecha de la esquina quedaba la de otra), o si se cortó la conexión."""
+        if self._stopped or (self._watch is not None and not self._watch.done()):
+            return False
+        return self.socket_path.exists() and bool(mpv_pids(self.socket_path))
 
     async def _watch_loop(self, on_change: Callable[[Any], Awaitable[None]], prop: str = "path") -> None:
         try:

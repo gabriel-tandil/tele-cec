@@ -451,6 +451,13 @@ class PhotosActivity(MediaActivity):
         self.mpv.watch(self._mpv_file)
         return True
 
+    def rewatch(self) -> bool:
+        """Vuelve a escuchar al mpv de Fotos si quedó abierto sin nadie que lo escuche (ver Mpv.lost_watch)."""
+        if self.command or not self.mpv.lost_watch():
+            return False
+        self.mpv.watch(self._mpv_file)
+        return True
+
     async def _mpv_file(self, path: str) -> None:
         """mpv pasó a otro archivo: sin zoom ni giro, y la música en pausa mientras suena un video."""
         await self._mpv_reset()

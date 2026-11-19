@@ -268,6 +268,7 @@ class ActivitiesMixin:
         while True:
             await asyncio.sleep(WATCH_EVERY_S)
             try:
+                self._rewatch()
                 gone = self._left_alone()
                 if gone is None:
                     continue
@@ -279,6 +280,14 @@ class ActivitiesMixin:
                 raise
             except Exception:  # noqa: BLE001
                 log.exception("Error vigilando las apps abiertas")
+
+    def _rewatch(self) -> None:
+        """Fotos y Radio escuchan los avisos de su mpv (qué foto se ve, qué tema sale). Si el servicio se reinició con
+        una de ellas abierta, nadie los escuchaba: la fecha de la esquina quedaba fija. Se vuelven a escuchar."""
+        for act in self.activities.values():
+            rewatch = getattr(act, "rewatch", None)
+            if rewatch is not None and rewatch():
+                log.info("%s estaba abierta sin escuchar a su mpv: lo vuelvo a escuchar", act.name)
 
     async def _app_gone(self, ident: str) -> None:
         act = self.activities[ident]

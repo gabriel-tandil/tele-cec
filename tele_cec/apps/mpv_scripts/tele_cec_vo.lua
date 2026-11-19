@@ -18,6 +18,10 @@
 -- le dice a labwc qué colores tiene el video (wp_color_representation), así que no hay forma de que coincidan: en
 -- cambio, mientras se ve un video se deja un píxel casi transparente en el OSD y labwc compone siempre (keep_composed).
 -- Medido en una Pi 400: sin cuadros perdidos de más (también con 1080p60).
+--
+-- Zoom en pausa: dmabuf-wayland aplica el zoom, el corrimiento y el giro recién cuando dibuja el cuadro siguiente,
+-- y con el video en pausa no llega ninguno (en Fotos, el primer ▲ pausa: el zoom no se veía hasta seguir). Un cambio
+-- en el OSD sí hace que dibuje: cuando cambian, el píxel se corre de lugar (redraw).
 
 local mp = require "mp"
 local msg = require "mp.msg"
@@ -42,13 +46,29 @@ local scaled = false   -- si el filtro para achicar lo puso este script (para sa
 -- un píxel en la esquina con alfa FE (casi transparente del todo): obliga a labwc a componer el video
 local veil = mp.create_osd_overlay("ass-events")
 veil.res_x, veil.res_y, veil.z = 1920, 1080, -1000
-veil.data = "{\\an7\\pos(0,0)\\bord0\\shad0\\1c&H000000&\\1a&HFE&\\p1}m 0 0 l 1 0 1 1 0 1{\\p0}"
+local function veil_at(x)
+    return "{\\an7\\pos(" .. x .. ",0)\\bord0\\shad0\\1c&H000000&\\1a&HFE&\\p1}m 0 0 l 1 0 1 1 0 1{\\p0}"
+end
+veil.data = veil_at(0)
 local veil_on = false
+local veil_x = 0
 
 local function set_veil(on)
     if on == veil_on then return end
     if on then veil:update() else veil:remove() end
     veil_on = on
+end
+
+-- Que dmabuf-wayland vuelva a dibujar (aunque esté en pausa): el píxel cambia de lugar (0 ↔ 1).
+local function redraw()
+    if current_vo ~= opts.video_vo then return end
+    veil_x = 1 - veil_x
+    veil.data = veil_at(veil_x)
+    veil:update()
+    if not veil_on then veil:remove() end
+end
+for _, prop in ipairs({"video-zoom", "video-pan-x", "video-pan-y", "video-rotate"}) do
+    mp.observe_property(prop, "native", redraw)
 end
 
 -- "video" (va por hardware), "image" (foto, tapa o video que se decodifica con el procesador) o nil (solo sonido);
