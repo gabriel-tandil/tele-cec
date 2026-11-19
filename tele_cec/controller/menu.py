@@ -370,6 +370,11 @@ class MenuMixin:
         wait = self._menu_wait()
         await asyncio.sleep(wait)
         if self._menu_open and not self._switching:
+            # Se vuelve a mirar al final: si la app se terminó de cerrar mientras tanto (el menú aparece apenas se
+            # pide cerrarla, antes de que se vaya del todo), el menú quedó solo en pantalla y no se oculta.
+            if self.current_app() is None:
+                log.info("Menú: no se cierra solo, no quedó nada abierto detrás")
+                return
             log.info("Menú cerrado solo (sin teclas en %.0f s)", wait)
             await self.menu_close()
 

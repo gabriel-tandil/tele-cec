@@ -851,6 +851,12 @@ async def main() -> int:
     check(ctl._menu_open, "sin nada abierto, el menú es la pantalla de inicio: no se cierra solo")
     del ctl.current_app
     await ctl.menu_close()
+    await press("ROOT_MENU")  # con una app abierta arranca la cuenta…
+    ctl.current_app = lambda: None  # type: ignore[method-assign]  # …y la app termina de cerrarse mientras tanto
+    await asyncio.sleep(0.4)
+    check(ctl._menu_open, "si la app se cerró después de abrirse el menú, el menú queda a la vista")
+    del ctl.current_app
+    await ctl.menu_close()
     ctl._menu_timeout = 10
     ctl._switching = True
     out = await press("ROOT_MENU", "DOWN", "SELECT")
