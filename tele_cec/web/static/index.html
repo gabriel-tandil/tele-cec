@@ -22,7 +22,7 @@
     --radius: 20px; --mini-h: 68px;
     --dock: 0px;   /* lo que tapa el control remoto abierto (ver remoteSize): lugar abajo para llegar con scroll */
     --fab: 66px;   /* lo mismo con el botoncito redondo que lo abre (control cerrado) */
-    --red: #e53935; --green: #43a047; --yellow: #fdd835; --blue: #1e88e5;
+    --red: #e53935; --yellow: #fdd835; --blue: #1e88e5;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
@@ -201,7 +201,7 @@
   .rk { background: rgba(255,255,255,0.08); border-radius: 12px; font-weight: 700; display: grid; place-items: center; color: var(--text); }
   .rk:active, .rk.down { background: var(--sel-bg); color: var(--sel-text); }
   .rk svg.i { width: 26px; height: 26px; }
-  .rmid { display: grid; grid-template-columns: minmax(0, 1fr) 60px; gap: 10px; align-items: stretch; }
+  .rmid { display: grid; grid-template-columns: 54px minmax(0, 1fr) 54px; gap: 8px; align-items: stretch; }
   .rside { display: grid; grid-template-rows: 1fr auto 1fr; gap: 4px; }
   .rside .rk { font-size: 22px; }
   .rside span { text-align: center; font-size: 11px; font-weight: 700; color: var(--faint); letter-spacing: .5px; }
@@ -212,15 +212,16 @@
   .ar.up svg { transform: rotate(180deg); }
   .ar.left svg { transform: rotate(90deg); }
   .ar.right svg { transform: rotate(-90deg); }
-  .numpad { grid-auto-rows: 38px; }
-  .numpad .rk { font-size: 18px; }
-  .rcolors { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .rside .fav { color: var(--muted); }
+  .rside .fav svg.i { width: 26px; height: 26px; }
+  .rside .fav.on { color: var(--heart); }
+  .rside .fav.off { opacity: .35; }
+  .rcolors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .rcolors .rk { height: 30px; }
   .rcolors .rk:active { filter: brightness(1.35); }
-  .rcolors .c-red { background: var(--red); } .rcolors .c-green { background: var(--green); }
+  .rcolors .c-red { background: var(--red); }
   .rcolors .c-yellow { background: var(--yellow); } .rcolors .c-blue { background: var(--blue); }
-  .rmedia { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
-  .rmedia .fav.on { color: var(--heart); }
+  .rmedia { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .rmedia .rk { height: 44px; }
   .rtext { display: grid; grid-template-columns: minmax(0, 1fr) 46px 46px; gap: 6px; }
   .rtext .rk { height: 46px; }
@@ -296,7 +297,6 @@
   <div class="rhead">
     <span class="lbl">Control remoto</span>
     <button id="rType" hidden aria-label="Escribir en la TV"><svg class="i"><use href="#i-keyboard"/></svg></button>
-    <button id="rNum" aria-label="Números">123</button>
     <button id="rClose" aria-label="Cerrar el control"><svg class="i"><use href="#i-down"/></svg></button>
   </div>
   <form class="rtext" id="rText" hidden autocomplete="off">
@@ -305,6 +305,11 @@
     <button type="button" class="rk" data-text-key="Enter" aria-label="Enter"><svg class="i"><use href="#i-enter"/></svg></button>
   </form>
   <div class="rmid">
+    <div class="rside">
+      <button class="rk fav off" id="rFav" aria-label="Favoritos"><svg class="i"><use href="#i-heart-o"/></svg></button>
+      <span></span>
+      <button class="rk" data-key="NUMBER0" aria-label="Cero (en Tidal y en un video de Netflix: cambia lo que hacen las flechas)">0</button>
+    </div>
     <div class="pad" id="rPad">
       <button class="rk sm" data-key="CONTENTS_MENU">Menú</button>
       <button class="rk ar up" data-key="UP" data-repeat="1" aria-label="Arriba"><svg class="i"><use href="#i-down"/></svg></button>
@@ -316,14 +321,6 @@
       <button class="rk ar" data-key="DOWN" data-repeat="1" aria-label="Abajo"><svg class="i"><use href="#i-down"/></svg></button>
       <button class="rk sm" data-key="HELP" aria-label="Ayuda: qué hace cada tecla">?</button>
     </div>
-    <div class="pad numpad" id="rNumpad" hidden>
-      <button class="rk" data-key="NUMBER1">1</button><button class="rk" data-key="NUMBER2">2</button><button class="rk" data-key="NUMBER3">3</button>
-      <button class="rk" data-key="NUMBER4">4</button><button class="rk" data-key="NUMBER5">5</button><button class="rk" data-key="NUMBER6">6</button>
-      <button class="rk" data-key="NUMBER7">7</button><button class="rk" data-key="NUMBER8">8</button><button class="rk" data-key="NUMBER9">9</button>
-      <button class="rk" data-key="CLEAR" aria-label="Borrar"><svg class="i"><use href="#i-bksp"/></svg></button>
-      <button class="rk" data-key="NUMBER0">0</button>
-      <button class="rk" data-key="SELECT">OK</button>
-    </div>
     <div class="rside">
       <button class="rk" data-key="CHANNEL_UP" data-repeat="1" aria-label="Canal más">+</button>
       <span>CANAL</span>
@@ -332,7 +329,6 @@
   </div>
   <div class="rcolors">
     <button class="rk c-red" data-key="F2_RED" aria-label="Rojo"></button>
-    <button class="rk c-green" data-key="F3_GREEN" aria-label="Verde"></button>
     <button class="rk c-yellow" data-key="F4_YELLOW" aria-label="Amarillo"></button>
     <button class="rk c-blue" data-key="F1_BLUE" aria-label="Azul"></button>
   </div>
@@ -341,7 +337,6 @@
     <button class="rk" data-key="PAUSE_PLAY_FUNCTION" aria-label="Play o pausa"><svg class="i"><use href="#i-pp"/></svg></button>
     <button class="rk" data-key="STOP" aria-label="Stop"><svg class="i"><use href="#i-stop"/></svg></button>
     <button class="rk" data-key="FAST_FORWARD" aria-label="Adelantar"><svg class="i"><use href="#i-ff"/></svg></button>
-    <button class="rk fav" id="rFav" hidden aria-label="Favoritos"><svg class="i"><use href="#i-heart-o"/></svg></button>
   </div>
 </div>
 <div class="toast" id="toast" role="status"></div>
@@ -1711,7 +1706,7 @@ function remoteAuto() {
   const app = (state.app && state.app.id) || "";
   // ♥: «Me gusta» del tema en Tidal, o la foto a Favoritas (como el 1 del control, que en otras apps es otra cosa).
   const fav = $("rFav"), liked = app === "tidal" && !!(state.now && state.now.tidal && state.now.liked);
-  fav.hidden = app !== "tidal" && app !== "fotos";
+  fav.classList.toggle("off", app !== "tidal" && app !== "fotos");  // en las demás no hace nada: apagado
   fav.classList.toggle("on", liked);
   setIcon(fav, liked ? "heart" : "heart-o");
   if (app === REMOTE.app) return;
@@ -1754,19 +1749,13 @@ $("rFav").addEventListener("click", async () => {
   buzz();
   const app = state && state.app && state.app.id;
   if (app === "fotos") { await post("/api/fotos/favorite", {}); return; }
+  if (app !== "tidal") { toast("♥ es para Tidal (me gusta) y Fotos (Favoritas)"); return; }
   if (!(state && state.now && state.now.tidal)) { toast("No está sonando nada en Tidal"); return; }
   const r = await media("like");
   if (r && r.ok) { state.now.liked = !state.now.liked; remoteAuto(); if (player.update) player.update(); }
 });
 $("rbtn").addEventListener("click", () => { buzz(); remoteShow(!REMOTE.open); });
 $("rClose").addEventListener("click", () => { buzz(); remoteShow(false); });
-$("rNum").addEventListener("click", () => {
-  buzz();
-  const num = $("rNumpad").hidden;
-  $("rNumpad").hidden = !num;
-  $("rPad").hidden = num;
-  $("rNum").classList.toggle("on", num);
-});
 // Escribir con el teclado del celular (en la actividad que lo permite: Netflix, YouTube, el Navegador, Tidal…).
 function remoteText(open) {
   $("rText").hidden = !open;
