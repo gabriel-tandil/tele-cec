@@ -11,6 +11,8 @@ log = logging.getLogger("tele")
 
 # Tope de la espera automática a que una fila termine de pasar de página (netflix.page_delay_ms = 0).
 PAGE_WAIT_MAX_MS = 1200
+# ♥ Mi lista: cuánto esperar a la ficha y a su botón (en la Pi la página llega a tardar más de 8 s en contestar).
+MY_LIST_WAIT_S = 15.0
 
 
 def loading_text(title: str) -> str:
@@ -225,35 +227,72 @@ class NetflixMixin:
             return
         title = str(r.get("title") or "")
         opened = False
-        if r.get("open"):
-            # Una tarjeta de la fila: se abre su ficha, que es la que tiene el botón.
-            await self.apply_click(r)
-            opened = True
-            deadline = time.monotonic() + 5
-            while True:
-                await asyncio.sleep(0.3)
-                r = await self.js("myList")
-                if r.get("modal") and not r.get("none"):
+        try:
+            if r.get("open"):
+                # Una tarjeta de la fila: se abre su ficha, que es la que tiene el botón.
+                opened = True  # aunque Firefox tarde en confirmar el clic, la ficha se abre
+                await self._click_patient(r)
+                deadline = time.monotonic() + MY_LIST_WAIT_S
+                while True:
+                    await asyncio.sleep(0.3)
+                    r = await self._js_patient("myList")
+                    if r.get("modal") and not r.get("none"):
+                        break
+                    if time.monotonic() > deadline:
+                        log.warning("Mi lista: la ficha de «%s» no mostró el botón", title or "?")
+                        await self._my_list_close(opened)
+                        await self.toast("No encontré «Mi lista» en la ficha", 2000)
+                        return
+            was = bool(r.get("inList"))
+            await self._click_patient(r)
+            now = was
+            deadline = time.monotonic() + MY_LIST_WAIT_S
+            while time.monotonic() < deadline:  # Netflix cambia el botón antes de que conteste el servidor
+                await asyncio.sleep(0.25)
+                st = await self._js_patient("myListState")
+                if st.get("slow"):
+                    continue
+                if st.get("none"):
                     break
-                if time.monotonic() > deadline:
-                    log.warning("Mi lista: la ficha de «%s» no mostró el botón", title or "?")
-                    await self.toast("No encontré «Mi lista» en la ficha", 2000)
-                    return
-        was = bool(r.get("inList"))
-        await self.apply_click(r)
-        now = was
-        for _ in range(8):  # Netflix cambia el botón enseguida (antes de que conteste el servidor)
-            await asyncio.sleep(0.25)
-            st = await self.js("myListState")
-            if st.get("none"):
-                break
-            now = bool(st.get("inList"))
-            if now != was:
-                break
+                now = bool(st.get("inList"))
+                if now != was:
+                    break
+        except asyncio.CancelledError:
+            raise  # otra tecla: la ficha queda como esté
+        except Exception:
+            await self._my_list_close(opened)
+            raise
+        # Primero se cierra la ficha: el aviso que se muestra con ella abierta desaparece al cerrarla (visto en la
+        # página real).
+        await self._my_list_close(opened)
         await self._my_list_done(title, now, changed=now != was)
-        if opened:
-            await self.key("Escape")
-            await self.js("restore", 800)
+
+    async def _js_patient(self, name: str, *args: object) -> dict:
+        """En la Pi, mientras Netflix dibuja la ficha, la página puede tardar varios segundos en contestar (visto:
+        más de 8 s): se espera más y, si igual no contesta, se sigue probando."""
+        try:
+            return await self.js(name, *args, timeout=MY_LIST_WAIT_S)
+        except asyncio.TimeoutError:
+            log.info("Mi lista: la página tarda en contestar (%s)", name)
+            return {"slow": True}
+
+    async def _click_patient(self, r: dict) -> None:
+        """Un clic que puede tardar en confirmarse: en la Pi, Firefox contesta recién cuando la página termina de
+        reaccionar (abrir la ficha llegó a pasar los 10 s). El clic ya se hizo: se sigue igual."""
+        try:
+            await self.apply_click(r)
+        except asyncio.TimeoutError:
+            log.info("Mi lista: Firefox tardó en confirmar el clic (la página está ocupada)")
+
+    async def _my_list_close(self, opened: bool) -> None:
+        """Cierra la ficha que abrió ♥ (y el resaltado vuelve a la tarjeta)."""
+        if not opened:
+            return
+        await self.key("Escape")
+        try:
+            await self.js("restore", 800, timeout=MY_LIST_WAIT_S)
+        except asyncio.TimeoutError:
+            log.info("Mi lista: la página tardó en cerrar la ficha")
 
     async def _my_list_done(self, title: str, in_list: bool, changed: bool) -> None:
         if not changed:
@@ -262,7 +301,7 @@ class NetflixMixin:
         name = f"«{title}» " if title and len(title) <= 40 else ""
         log.info("Mi lista: %s%s", name, "agregado" if in_list else "quitado")
         await self.toast(f"♥ {name}en Mi lista" if in_list else f"{name}fuera de Mi lista" if name
-                         else "Fuera de Mi lista", 2000)
+                         else "Fuera de Mi lista", 3000)
 
     async def a_home(self, arg: str) -> None:
         await self.busy("Cargando el inicio…", until="page", nav=True)
