@@ -412,7 +412,10 @@
     if (a && isGoBox(a)) { closeGo(); return { done: 'go_closed' }; }
     if (a && a !== document.body && matches(a, TEXT_SEL)) { a.blur(); return { done: 'blur' }; }
     if (document.fullscreenElement) { try { document.exitFullscreen(); } catch (e) { /* nada */ } return { done: 'fullscreen' }; }
-    if (history.length > 1) { history.back(); return { done: 'history' }; }
+    // ¿Hay a dónde volver? navigation.canGoBack lo sabe (history.length cuenta también las de adelante).
+    const nav = window.navigation;
+    const can = nav && typeof nav.canGoBack === 'boolean' ? nav.canGoBack : history.length > 1;
+    if (can) { history.back(); return { done: 'history' }; }
     return { done: 'none' };
   }
 

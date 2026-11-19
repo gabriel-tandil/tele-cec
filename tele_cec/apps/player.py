@@ -197,6 +197,10 @@ class MpvMediaActivity(MediaActivity):
         await self.terminate()
 
     # ------------------------------------------------------------ controles
+    async def scrubbing(self) -> bool:
+        """¿Se está buscando con ◀ ▶ (la barra muestra a dónde, todavía sin saltar)? Lo dice tele_cec_osd.lua."""
+        return bool(await self.mpv.get("user-data/tele_cec/scrubbing"))
+
     async def osd(self, message: str, *args: Any) -> bool:
         """Un aviso a la barra de la TV (tele_cec_osd.lua): show, scrub ±s, ok, cancel."""
         return (await self.mpv.command("script-message-to", OSD, message, *map(str, args)))[0]

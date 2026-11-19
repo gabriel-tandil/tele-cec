@@ -152,9 +152,11 @@ class FakeMusic:
         return {"status": "Paused", "title": "Volver a Volver", "artist": "Gabo Ferro", "album": "Mancha de Rolando",
                 "position": "1:02", "length": "3:40"}
 
+    back_reply = "ok"  # «no»: High Tide en su primera pantalla, sin a dónde volver
+
     async def command(self, line: str, timeout: float = 10.0, wait: float = 0.0) -> str:
         self.log.append(f"music:cmd:{line}")
-        return "ok"
+        return self.back_reply if line == "back" else "ok"
 
     async def volume(self, sign: str) -> bool:
         self.log.append(f"mpris:volume{sign}")
@@ -370,6 +372,11 @@ class FakePlayerMixin:
         self.log.append("mpv:osd:" + " ".join([message, *map(str, args)]).strip())
         return True
 
+    scrub = True  # buscando con ◀ ▶ (Atrás deja de buscar); False: Atrás cierra
+
+    async def scrubbing(self) -> bool:
+        return self.scrub
+
     async def toggle_shuffle(self) -> bool:
         self.log.append("mpv:shuffle")
         self.shuffled = not getattr(self, "shuffled", False)
@@ -518,6 +525,10 @@ async def main() -> int:
           "por defecto, la tecla Menú con el menú abierto es menu:back")
     out = await press("EXIT")
     check(out == ["ov:hide"] and await ctl.context() == "offline", f"Atrás cierra el menú sin abrir nada: {out}")
+    check(ctl.cfg.action_for("menu", parse_key("DOT")) == ("menu:help", "menu"),
+          "con el menú abierto, el punto (•) abre la ayuda (muchas TVs no mandan la tecla Ayuda)")
+    check(ctl.cfg.action_for("offline", parse_key("EXIT")) == ("menu", "offline"),
+          "sin nada abierto, Atrás abre el menú de actividades")
 
     print("Menú → Tidal (número)")
     out = await press("ROOT_MENU", "NUMBER2")
@@ -551,13 +562,24 @@ async def main() -> int:
     check(out == ["mpris:next", "mpris:previous", "mpris:seek+10", "mpris:seek-10", "mpris:seek+60", "mpris:seek-60"],
           f"Canal ± = tema, ◀ ▶ = 10 s, ⏪ ⏩ = 1 min (como en Música y Videos): {out}")
     out = await press("EXIT", "F3_GREEN")
-    check(out == [], f"Atrás y verde no hacen nada en Tidal: {out}")
+    check(out == ["music:cmd:back"], f"Atrás vuelve a la pantalla anterior de High Tide; el verde no hace nada: {out}")
+    closed = []
+    real_close = ctl.a_close
+
+    async def fake_close(ident: str) -> None:
+        closed.append(ident)
+    ctl.a_close = fake_close  # type: ignore[method-assign]
+    ctl.music.back_reply = "no"
+    await press("EXIT")
+    check(closed == ["tidal"], f"en la primera pantalla de High Tide (sin a dónde volver), Atrás cierra Tidal: {closed}")
+    ctl.music.back_reply = "ok"
+    ctl.a_close = real_close  # type: ignore[method-assign]
     out = await press("SUB_PICTURE", "F2_RED")
     check(out == ["letras", "shuffle"], f"CC = letras, rojo = mezclar: {out}")
     await press("NUMBER0")
     check(await ctl.context() == "tidal_nav", "0 activa el modo navegación de Tidal")
     out = await press("DOWN", "LEFT", "SELECT", "EXIT")
-    check(out == ["wtype:Down", "wtype:Left", "wtype:Return", "go:back"],
+    check(out == ["wtype:Down", "wtype:Left", "wtype:Return", "music:cmd:back"],
           f"en modo navegación: flechas, OK y Atrás van tal cual a la app (sin seguir el foco): {out}")
     out = await press("FORWARD", "BACKWARD", "CHANNEL_UP", "CHANNEL_DOWN", "NUMBER1")
     check(out == ["mpris:next", "mpris:previous", "mpris:next", "mpris:previous", "like"],
@@ -591,6 +613,13 @@ async def main() -> int:
                   "ov:toast:Audio: Inglés", "mpv:aspect", "ov:toast:Proporción: 4:3", "mpv:osd:cancel", "mpv:info",
                   "ov:toast:Obsession\n1:02 de 1:40:00\nVideo 1 de 3"],
           f"OK, ▶ ◀ (buscar), ⏩ (1 min), ▲, ⏭, Canal−, CC, rojo, amarillo, Atrás (deja de buscar), azul (qué es): {out}")
+    closed.clear()
+    ctl.a_close = fake_close  # type: ignore[method-assign]
+    ctl.activities["videos"].scrub = False
+    out = await press("EXIT")
+    check(closed == ["videos"] and "mpv:osd:cancel" not in out, f"sin estar buscando, Atrás cierra Videos (como ■): {closed} {out}")
+    ctl.activities["videos"].scrub = True
+    ctl.a_close = real_close  # type: ignore[method-assign]
 
     print("Fotos sin contenido")
     fotos.content = False
@@ -608,8 +637,11 @@ async def main() -> int:
     out = await press("ROOT_MENU", "NUMBER4")
     check(opened(out) == ["videos:close", "fotos:open"], f"cierra VLC y abre feh: {opened(out)}")
     check(await ctl.context() == "fotos", "contexto 'fotos'")
-    out = await press("RIGHT", "LEFT", "SELECT", "EXIT")
-    check(out == ["feh:next", "feh:previous", "feh:h"], f"▶, ◀, OK (Atrás nada): {out}")
+    out = await press("RIGHT", "LEFT", "SELECT")
+    check(out == ["feh:next", "feh:previous", "feh:h"], f"▶, ◀, OK: {out}")
+    check(ctl.cfg.action_for("fotos", parse_key("EXIT")) == ("close:fotos", "fotos")
+          and ctl.cfg.action_for("radio", parse_key("EXIT")) == ("close:radio", "radio"),
+          "en Fotos y en la Radio, Atrás cierra y vuelve al menú (como ■)")
     check(fotos.paused, "queda en pausa")
     out = await press("NUMBER1")
     check(out == ["ov:toast:♥ Guardada en Favoritas (1) · 1 otra vez la saca"]
@@ -1615,7 +1647,7 @@ async def main() -> int:
                 return {"enter": True}
             if name == "back":
                 self.ctx, self.gobox = "page", False
-                return {"done": "blur"}
+                return {"done": getattr(self, "back_done", "blur")}
             if name == "go":
                 self.ctx, self.gobox, self.value = "text", True, ""
                 return {"ok": True}
@@ -1690,6 +1722,17 @@ async def main() -> int:
                   "ov:toast:No hay ningún video en esta página"],
           f"flechas = moverse, OK = clic de verdad (y pregunta si le llegó), Atrás, azul = inicio, Canal− = página "
           f"abajo, 2 = sitio 2, ⏯: {out}")
+    closed_web = []
+    real_close_web = ctl.a_close
+
+    async def fake_close_web(ident: str) -> None:
+        closed_web.append(ident)
+    ctl.a_close = fake_close_web  # type: ignore[method-assign]
+    wf.fake.back_done = "none"
+    await press("EXIT")
+    check(closed_web == ["navegador"], f"en la primera página (sin a dónde volver), Atrás cierra el Navegador: {closed_web}")
+    del wf.fake.back_done
+    ctl.a_close = real_close_web  # type: ignore[method-assign]
 
     async def hold(name: str, times: int, gap: float = 0.0) -> list[str]:
         """Un botón mantenido: la tecla repetida sin «soltado» en el medio."""

@@ -26,6 +26,8 @@ ov.res_x, ov.res_y = W, H
 local visible_until = 0
 local scrub_target = nil
 local scrub_timer = nil
+-- tele-cec pregunta esto con Atrás: buscando, deja de buscar; si no, cierra.
+local function scrubbing(on) mp.set_property_native("user-data/tele_cec/scrubbing", on) end
 local thumb_shown = false
 local thumbfast = { width = 0, height = 0, disabled = true, available = false }
 
@@ -186,6 +188,7 @@ local function commit()
     if scrub_target then
         local target = scrub_target
         scrub_target = nil
+        scrubbing(false)
         clear_thumb()
         mp.commandv("seek", tostring(target), "absolute+keyframes")
         show()
@@ -200,6 +203,7 @@ mp.register_script_message("scrub", function(delta)
     local target = base + d
     if dur > 0 then target = math.min(target, math.max(0, dur - 2)) end
     scrub_target = math.max(0, target)
+    scrubbing(true)
     if scrub_timer then scrub_timer:kill() end
     scrub_timer = mp.add_timeout(opts.scrub_delay, commit)
     render()
@@ -215,6 +219,7 @@ end)
 mp.register_script_message("cancel", function()
     if scrub_timer then scrub_timer:kill(); scrub_timer = nil end
     scrub_target = nil
+    scrubbing(false)
     clear_thumb()
     show(1.5)
 end)
@@ -225,6 +230,7 @@ for _, prop in ipairs({"shuffle", "loop-file", "loop-playlist"}) do  -- también
 end
 mp.register_event("file-loaded", function()
     scrub_target = nil
+    scrubbing(false)
     show(opts.show_s + 1)
 end)
 mp.register_event("seek", function()

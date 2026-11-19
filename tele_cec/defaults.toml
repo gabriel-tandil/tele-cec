@@ -209,12 +209,14 @@ NUMBER8 = "type:8"
 NUMBER9 = "type:9"
 CLEAR = "key:Backspace"
 
-[keys.offline]                # nada abierto: OK o Menú abren el menú de actividades
+[keys.offline]                # nada abierto: OK, Menú o Atrás abren el menú de actividades
 SELECT = "menu"
 ENTER = "menu"
 ROOT_MENU = "menu"
 CONTENTS_MENU = "menu"
 SETUP_MENU = "menu"
+EXIT = "menu"
+AN_RETURN = "menu"
 HELP = "help"
 DOT = "help"
 
@@ -242,6 +244,7 @@ NUMBER7 = "menu:pick:7"
 NUMBER8 = "menu:pick:8"
 NUMBER9 = "menu:pick:9"
 HELP = "menu:help"
+DOT = "menu:help"             # el punto (•): la ayuda, como con todo cerrado (muchas TVs no mandan Ayuda)
 F2_RED = "menu:delete"        # en los sitios del Navegador: borrar el resaltado (rojo dos veces)
 
 [keys.tidal]
@@ -272,8 +275,8 @@ NUMBER1 = "music:like"        # 1 = ♥ me gusta (agregar/quitar de favoritos), 
 NUMBER2 = "music:page:inicio"     # páginas de High Tide (la barra de abajo)
 NUMBER3 = "music:page:explorar"
 NUMBER4 = "music:page:coleccion"
-EXIT = ""
-AN_RETURN = ""
+EXIT = "music:back"           # Atrás: la pantalla anterior de High Tide; en la primera, cierra Tidal y vuelve al menú
+AN_RETURN = "music:back"
 
 [keys.tidal_nav]              # las flechas mueven el foco por la interfaz de Tidal y OK aprieta (así arranca)
 # Las flechas van tal cual: el parche que tele-cec le carga a High Tide las lleva al elemento más cercano en esa
@@ -318,7 +321,7 @@ LEFT = "web:nav:left"
 RIGHT = "web:nav:right"
 SELECT = "web:ok"             # un campo de texto: OK entra a escribir (ver [keys.navegador_text])
 ENTER = "web:ok"
-EXIT = "web:back"             # Atrás: la página anterior
+EXIT = "web:back"             # Atrás: la página anterior; en la primera, cierra el Navegador y vuelve al menú
 AN_RETURN = "web:back"
 F1_BLUE = "web:home"          # azul = la página de inicio (los sitios guardados)
 F2_RED = "web:go"             # rojo (o 0) = escribir una dirección o qué buscar
@@ -441,7 +444,7 @@ SUB_PICTURE = "video:subtitles"   # CC = subtítulos
 F1_BLUE = "video:info"        # azul = qué es: el nombre, por dónde va y el número de video
 F2_RED = "video:audio"        # rojo = idioma de audio
 F4_YELLOW = "video:aspect"    # amarillo = proporción de la imagen (16:9, 4:3…)
-EXIT = "video:back"           # Atrás: deja de buscar (sin saltar)
+EXIT = "video:back"           # Atrás: buscando con ◀ ▶, deja de buscar (sin saltar); si no, cierra (como ■)
 AN_RETURN = "video:back"
 
 [keys.musica]                 # Música local (mpv)
@@ -466,7 +469,7 @@ CHANNEL_DOWN = "musica:previous"
 F2_RED = "musica:shuffle"     # rojo = mezclar / volver al orden (como en Tidal)
 F4_YELLOW = "musica:loop"     # amarillo = repetir: toda la lista → este tema → no repetir
 F1_BLUE = "musica:info"       # azul = qué suena: tema, artista, disco y por dónde va
-EXIT = "musica:back"
+EXIT = "musica:back"          # Atrás: buscando, deja de buscar; si no, cierra y vuelve al menú
 AN_RETURN = "musica:back"
 
 [keys.radio]                  # Radio por internet (mpv)
@@ -497,8 +500,8 @@ NUMBER6 = "radio:station:6"
 NUMBER7 = "radio:station:7"
 NUMBER8 = "radio:station:8"
 NUMBER9 = "radio:station:9"
-EXIT = ""
-AN_RETURN = ""
+EXIT = "close:radio"          # Atrás: cerrar y volver al menú (como ■)
+AN_RETURN = "close:radio"
 
 [keys.fotos]                  # Fotos (mpv; o feh con viewer = "feh")
 LEFT = "fotos:previous"
@@ -514,8 +517,8 @@ PLAY = "fotos:media_play_pause"
 PAUSE = "fotos:media_play_pause"
 PAUSE_PLAY_FUNCTION = "fotos:media_play_pause"
 STOP = "close:fotos"          # ■ = cerrar y volver al menú (la música de fondo sigue)
-EXIT = ""
-AN_RETURN = ""
+EXIT = "close:fotos"          # Atrás también (con zoom, primero aleja: ver [keys.fotos_zoom])
+AN_RETURN = "close:fotos"
 F1_BLUE = "fotos:info"        # azul = qué foto es: carpeta, archivo y número; otra vez: dónde se sacó (mapa, si tiene GPS)
 F2_RED = "fotos:rotate"       # rojo = girar la foto
 F4_YELLOW = "fotos:random"    # amarillo = una foto al azar

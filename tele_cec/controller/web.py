@@ -105,8 +105,8 @@ class WebMixin:
         elif cmd == "back":
             w.t9.reset()
             r = await w.js("back")
-            if r.get("done") == "none":
-                await self.toast("Es la primera página · azul = inicio · amarillo = sitios", 2500)
+            if r.get("done") == "none":  # la primera página: no hay a dónde volver, cierra y vuelve al menú
+                await self.a_close(self.current_app() or "navegador")
         elif cmd == "home":
             await w.navigate(w.home_url())
         elif cmd == "reload":

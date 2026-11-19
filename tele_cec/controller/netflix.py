@@ -65,6 +65,10 @@ class NetflixMixin:
             # back() recurre a history.back(), que puede llevar al episodio anterior.
             await self.wake_controls()
         r = await self.js("back")
+        if r.get("done") == "none" and self._ctx in ("browse", "profiles"):
+            # El inicio de Netflix, arriba de todo: no hay a dónde volver, cierra Netflix y vuelve al menú.
+            await self.a_close("netflix")
+            return
         if r.get("key"):
             await self.key(r["key"])
         if r.get("restore"):

@@ -85,7 +85,11 @@ class MediaMixin:
         elif cmd == "previous":
             await v.previous()
         elif cmd == "back":
-            await v.osd("cancel")
+            # Buscando con ◀ ▶: deja de buscar (sin saltar). Si no, Atrás cierra y vuelve al menú, como ■.
+            if await v.scrubbing():
+                await v.osd("cancel")
+            else:
+                await self.a_close(v.id)
         elif cmd == "info":
             text = await v.info()
             log.info("%s: %s", v.name, text.replace("\n", " · "))
@@ -374,7 +378,12 @@ class MediaMixin:
         elif cmd == "shuffle":
             await m.shuffle()
         elif cmd == "back":
-            await m.go("back")
+            # En la primera pantalla de High Tide no hay a dónde volver («no»): cierra Tidal y vuelve al menú.
+            reply = await m.command("back")
+            if reply == "no":
+                await self.a_close("tidal")
+            elif reply is None:  # sin el canal de control del parche: el botón «atrás» de High Tide
+                await m.go("back")
         elif cmd == "my_tracks":
             # En ciclo: Mis canciones → Colección → Inicio → Mis canciones. Con el canal de control del parche,
             # High Tide decide según la pantalla que muestra.

@@ -90,7 +90,7 @@ Si te agrega al grupo `video` para usar `/dev/cec0`, reiniciá la Pi.
 
 Si una tecla no está definida en el contexto actual, se busca en el siguiente: `profiles → browse → global`, `player → global`, `player_menu → browse → global`, `tidal → global`, `videos → global`, `fotos → global`, `fotos_zoom → fotos → global`. Con el menú abierto (`menu`) solo valen las teclas del menú.
 
-**Menú** (en cualquier contexto, también con todo cerrado) abre el [menú de actividades](#menú-de-actividades). Con todo cerrado, **OK** también lo abre. Los colores son de cada app: el 🟢 verde queda libre, porque muchas TVs lo usan para sus propias funciones.
+**Menú** (en cualquier contexto, también con todo cerrado) abre el [menú de actividades](#menú-de-actividades). Con todo cerrado, **OK** y **Atrás** también lo abren. **Atrás** vuelve un paso dentro de cada app y, cuando ya no hay a dónde volver (el inicio de Netflix arriba de todo, la primera pantalla de Tidal, la primera página del Navegador), cierra la app y muestra el menú; en Videos, Música, Radio y Fotos cierra de una, como ■. Los colores son de cada app: el 🟢 verde queda libre, porque muchas TVs lo usan para sus propias funciones.
 
 **Netflix:**
 
@@ -98,7 +98,7 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 |---|---|---|
 | Flechas | Moverse (con resaltado) | ◀ ▶ −/+10 s · ▲ ▼ volumen |
 | OK | Clic (la 1.ª vez solo muestra el resaltado) | Play / pausa |
-| Exit / Return | Volver · cerrar ficha · subir al principio | Salir del reproductor |
+| Exit / Return | Volver · cerrar ficha · subir al principio · arriba de todo en el inicio: cerrar Netflix | Salir del reproductor |
 | CC (subtítulos) | — | Ciclar subtítulos |
 | 🔵 Azul | Ir al inicio | ¿Quién está viendo? (perfiles) |
 | 🔴 Rojo | **Seguir viendo** (retomar lo último) | Ciclar audio |
@@ -115,7 +115,7 @@ Si una tecla no está definida en el contexto actual, se busca en el siguiente: 
 |---|---|---|
 | Flechas | Mover el foco al elemento más cercano en esa dirección | ◀ ▶ −/+10 s · ▲ ▼ volumen |
 | OK | Abrir / elegir (un disco, una playlist, un tema) | Play / pausa |
-| Exit / Return | Atrás en Tidal | — |
+| Exit / Return | Atrás en Tidal (en la primera pantalla: cerrar Tidal) | Igual |
 | Canal − · Canal + | Tema anterior / siguiente | Igual |
 | ▶ · ⏸ · ■ | Play · pausa · pausa | Igual |
 | ⏪ ⏩ | −/+1 minuto | Igual |
@@ -138,7 +138,7 @@ GTK solo mueve el foco con flechas dentro de cada bloque (una fila de portadas, 
 | ■ Stop | Cerrar y volver al menú (Videos se acuerda por dónde ibas) | Cerrar y volver al menú (la música de fondo sigue) |
 | ▲ ▼ | Volumen | ▲ = zoom (ver abajo) · ▼ = cambiar de modo: solo fotos → fotos y videos → solo videos |
 | Canal −/+ | Video o tema anterior / siguiente | Foto anterior / siguiente (también con zoom) |
-| Atrás | Deja de buscar (sin saltar) | — |
+| Atrás | Cerrar y volver al menú, como ■ (buscando con ◀ ▶: deja de buscar, sin saltar) | Cerrar y volver al menú (con zoom: alejar) |
 | CC (subtítulos) | Videos: subtítulos | La fecha en una esquina (prender / apagar) |
 | 🔵 Azul | Qué es: el nombre (en Música, tema, artista y disco), por dónde va y el número | Qué foto es (carpeta, archivo y número, en letra grande); **otra vez**, con el cartel a la vista: dónde se sacó (un mapa, si tiene GPS) |
 | 🔴 Rojo | Videos: idioma de audio · Música: aleatorio (mezclar / volver al orden) | Girar la foto |
@@ -436,7 +436,7 @@ force_h264 = true
 |---|---|---|
 | ▲ ▼ ◀ ▶ | Al enlace o botón más cercano (al llegar al borde, baja la página) | ▲ ▼ recorren las sugerencias del buscador (si las hay; si no, salen del campo) · ◀ ▶ mueven el cursor |
 | OK | Abrir (en un campo de texto: escribir ahí) | Aceptar: buscar / ir (Enter) |
-| Atrás | Página anterior | Salir del campo (cierra «Ir a») |
+| Atrás | Página anterior (en la primera: cerrar el Navegador) | Salir del campo (cierra «Ir a») |
 | 0 | Escribir una dirección o qué buscar | Espacio |
 | 1 – 9 | Ese sitio de la lista | Las letras de cada número (1 = signos) |
 | 🔴 Rojo · 🟢 Verde | Escribir una dirección · recargar | Borrar una letra · borrar todo |
