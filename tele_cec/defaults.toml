@@ -627,7 +627,7 @@ hide_keys = ["FORWARD", "BACKWARD", "PAUSE_PLAY_FUNCTION", "DISPLAY_INFORMATION"
 
 # Menú de actividades.
 [menu]
-items = ["netflix", "youtube", "tidal", "local", "radio", "fotos", "navegador", "juegos", "android"]   # orden; las no instaladas no aparecen. Las de
+items = ["netflix", "youtube", "tidal", "fotos", "local", "radio", "navegador", "juegos", "android"]   # orden; las no instaladas no aparecen. Las de
                                                   # [activities.<id>] se agregan al final si no están acá.
                                                   # Un nombre de [menu.groups] es una «carpeta» con otras adentro.
 columns = 2                   # en dos columnas (sin desplazar): ◀ ▶ cambian de columna. OK abre de una; Videos,
@@ -657,7 +657,7 @@ menu_qr = true                # el menú de actividades de la TV muestra un QR p
 # y se cierra a mano con el botón de arriba; [] = nunca solo.
 remote_apps = ["netflix", "youtube", "tidal", "navegador", "android"]
 fullscreen_prompt = false     # con la pantalla completa prendida (botón ⛶), al abrir la página una cortina pide el toque
-share_max_mb = 100            # Fotos: hasta qué tamaño se baja al celular la foto o el video de la TV (MB; 0 = nada)
+share_max_mb = 150            # Fotos: hasta qué tamaño se baja al celular la foto o el video de la TV (MB; 0 = nada)
 
 [apps.netflix]
 on_reselect = "continue_watching"   # app:netflix con Netflix ya abierto

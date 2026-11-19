@@ -74,7 +74,7 @@ MAX_BODY = 16 * 1024
 STATE_TTL_S = 0.8       # varios celulares mirando: el estado se arma como mucho una vez por este lapso
 OUTPUTS_TTL_S = 6.0     # las salidas de sonido cambian poco (pw-dump y bluetoothctl tardan un poco)
 HEADER = "x-tele-cec"
-SHARE_MAX_MB = 100.0  # Fotos: lo más grande que se baja al celular ([web] share_max_mb)
+SHARE_MAX_MB = 150.0  # Fotos: lo más grande que se baja al celular ([web] share_max_mb)
 CHUNK = 256 * 1024   # un archivo grande se manda de a pedazos (no entero en memoria)
 
 # Teclas que acepta la página (las del control remoto que dibuja).

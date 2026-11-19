@@ -1052,8 +1052,8 @@ async def main() -> int:
                 web.share_max_mb = real_max
             check(server._size_text(100 * 1024 * 1024) == "100 MB" and server._size_text(3554611) == "3,4 MB"
                   and server._size_text(2890234494) == "2,7 GB", "tamaños para leer")
-            check(server.WebRemote(ctl, {}).share_max_mb == 100 and server.WebRemote(ctl, {"share_max_mb": 20}).share_max == 20 * 1024 * 1024,
-                  "el límite: 100 MB si no se dice otra cosa")
+            check(server.WebRemote(ctl, {}).share_max_mb == 150 and server.WebRemote(ctl, {"share_max_mb": 20}).share_max == 20 * 1024 * 1024,
+                  "el límite: 150 MB si no se dice otra cosa")
             fotos_on[0] = False
             _, _, body = await http(port, "GET", "/api/fotos/actual")
             check(not json.loads(body)["ok"], "con Fotos cerrado: no")
