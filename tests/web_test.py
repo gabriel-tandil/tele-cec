@@ -629,6 +629,23 @@ async def main() -> int:
                   f"el control remoto de la página manda {name}")
         ctl.keys[:] = [1, None]
 
+        print("Qué hace cada botón del control (mantener apretado)")
+        from tele_cec import config as config_mod
+        import tempfile as tmp_mod
+        empty_cfg = Path(tmp_mod.mkdtemp()) / "tele-cec.toml"  # solo lo que viene por defecto
+        empty_cfg.write_text("")
+        fake_cfg, ctl.cfg = ctl.cfg, config_mod.load(empty_cfg)
+        for ctx, key, want in (("browse", "NUMBER1", "Mi lista"), ("player", "UP", "olumen"),
+                               ("youtube", "NUMBER1", "Me gusta"), ("browse", "F2_RED", "Seguir viendo")):
+            ctl.ctx = ctx
+            st, _, body = await http(port, "GET", "/api/keyhelp")
+            h = json.loads(body)
+            check(st == 200 and h["ctx"] == ctx and want in h["keys"].get(key, ""),
+                  f"en {ctx}, {key}: {h['keys'].get(key)!r}")
+        check(h["keys"].get("NUMBER7") == "" and set(h["keys"]) == server.KEYS,
+              f"todas las teclas de la página; las que no hacen nada ahí, vacías: {h['keys'].get('NUMBER7')!r}")
+        ctl.cfg, ctl.ctx = fake_cfg, "browse"
+
         _, _, body = await http(port, "POST", "/api/media", {"command": "play-pause", "player": "vlc"},
                                 {"X-Tele-CEC": "1"})
         check(json.loads(body)["ok"] and calls[-1] == ("media", "vlc", "play-pause") and ctl.power.last_activity > 0,

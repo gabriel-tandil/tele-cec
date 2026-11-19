@@ -39,6 +39,7 @@ from ..apps.photos import ALL_MODES
 from ..keys import parse_key
 from ..system import audio, keyboard
 from ..system.procs import LOG_DIR
+from ..ui import help as help_mod
 from . import nowplaying
 from .menu import MenuWeb
 from .music import LocalMusicWeb
@@ -222,6 +223,8 @@ class WebRemote:
                 return _json(await self.state())
             if path == "/api/art":
                 return self._art_file()
+            if path == "/api/keyhelp":
+                return _json(await self.key_help())
             if path == "/api/menu":
                 return _json(await self.menu.items())
             if path == "/api/folders":
@@ -343,6 +346,20 @@ class WebRemote:
         self.ctl.on_release()
         self._state = None
         return {"ok": True}
+
+    async def key_help(self) -> dict[str, Any]:
+        """Qué hace ahora cada tecla del control del celular (lo que muestra la ayuda de la TV en este contexto):
+        el cuadrito que aparece al mantener apretado un botón. "" = no hace nada acá."""
+        try:
+            ctx = await asyncio.wait_for(self.ctl.context(), 3)
+        except (asyncio.TimeoutError, CDPError):
+            ctx = self.ctl._ctx  # la página tarda en contestar: el último contexto conocido
+        cfg = self.ctl.cfg
+        keys = {}
+        for name in sorted(KEYS):
+            found = cfg.action_for(ctx, parse_key(name))
+            keys[name] = help_mod.describe(found[0], ctx, cfg) if found else ""
+        return {"ctx": ctx, "keys": keys}
 
     async def media(self, command: str, player: str, value: Any = None) -> dict[str, Any]:
         tracks = await nowplaying.players()

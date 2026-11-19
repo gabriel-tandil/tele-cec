@@ -191,6 +191,13 @@
   .fab svg.i { width: 28px; height: 28px; }
   body:has(#mini:not([hidden])) .fab { bottom: calc(var(--mini-h) + 24px + env(safe-area-inset-bottom)); }
   .dock button { touch-action: none; }
+  .dock { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  /* mantener apretado un botón del control: qué hace */
+  .rtip { position: fixed; z-index: 9; max-width: min(300px, calc(100vw - 16px)); padding: 8px 12px; border-radius: 12px;
+    background: var(--text); color: var(--bg); font-size: 14px; line-height: 1.3; box-shadow: 0 6px 24px rgba(0,0,0,.6);
+    pointer-events: none; }
+  .rtip[hidden] { display: none; }
+  .rtip b { display: block; font-size: 15px; }
   .rhead { display: flex; align-items: center; gap: 4px; }
   .rhead .lbl { flex: 1; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--faint); padding-left: 4px; }
   .rhead button { height: 34px; min-width: 40px; padding: 0 8px; border-radius: 10px; color: var(--muted); font-weight: 700; font-size: 14px;
@@ -296,13 +303,13 @@
 <div class="dock" id="remote" hidden role="group" aria-label="Control remoto">
   <div class="rhead">
     <span class="lbl">Control remoto</span>
-    <button id="rType" hidden aria-label="Escribir en la TV"><svg class="i"><use href="#i-keyboard"/></svg></button>
-    <button id="rClose" aria-label="Cerrar el control"><svg class="i"><use href="#i-down"/></svg></button>
+    <button id="rType" hidden aria-label="Escribir en la TV" data-tip="Escribir en la TV con el teclado del celular"><svg class="i"><use href="#i-keyboard"/></svg></button>
+    <button id="rClose" aria-label="Cerrar el control" data-tip="Cerrar el control (el botoncito redondo lo vuelve a abrir)"><svg class="i"><use href="#i-down"/></svg></button>
   </div>
   <form class="rtext" id="rText" hidden autocomplete="off">
     <input type="text" id="rTextIn" placeholder="Escribir en la TV" enterkeyhint="send" autocomplete="off" autocapitalize="off">
-    <button type="button" class="rk" data-text-key="BackSpace" aria-label="Borrar una letra"><svg class="i"><use href="#i-bksp"/></svg></button>
-    <button type="button" class="rk" data-text-key="Enter" aria-label="Enter"><svg class="i"><use href="#i-enter"/></svg></button>
+    <button type="button" class="rk" data-text-key="BackSpace" aria-label="Borrar una letra" data-tip="Borrar la última letra en la TV"><svg class="i"><use href="#i-bksp"/></svg></button>
+    <button type="button" class="rk" data-text-key="Enter" aria-label="Enter" data-tip="Enter en la TV (buscar, aceptar)"><svg class="i"><use href="#i-enter"/></svg></button>
   </form>
   <div class="rmid">
     <div class="rside">
@@ -339,6 +346,7 @@
     <button class="rk" data-key="FAST_FORWARD" aria-label="Adelantar"><svg class="i"><use href="#i-ff"/></svg></button>
   </div>
 </div>
+<div class="rtip" id="rtip" hidden role="tooltip"><b></b><span></span></div>
 <div class="toast" id="toast" role="status"></div>
 <div class="fsveil" id="fsveil" hidden><svg class="i"><use href="#i-full"/></svg>Tocá para pantalla completa<span class="sub">Se saca con el botón de arriba a la derecha</span></div>
 
@@ -1757,6 +1765,77 @@ $("rFav").addEventListener("click", async () => {
   const r = await media("like");
   if (r && r.ok) { state.now.liked = !state.now.liked; remoteAuto(); if (player.update) player.update(); }
 });
+// Mantener apretado un botón del control: un cuadrito con qué hace ahora (lo mismo que dice la ayuda de la TV en
+// este contexto). Sin repetición, al soltar no se aprieta; las flechas y Canal ± siguen repitiendo mientras tanto.
+const TIP_NAMES = {CONTENTS_MENU: "Menú", UP: "▲", DOWN: "▼", LEFT: "◀", RIGHT: "▶", SELECT: "OK", EXIT: "Atrás",
+  SUB_PICTURE: "CC", HELP: "?", CHANNEL_UP: "Canal +", CHANNEL_DOWN: "Canal −", NUMBER0: "0", NUMBER1: "♥",
+  F2_RED: "Rojo", F4_YELLOW: "Amarillo", F1_BLUE: "Azul", REWIND: "⏪", PAUSE_PLAY_FUNCTION: "⏯", STOP: "■",
+  FAST_FORWARD: "⏩"};
+const TIP = {timer: 0, hide: 0, btn: null, x: 0, y: 0, eat: false, help: null, at: 0};
+const TIP_MS = 500;
+async function tipHelp() {
+  if (TIP.help && Date.now() - TIP.at < 3000) return TIP.help;
+  const r = await get("/api/keyhelp");
+  if (r && r.keys) { TIP.help = r; TIP.at = Date.now(); return r; }
+  return null;
+}
+function tipKey(btn) { return btn.id === "rFav" ? "NUMBER1" : (btn.dataset.key || ""); }
+function tipPlace(btn) {
+  const t = $("rtip"), r = btn.getBoundingClientRect();
+  t.style.left = Math.max(8, Math.min(innerWidth - t.offsetWidth - 8, r.left + r.width / 2 - t.offsetWidth / 2)) + "px";
+  t.style.top = Math.max(8, r.top - t.offsetHeight - 10) + "px";
+}
+async function tipShow(btn) {
+  TIP.timer = 0;
+  TIP.eat = !btn.dataset.repeat;  // el toque que termina este apretón no aprieta el botón
+  clearTimeout(TIP.hide);
+  const t = $("rtip"), key = tipKey(btn), app = state && state.app && state.app.id;
+  const name = TIP_NAMES[key] || btn.getAttribute("aria-label") || btn.textContent.trim();
+  t.querySelector("b").textContent = name;
+  const d = t.querySelector("span");
+  t.hidden = false;
+  buzz();
+  if (btn.dataset.tip) d.textContent = btn.dataset.tip;
+  else if (btn.id === "rFav" && !FAV_APPS.includes(app)) d.textContent = "Acá no hace nada (sirve en Netflix, YouTube, Tidal y Fotos)";
+  else {
+    d.textContent = "…";
+    tipPlace(btn);
+    const h = await tipHelp();
+    if (TIP.btn !== btn) return;
+    const what = h && h.keys[key] ? h.keys[key].replace(new RegExp("^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*"), "") : "";
+    d.textContent = !h ? "No pude preguntarle a la TV" : (what || "Acá no hace nada");
+  }
+  tipPlace(btn);
+}
+function tipCancel() { clearTimeout(TIP.timer); TIP.timer = 0; }
+function tipEnd() {
+  tipCancel();
+  clearTimeout(TIP.hide);
+  if ($("rtip").hidden) { TIP.btn = null; return; }
+  TIP.hide = setTimeout(() => { $("rtip").hidden = true; TIP.btn = null; }, 1500);
+}
+$("remote").addEventListener("pointerdown", (ev) => {
+  TIP.eat = false;
+  tipCancel();
+  clearTimeout(TIP.hide);
+  $("rtip").hidden = true;
+  const btn = ev.target.closest("button");
+  TIP.btn = btn;
+  if (!btn) return;
+  TIP.x = ev.clientX; TIP.y = ev.clientY;
+  TIP.timer = setTimeout(() => tipShow(btn), TIP_MS);
+}, true);
+$("remote").addEventListener("pointermove", (ev) => {
+  if (TIP.timer && Math.hypot(ev.clientX - TIP.x, ev.clientY - TIP.y) > 14) tipCancel();  // se corrió el dedo
+});
+["pointerup", "pointercancel"].forEach((e) => $("remote").addEventListener(e, tipEnd));
+$("remote").addEventListener("click", (ev) => {
+  if (!TIP.eat) return;
+  TIP.eat = false;
+  ev.preventDefault();
+  ev.stopPropagation();
+}, true);
+$("remote").addEventListener("contextmenu", (ev) => ev.preventDefault());  // el menú del celular al mantener apretado
 $("rbtn").addEventListener("click", () => { buzz(); remoteShow(!REMOTE.open); });
 $("rClose").addEventListener("click", () => { buzz(); remoteShow(false); });
 // Escribir con el teclado del celular (en la actividad que lo permite: Netflix, YouTube, el Navegador, Tidal…).
