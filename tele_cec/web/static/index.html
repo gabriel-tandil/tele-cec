@@ -201,18 +201,18 @@
   .rk { background: rgba(255,255,255,0.08); border-radius: 12px; font-weight: 700; display: grid; place-items: center; color: var(--text); }
   .rk:active, .rk.down { background: var(--sel-bg); color: var(--sel-text); }
   .rk svg.i { width: 26px; height: 26px; }
-  .rmid { display: grid; grid-template-columns: 52px minmax(0, 1fr) 52px; gap: 10px; align-items: stretch; }
+  .rmid { display: grid; grid-template-columns: minmax(0, 1fr) 60px; gap: 10px; align-items: stretch; }
   .rside { display: grid; grid-template-rows: 1fr auto 1fr; gap: 4px; }
   .rside .rk { font-size: 22px; }
   .rside span { text-align: center; font-size: 11px; font-weight: 700; color: var(--faint); letter-spacing: .5px; }
-  .pad { display: grid; grid-template-columns: repeat(3, minmax(0, 58px)); grid-auto-rows: 50px; gap: 5px; justify-content: center; }
+  .pad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 52px; gap: 6px; }
   .pad .sm { font-size: 13px; color: var(--muted); background: rgba(255,255,255,0.04); }
-  .pad .ok { border-radius: 50%; background: var(--badge); font-size: 16px; }
+  .pad .ok { border-radius: 26px; background: var(--badge); font-size: 17px; }
   .pad .ar svg.i { width: 30px; height: 30px; }
   .ar.up svg { transform: rotate(180deg); }
   .ar.left svg { transform: rotate(90deg); }
   .ar.right svg { transform: rotate(-90deg); }
-  .numpad { grid-auto-rows: 37px; }
+  .numpad { grid-auto-rows: 38px; }
   .numpad .rk { font-size: 18px; }
   .rcolors { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .rcolors .rk { height: 30px; }
@@ -305,11 +305,6 @@
     <button type="button" class="rk" data-text-key="Enter" aria-label="Enter"><svg class="i"><use href="#i-enter"/></svg></button>
   </form>
   <div class="rmid">
-    <div class="rside">
-      <button class="rk" data-key="CHANNEL_UP" data-repeat="1" aria-label="Canal más">+</button>
-      <span>CANAL</span>
-      <button class="rk" data-key="CHANNEL_DOWN" data-repeat="1" aria-label="Canal menos">−</button>
-    </div>
     <div class="pad" id="rPad">
       <button class="rk sm" data-key="CONTENTS_MENU">Menú</button>
       <button class="rk ar up" data-key="UP" data-repeat="1" aria-label="Arriba"><svg class="i"><use href="#i-down"/></svg></button>
@@ -330,9 +325,9 @@
       <button class="rk" data-key="SELECT">OK</button>
     </div>
     <div class="rside">
-      <button class="rk" data-volume="+" data-repeat="1" aria-label="Subir el volumen">+</button>
-      <span>VOL</span>
-      <button class="rk" data-volume="-" data-repeat="1" aria-label="Bajar el volumen">−</button>
+      <button class="rk" data-key="CHANNEL_UP" data-repeat="1" aria-label="Canal más">+</button>
+      <span>CANAL</span>
+      <button class="rk" data-key="CHANNEL_DOWN" data-repeat="1" aria-label="Canal menos">−</button>
     </div>
   </div>
   <div class="rcolors">
@@ -1725,8 +1720,7 @@ function remoteAuto() {
   else if (!state.remote && REMOTE.open && REMOTE.auto) remoteShow(false);
 }
 function remoteKey(key) { return post("/api/key", {key}, true); }
-function remoteVolume(change) { return post("/api/volume", {change}, true); }
-// Mantener apretada una flecha (o Canal, o el volumen) repite, como en el control.
+// Mantener apretada una flecha (o Canal) repite, como en el control.
 let rHold = null;
 function remoteRelease() {
   if (!rHold) return;
@@ -1737,7 +1731,6 @@ function remoteRelease() {
 function remotePress(btn) {
   buzz();
   if (btn.dataset.key) remoteKey(btn.dataset.key);
-  else if (btn.dataset.volume) remoteVolume(btn.dataset.volume);
 }
 $("remote").addEventListener("pointerdown", (ev) => {
   const btn = ev.target.closest("button[data-repeat]");
