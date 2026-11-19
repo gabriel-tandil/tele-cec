@@ -120,16 +120,20 @@
 #tcn-cursor{position:fixed;left:0;top:0;width:44px;height:44px;margin:-3px 0 0 -5px;pointer-events:none;z-index:2147483647;
   filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))}
 #tcn-cursor svg{width:100%;height:100%;display:block}
+#tcn-ring,#tcn-toast,#tcn-hint,#tcn-cursor{display:block!important;visibility:visible!important}
+#tcn-go{visibility:visible!important}
 #tcn-cursor .hand{display:none}
 #tcn-cursor.link .arrow{display:none}
 #tcn-cursor.link .hand{display:block}`;
     (document.head || document.documentElement).appendChild(st);
   }
 
+  // Lo de tele-cec (marco, flecha, avisos) cuelga de <html>, no de <body>: hay páginas que al abrir algo ocultan todo
+  // lo demás del body (el visor de fotos de Wikipedia: «body.mw-mmv-lightbox-open > * {display: none}»).
   function overlay(id) {
     let e = document.getElementById(id);
     if (!e) { e = document.createElement('div'); e.id = id; }
-    const host = document.fullscreenElement || document.body || document.documentElement;
+    const host = document.fullscreenElement || document.documentElement;
     if (e.parentNode !== host) host.appendChild(e);
     return e;
   }
