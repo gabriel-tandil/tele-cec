@@ -236,6 +236,25 @@ key_echo = true
         s = await st()
         check("modal-close" in s["log"], "Atrás cierra el modal (Escape)")
         check(s["cur"] == focused_before, f"y el resaltado vuelve a la tarjeta: {s['cur']!r}")
+
+        print("♥ Mi lista (1)")
+        mylist = "JSON.parse(sessionStorage.getItem('mylist') || '[]')"
+        card_href = await ctl.cdp.evaluate("(document.querySelector('.nfx-focused') || document.body).getAttribute('href') || ''")
+        card_id = card_href.split("=")[-1].split("/")[-1]
+        n0 = len((await st())["log"])
+        await press("NUMBER1", pause=0.8)
+        s = await st()
+        lg = s["log"][n0:]
+        check(card_id in await ctl.cdp.evaluate(mylist), f"1 sobre una tarjeta la agrega a Mi lista ({card_id}): {await ctl.cdp.evaluate(mylist)}")
+        check(any(x.startswith("modal-open") for x in lg) and "modal-close" in lg,
+              f"(abre la ficha, aprieta «Mi lista» y la cierra): {[x for x in lg if x.startswith('modal')]}")
+        check(s["cur"] == focused_before, f"y el resaltado queda en la tarjeta: {s['cur']!r}")
+        await press("SELECT", pause=0.8)
+        await press("NUMBER1", pause=0.6)
+        check(card_id not in await ctl.cdp.evaluate(mylist), "1 con la ficha abierta la saca de Mi lista")
+        check(await ctl.cdp.evaluate("!!document.querySelector('[role=dialog][aria-modal=true]:not([style*=none])')"),
+              "y la ficha sigue abierta (no la había abierto ♥)")
+        await press("EXIT", pause=0.6)
         await press("RIGHT")
         s = await st()
         check(s["cur"] is not None and s["cur"] != focused_before and s["cur"].split()[0] == focused_before.split()[0],
@@ -340,6 +359,12 @@ key_echo = true
         await ctl.cdp.evaluate("delete window.netflix")
         await press("RIGHT", pause=0.3)
         check((await st())["log"][-1] == "key:ArrowRight:trusted", "sin la API interna usa la tecla de Netflix (fallback)")
+        watching = (await st())["path"].split("/")[-1]
+        await press("NUMBER1", pause=0.3)
+        check(watching in await ctl.cdp.evaluate(mylist),
+              f"1 viendo un video lo agrega a Mi lista (con la ficha en un marco invisible): {await ctl.cdp.evaluate(mylist)}")
+        check(not await ctl.cdp.evaluate("!!document.getElementById('nfx-mylist')"), "y el marco ya no está")
+        check((await st())["path"].startswith("/watch/"), "sin salir del video")
         await asyncio.sleep(2.0)  # controles ocultos: Atrás igual tiene que usar «volver», no el historial
         await press("EXIT", pause=1.2)
         s = await st()

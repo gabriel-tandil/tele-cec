@@ -18,10 +18,12 @@ REPEATABLE = {"nav", "seek", "volume", "key", "type", "music", "video", "musica"
 # Y algunas del Navegador (no todas: OK mantenido no tiene que abrir el enlace varias veces).
 REPEATABLE_PREFIXES = ("web:nav:", "web:scroll:", "web:key:", "web:mouse:up", "web:mouse:down", "web:mouse:left",
                        "web:mouse:right")
+# Pero estas no, aunque sean de esas apps: mantener ♥ apretado no tiene que poner y sacar el me gusta.
+ONCE = {"music:like", "fotos:favorite", "yt:like"}
 # Una repetición (botón mantenido) que esperó más que esto en la cola ya no se ejecuta.
 STALE_REPEAT_S = 0.35
 # Acciones largas: se ejecutan en segundo plano y cualquier otra tecla las cancela.
-LONG = {"continue_watching", "profiles", "profile", "home", "my_list", "launch", "macro", "wait", "reload", "app"}
+LONG = {"continue_watching", "profiles", "profile", "home", "my_list", "my_list_toggle", "launch", "macro", "wait", "reload", "app"}
 # Acciones con argumento que también tardan (se reconocen por el texto completo).
 LONG_FULL = {"music:my_tracks"}
 PLAY_ACTIONS = {"play", "play_pause"}
@@ -41,7 +43,7 @@ BUSY_TEXT = {
     "smart_skip": "Un momento…",
 }
 BUSY_DEFAULT = "Un momento…"
-QUIET = REPEATABLE | {"none", "toast", "wait", "nav_mode", "mute", "subtitles", "audio", "pause", "app", "menu", "help", "web", "close"}
+QUIET = REPEATABLE | {"none", "toast", "my_list_toggle", "wait", "nav_mode", "mute", "subtitles", "audio", "pause", "app", "menu", "help", "web", "close"}
 # Acciones que no necesitan el navegador.
 OFFLINE_OK = {"launch", "wait", "none", "macro", "app", "music", "menu", "video", "musica", "radio", "fotos", "toast", "help", "yt", "android", "juegos", "web", "close"}
 
@@ -231,7 +233,8 @@ class CoreMixin:
         if not held:
             self._release_works = self._releases > self._releases_mark
             self._releases_mark = self._releases
-        repeatable = isinstance(action, str) and (name in REPEATABLE or action.strip().startswith(REPEATABLE_PREFIXES))
+        repeatable = (isinstance(action, str) and action.strip() not in ONCE
+                      and (name in REPEATABLE or action.strip().startswith(REPEATABLE_PREFIXES)))
         if held and not repeatable:
             log.debug("Tecla %s mantenida: ignorada", label)
             return

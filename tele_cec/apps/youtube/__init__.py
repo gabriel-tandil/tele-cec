@@ -7,13 +7,15 @@ Usa el mismo navegador que Netflix (browser.engine: Firefox por defecto, o Chrom
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import urllib.parse
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
+from ...system import keyboard
 from ...system.mpris import Mpris
 from ...system.procs import find_pids, graphical_env
 from ..base import ProcActivity
@@ -57,6 +59,20 @@ STEP_JS = """((dir) => {
   fn.call(p);
   return JSON.stringify({ok: true});
 })(%d)"""
+
+
+# ♥: el botón «me gusta» de los controles del reproductor (probado con YouTube para TV en Chromium: aparece la
+# primera vez que se muestran los controles y después queda, oculto y midiendo 0; aria-pressed dice si ya está). Responde a un clic «real»
+# (por el canal de control), no a element.click().
+LIKE_JS = """(() => {
+  if (!/\\/watch/.test(location.hash)) return JSON.stringify({error: 'nowatch'});
+  const b = document.querySelector('ytlr-like-button-renderer yt-button-container, ytlr-like-button-renderer [aria-pressed]');
+  if (!b) return JSON.stringify({error: 'nobutton'});
+  const r = b.getBoundingClientRect();
+  const shown = r.width > 0 && r.height > 0 && getComputedStyle(b).visibility !== 'hidden';
+  return JSON.stringify({shown, x: r.left + r.width / 2, y: r.top + r.height / 2,
+                         pressed: b.getAttribute('aria-pressed') === 'true'});
+})()"""
 
 
 class NotConnected(Exception):
@@ -224,6 +240,12 @@ class YouTubeActivity(ProcActivity):
     async def js(self, expression: str, timeout: float = 8.0) -> Any:
         """Evalúa una expresión en la página de YouTube con una sesión de control corta: se abre, se usa y se
         cierra (Firefox admite una sola sesión; así nunca queda tomada). NotConnected si no hay canal."""
+        async with self._session() as page:
+            return await page.evaluate(expression, timeout)
+
+    @contextlib.asynccontextmanager
+    async def _session(self) -> AsyncIterator[Any]:
+        """Una sesión de control corta con la página (ver js)."""
         if not self.debug_port:
             raise NotConnected("debug_port = 0")
         async with self._js_lock:
@@ -234,9 +256,58 @@ class YouTubeActivity(ProcActivity):
             if page is None:
                 raise NotConnected(f"nada escuchando en el puerto {self.debug_port}")
             try:
-                return await page.evaluate(expression, timeout)
+                yield page
             finally:
                 await page.close()
+
+    async def like(self) -> str:
+        """♥: me gusta en el video que se está viendo (otra vez: sacarlo). Devuelve el aviso para la pantalla."""
+        async def state(page: Any) -> dict:
+            raw = await page.evaluate(LIKE_JS)
+            try:
+                return json.loads(raw) if isinstance(raw, str) else dict(raw or {})
+            except (ValueError, TypeError):
+                return {"error": "?"}
+        try:
+            async with self._session() as page:
+                r = await state(page)
+                if r.get("error") == "nowatch":
+                    log.info("YouTube: ♥ sin video (%s)", r)
+                    return "♥ en YouTube: con un video puesto"
+                if not r.get("shown"):
+                    # Con los controles ocultos el botón no se ve (y antes de mostrarlos por primera vez, ni
+                    # existe): una flecha los muestra, sin hacer nada más.
+                    await keyboard.wtype_key("Down")
+                    for _ in range(6):
+                        await asyncio.sleep(0.3)
+                        r = await state(page)
+                        if r.get("shown"):
+                            break
+                if not r.get("shown"):
+                    log.info("YouTube: ♥ no pude mostrar los controles (%s)", r)
+                    return "No pude mostrar el botón «me gusta»"
+                was = bool(r.get("pressed"))
+                await page.mouse_click(float(r["x"]), float(r["y"]))
+                now = was
+                for _ in range(8):
+                    await asyncio.sleep(0.25)
+                    st = await state(page)
+                    if st.get("error"):
+                        break
+                    now = bool(st.get("pressed"))
+                    if now != was:
+                        break
+        except NotConnected as exc:
+            log.info("YouTube: sin canal de control para ♥ (%s)", exc)
+            return "Para ♥, cerrá YouTube y abrilo de nuevo"
+        except (cdp.CDPError, OSError, asyncio.TimeoutError, KeyError, ValueError) as exc:
+            log.warning("YouTube: no pude poner me gusta: %s", exc)
+            return "No pude poner «me gusta»"
+        log.info("YouTube: me gusta %s → %s", was, now)
+        if now == was:
+            # Sin cuenta, YouTube muestra «Agregá tu cuenta de Google» en vez de marcarlo.
+            return "No cambió «me gusta» (¿YouTube tiene la sesión iniciada?)"
+        return "♥ Me gusta" if now else "Sin «me gusta»"
 
     async def step(self, direction: int) -> bool:
         """Canal ±: el video siguiente (1) o el anterior (-1). Por el reproductor; si no hay canal, por MPRIS."""

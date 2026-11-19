@@ -120,8 +120,8 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #  Fotos: fotos:next  fotos:previous  fotos:pause  fotos:rotate  fotos:random  fotos:info  fotos:filename  fotos:mode
 #    fotos:date (la fecha en una esquina)  fotos:favorite (guardar en Favoritas, o sacarla)
 #    fotos:zoom_in  fotos:zoom_out  fotos:fit (sin zoom)  fotos:scroll:left|right|up|down
-#  Netflix: my_list (Mi lista)   Tidal: music:lyrics (letras)   Videos: video:aspect (proporción)
-#  YouTube: yt:key:<Tecla> (Up, Down, Left, Right, Return, Escape)  yt:play_pause|play|pause  yt:seek:+10|-10
+#  Netflix: my_list (Mi lista)  my_list_toggle (♥ agregar o quitar)   Tidal: music:lyrics (letras)   Videos: video:aspect (proporción)
+#  YouTube: yt:key:<Tecla> (Up, Down, Left, Right, Return, Escape)  yt:play_pause|play|pause  yt:seek:+10|-10  yt:like
 #  Android: android:key:<Tecla> (a la ventana de scrcpy: Up, Down, Left, Right, Return, 0-9, BackSpace)
 #    android:back|home|apps|notifications  android:play_pause|play|pause|stop|next|previous|fast_forward|rewind
 #    android:keyevent:<N> (cualquier KEYCODE de Android, por adb)
@@ -149,6 +149,7 @@ RIGHT = "nav:right"
 SELECT = "ok"
 ENTER = "ok"
 NUMBER0 = "profiles"          # "¿Quién está viendo?"
+NUMBER1 = "my_list_toggle"    # 1 = ♥ agregar o quitar de Mi lista el título resaltado (o el de la ficha abierta)
 F2_RED = "continue_watching"  # rojo = retomar lo último de «Seguir viendo»
 F4_YELLOW = "my_list"         # amarillo = Mi lista
 F1_BLUE = "home"              # azul = el inicio de Netflix
@@ -187,6 +188,7 @@ PAUSE = "pause"
 PAUSE_PLAY_FUNCTION = "play_pause"
 FORWARD = "smart_skip"
 NUMBER0 = "nav_mode"          # fuerza navegación con flechas dentro del reproductor (otra vez = volver)
+NUMBER1 = "my_list_toggle"    # 1 = ♥ agregar o quitar de Mi lista lo que se está viendo (la serie, no el episodio)
 STOP = "back"                 # ■ = salir del video (vuelve a la lista)
 
 [keys.player_menu]
@@ -313,6 +315,7 @@ CHANNEL_DOWN = "yt:previous"
 FORWARD = ""
 F1_BLUE = "yt:home"           # azul = el inicio de YouTube
 SUB_PICTURE = "yt:subtitles"  # CC = prender o apagar los subtítulos
+NUMBER1 = "yt:like"           # 1 = ♥ me gusta en el video que se está viendo (otra vez: sacarlo)
 
 [keys.navegador]              # Navegador: las flechas van al enlace o botón más cercano (con un marco), OK lo abre
 UP = "web:nav:up"

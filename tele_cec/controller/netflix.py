@@ -215,6 +215,70 @@ class NetflixMixin:
         await self.busy("Abriendo Mi lista…", until="page", nav=True)
         await self.navigate(self.cfg.netflix.get("my_list_url") or "https://www.netflix.com/browse/my-list")
 
+    async def a_my_list_toggle(self, arg: str) -> None:
+        """♥ (1): agrega o quita de Mi lista el título resaltado, el de la ficha abierta o el que se está viendo."""
+        r = await self.js("myList")
+        if r.get("none"):
+            await self.toast("No encontré «Mi lista» en la ficha" if r.get("modal")
+                             else "Elegí un título con las flechas", 2000)
+            return
+        title = str(r.get("title") or "")
+        if r.get("frame"):
+            await self._my_list_frame(str(r.get("id") or ""), title)
+            return
+        opened = False
+        if r.get("open"):
+            # Una tarjeta de la fila: se abre su ficha, que es la que tiene el botón.
+            await self.apply_click(r)
+            opened = True
+            deadline = time.monotonic() + 5
+            while True:
+                await asyncio.sleep(0.3)
+                r = await self.js("myList")
+                if r.get("modal") and not r.get("none"):
+                    break
+                if time.monotonic() > deadline:
+                    log.warning("Mi lista: la ficha de «%s» no mostró el botón", title or "?")
+                    await self.toast("No encontré «Mi lista» en la ficha", 2000)
+                    return
+            if r.get("frame"):
+                await self._my_list_frame(str(r.get("id") or ""), title)
+                return
+        was = bool(r.get("inList"))
+        await self.apply_click(r)
+        now = was
+        for _ in range(8):  # Netflix cambia el botón enseguida (antes de que conteste el servidor)
+            await asyncio.sleep(0.25)
+            st = await self.js("myListState")
+            if st.get("none"):
+                break
+            now = bool(st.get("inList"))
+            if now != was:
+                break
+        await self._my_list_done(title, now, changed=now != was)
+        if opened:
+            await self.key("Escape")
+            await self.js("restore", 800)
+
+    async def _my_list_frame(self, video_id: str, title: str) -> None:
+        """En el reproductor (o una tarjeta que lleva directo al video): la ficha en un marco invisible."""
+        await self.toast("Mi lista…", 6000)
+        r = await self.js("myListFrame", video_id, timeout=30)
+        log.info("Mi lista (marco invisible, título %s): %s", video_id or "?", r)
+        if r.get("done"):
+            await self._my_list_done(title, bool(r.get("inList")), changed=not r.get("unchanged"))
+        else:
+            await self.toast("No pude cambiar Mi lista desde acá: probá desde la ficha", 2500)
+
+    async def _my_list_done(self, title: str, in_list: bool, changed: bool) -> None:
+        if not changed:
+            await self.toast("No pude cambiar Mi lista", 2000)
+            return
+        name = f"«{title}» " if title and len(title) <= 40 else ""
+        log.info("Mi lista: %s%s", name, "agregado" if in_list else "quitado")
+        await self.toast(f"♥ {name}en Mi lista" if in_list else f"{name}fuera de Mi lista" if name
+                         else "Fuera de Mi lista", 2000)
+
     async def a_home(self, arg: str) -> None:
         await self.busy("Cargando el inicio…", until="page", nav=True)
         await self.navigate(self.cfg.browser.get("start_url"))

@@ -78,6 +78,10 @@ DEFAULT_SELECTORS: dict[str, Any] = {
     "row_prev": '.handlePrev, [data-uia="slider-prev"], [data-uia="carousel-hawkins-left-button"], button[aria-label*="previous" i], button[aria-label*="anterior" i]',
     "row_header": '.rowHeader, .row-header, .rowTitle, h2',
     "card": '.title-card a, .title-card-container a, .slider-item a, [data-uia="title-card"] a, a[data-uia="standard-card"], a[data-uia="progress-card"]',
+    # El botón «Mi lista» de la ficha (♥ / 1 lo aprieta): «Agregar a Mi lista» o «Quitar de Mi lista».
+    "my_list": '[data-uia*="my-list"], [data-uia*="mylist" i], button[aria-label*="mi lista" i], '
+               'button[aria-label*="my list" i], [role="button"][aria-label*="mi lista" i], '
+               '[role="button"][aria-label*="my list" i]',
     # Elementos que Netflix anima por JavaScript cuadro a cuadro (Framer Motion escribe transform y opacity en
     # el estilo del elemento en cada cuadro: el CSS de animaciones no lo alcanza). Con reduce_effects se les
     # fija transform/opacity con !important, que le gana a ese estilo: la ficha aparece de una vez.

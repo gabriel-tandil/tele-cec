@@ -319,18 +319,29 @@
     });
     app.appendChild(h(`<footer class="member-footer"><a href="/help">Centro de ayuda</a><a href="/terms">Términos</a></footer>`));
   }
+  // /title/<id>: el inicio con la ficha de ese título abierta (lo que carga el marco invisible de ♥ en el reproductor).
+  if (path.startsWith('/title/')) openModal('Título ' + path.split('/')[2], path.split('/')[2]);
 
   // ============================================================ ficha (igual en los dos diseños, salvo episodios y URL)
+  function inList(wid) { return JSON.parse(sessionStorage.getItem('mylist') || '[]').includes(String(wid)); }
   function openModal(name, wid) {
     const episodes = [1, 2, 3, 4, 5, 6].map((i) => (NEW
       ? `<div class="titleCard--container" data-uia="titleCard--container" tabindex="0" role="button">Episodio ${i}</div>`
       : `<button data-uia="episode-${i}">Episodio ${i}</button>`)).join('');
     const m = h(`<div class="previewModal--container detail-modal" role="dialog" aria-modal="true" tabindex="-1"${NEW ? ' data-uia="modal-motion-container-DETAIL_MODAL"' : ''}><h1>${name}</h1>
       <a href="/watch/${wid}" data-uia="play-button"><button tabindex="-1">▶ Reproducir</button></a>
-      <button data-uia="add-to-my-list">+ Mi lista</button>${NEW ? '<button data-uia="thumbs-rate-button" aria-label="Voto">👍</button>' : ''}
+      <button data-uia="add-to-my-list" aria-label="${inList(wid) ? 'Quitar de Mi lista' : 'Agregar a Mi lista'}">+ Mi lista</button>${NEW ? '<button data-uia="thumbs-rate-button" aria-label="Voto">👍</button>' : ''}
       ${NEW ? '<span data-uia="previewModal-closebtn" role="button" tabindex="0" aria-label="close">✕</span>' : '<button data-uia="previewModal-closebtn" aria-label="cerrar">✕</button>'}
       <div class="episodes"${NEW ? ' data-uia="episode-selector"' : ''}>${episodes}</div></div>`);
     document.body.appendChild(m); log('modal-open:' + name);
+    // Mi lista: el botón cambia de rótulo, como en el sitio (los títulos quedan en sessionStorage «mylist»).
+    const add = m.querySelector('[data-uia="add-to-my-list"]');
+    add.addEventListener('click', () => {
+      const list = JSON.parse(sessionStorage.getItem('mylist') || '[]');
+      const on = !list.includes(String(wid));
+      sessionStorage.setItem('mylist', JSON.stringify(on ? [...list, String(wid)] : list.filter((x) => x !== String(wid))));
+      add.setAttribute('aria-label', on ? 'Quitar de Mi lista' : 'Agregar a Mi lista');
+    });
     const close = () => {
       m.remove(); document.removeEventListener('keydown', onKey); log('modal-close');
       if (NEW) history.replaceState(null, '', '/browse');

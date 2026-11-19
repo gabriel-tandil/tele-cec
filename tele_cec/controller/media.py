@@ -120,7 +120,7 @@ class MediaMixin:
 
     async def a_yt(self, arg: str) -> None:
         """YouTube para TV: yt:key:<Tecla> (flechas, Return, Escape: la interfaz las entiende de fábrica),
-        yt:play_pause|play|pause (MPRIS), yt:next|previous (Canal ±), yt:seek:+10|-10, yt:subtitles (por el canal de control de la página)."""
+        yt:play_pause|play|pause (MPRIS), yt:next|previous (Canal ±), yt:seek:+10|-10, yt:subtitles y yt:like (♥, por el canal de control de la página)."""
         y = self.activities.get("youtube")
         if not isinstance(y, activities_mod.YouTubeActivity) or not y.running():
             log.info("YouTube no está abierto: no ejecuto yt:%s", arg)
@@ -132,6 +132,8 @@ class MediaMixin:
                 await keyboard.wtype_key(rest)
         elif cmd in ("subtitles", "cc"):
             await self.toast(await y.toggle_subtitles(), 2500)
+        elif cmd == "like":
+            await self.toast(await y.like(), 2500)
         elif cmd in mpris:
             await y.mpris.ctl(mpris[cmd])
         elif cmd == "home":

@@ -1683,6 +1683,8 @@ fsVeil();
 // cierra con ⌄; solo, al elegir en la TV una
 // actividad que se maneja con flechas ([web] remote_apps: Netflix, YouTube, Tidal…). Si se cierra a mano, no vuelve
 // a abrirse solo hasta que cambie la actividad; y si se abrió solo, se cierra solo al pasar a otra que no lo usa.
+// ♥: me gusta en Tidal y YouTube, Favoritas en Fotos, Mi lista en Netflix (las dos últimas, como el 1 del control).
+const FAV_APPS = ["tidal", "fotos", "netflix", "youtube"];
 const REMOTE = {open: false, auto: false, app: undefined};
 function remoteSize() {
   const h = REMOTE.open ? $("remote").offsetHeight + 8 : 0, fab = REMOTE.open ? 0 : 66;
@@ -1706,7 +1708,7 @@ function remoteAuto() {
   const app = (state.app && state.app.id) || "";
   // ♥: «Me gusta» del tema en Tidal, o la foto a Favoritas (como el 1 del control, que en otras apps es otra cosa).
   const fav = $("rFav"), liked = app === "tidal" && !!(state.now && state.now.tidal && state.now.liked);
-  fav.classList.toggle("off", app !== "tidal" && app !== "fotos");  // en las demás no hace nada: apagado
+  fav.classList.toggle("off", !FAV_APPS.includes(app));  // en las demás no hace nada: apagado
   fav.classList.toggle("on", liked);
   setIcon(fav, liked ? "heart" : "heart-o");
   if (app === REMOTE.app) return;
@@ -1749,7 +1751,8 @@ $("rFav").addEventListener("click", async () => {
   buzz();
   const app = state && state.app && state.app.id;
   if (app === "fotos") { await post("/api/fotos/favorite", {}); return; }
-  if (app !== "tidal") { toast("♥ es para Tidal (me gusta) y Fotos (Favoritas)"); return; }
+  if (app === "netflix" || app === "youtube") { remoteKey("NUMBER1"); return; }
+  if (app !== "tidal") { toast("♥ es para Netflix (Mi lista), YouTube y Tidal (me gusta) y Fotos (Favoritas)"); return; }
   if (!(state && state.now && state.now.tidal)) { toast("No está sonando nada en Tidal"); return; }
   const r = await media("like");
   if (r && r.ok) { state.now.liked = !state.now.liked; remoteAuto(); if (player.update) player.update(); }

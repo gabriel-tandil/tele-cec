@@ -525,6 +525,14 @@ async def main() -> int:
           "por defecto, la tecla Menú con el menú abierto es menu:back")
     out = await press("EXIT")
     check(out == ["ov:hide"] and await ctl.context() == "offline", f"Atrás cierra el menú sin abrir nada: {out}")
+    check(ctl.cfg.action_for("browse", parse_key("NUMBER1"))[0] == "my_list_toggle"
+          and ctl.cfg.action_for("player", parse_key("NUMBER1"))[0] == "my_list_toggle"
+          and ctl.cfg.action_for("player_menu", parse_key("NUMBER1"))[0] == "my_list_toggle",
+          "Netflix: 1 = ♥ Mi lista en el inicio, en una ficha y viendo un video")
+    check(ctl.cfg.action_for("profiles", parse_key("NUMBER1"))[0] == "profile:1"
+          and ctl.cfg.action_for("text", parse_key("NUMBER1"))[0] == "type:1",
+          "pero en los perfiles sigue eligiendo el 1, y escribiendo escribe el 1")
+    check(ctl.cfg.action_for("youtube", parse_key("NUMBER1"))[0] == "yt:like", "YouTube: 1 = ♥ me gusta")
     check(ctl.cfg.action_for("menu", parse_key("DOT")) == ("menu:help", "menu"),
           "con el menú abierto, el punto (•) abre la ayuda (muchas TVs no mandan la tecla Ayuda)")
     check(ctl.cfg.action_for("offline", parse_key("EXIT")) == ("menu", "offline"),
