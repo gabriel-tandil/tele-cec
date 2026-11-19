@@ -988,6 +988,47 @@ async def main() -> int:
             check(r["ok"] and not r["added"] and r["count"] == 0, f"otra vez: la saca: {r}")
             st, _, _ = await http(port, "POST", "/api/fotos/favorite", {})
             check(st == 403, "sin el encabezado propio, no (como todo lo que cambia algo)")
+
+            print("Fotos: bajar al celular la foto que se ve")
+            import tempfile as tmp_dl
+            import urllib.parse
+            sub = tmp_r / "Viaje ñandú"
+            sub.mkdir(exist_ok=True)
+            pic = sub / "Cumpleaños 1.jpg"
+            pic.write_bytes(b"\xff\xd8foto")
+            (sub / "notas.txt").write_text("no")
+            outside = Path(tmp_dl.mkdtemp()) / "otra.jpg"
+            outside.write_bytes(b"\xff\xd8ajena")
+            shown = [str(pic)]
+
+            async def shown_info():
+                return {"path": shown[0], "index": 3, "total": 9}
+            fotos.photo_info = shown_info  # type: ignore[method-assign]
+            _, _, body = await http(port, "GET", "/api/fotos/actual")
+            r = json.loads(body)
+            check(r["ok"] and r["name"] == "Cumpleaños 1.jpg" and r["size"] == 6 and r["pos"] == "Foto 3 de 9"
+                  and r["where"].endswith("Viaje ñandú") and r["url"].startswith("/api/fotos/archivo?p="),
+                  f"la foto que se ve, con dónde está y su dirección fija: {r}")
+            st, hd, data = await http(port, "GET", r["url"])
+            check(st == 200 and data == b"\xff\xd8foto" and hd["Content-Type"] == "image/jpeg"
+                  and hd["Content-Disposition"].startswith("inline;"), f"la foto para mostrar: {st} {hd}")
+            st, hd, data = await http(port, "GET", r["url"] + "&dl=1")
+            check(st == 200 and data == b"\xff\xd8foto" and hd["Content-Disposition"]
+                  == "attachment; filename=\"Cumplea_os 1.jpg\"; filename*=UTF-8''Cumplea%C3%B1os%201.jpg",
+                  f"para bajar: con el nombre (también con eñe): {hd}")
+            shown[0] = str(pic)  # la presentación pasó a otra: la dirección sigue siendo la de esa foto
+            for bad, what in ((outside, "fuera de las carpetas de Fotos"), (sub / "notas.txt", "algo que no es una imagen"),
+                              (Path(f"{sub}/../../{outside.parent.name}/otra.jpg"), "saliendo con ..")):
+                st, _, data = await http(port, "GET", "/api/fotos/archivo?" + urllib.parse.urlencode({"p": str(bad)}))
+                check(st == 404 and data != b"\xff\xd8ajena", f"{what}: no ({st})")
+            shown[0] = str(sub / "video.mp4")
+            (sub / "video.mp4").write_bytes(b"v")
+            _, _, body = await http(port, "GET", "/api/fotos/actual")
+            r = json.loads(body)
+            check(not r["ok"] and "video" in r["error"], f"un video no: {r}")
+            fotos_on[0] = False
+            _, _, body = await http(port, "GET", "/api/fotos/actual")
+            check(not json.loads(body)["ok"], "con Fotos cerrado: no")
         finally:
             photos_mod.DATA_DIR = real_data_dir
             if real_fotos_act is None:

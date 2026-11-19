@@ -73,6 +73,7 @@ MAX_BODY = 16 * 1024
 STATE_TTL_S = 0.8       # varios celulares mirando: el estado se arma como mucho una vez por este lapso
 OUTPUTS_TTL_S = 6.0     # las salidas de sonido cambian poco (pw-dump y bluetoothctl tardan un poco)
 HEADER = "x-tele-cec"
+PHOTO_MAX_BYTES = 40 * 1024 * 1024  # Fotos: lo más grande que se baja al celular (una foto, no un video)
 
 # Teclas que acepta la página (las del control remoto que dibuja).
 KEYS = {"UP", "DOWN", "LEFT", "RIGHT", "SELECT", "EXIT", "CONTENTS_MENU", "HELP", "F1_BLUE", "F2_RED", "F3_GREEN",
@@ -258,6 +259,10 @@ class WebRemote:
                 return _json(await self.music.search(query))
             if path == "/api/music/queue":
                 return _json(await self.music.queue())
+            if path == "/api/fotos/actual":  # la foto que se ve en la TV, para bajarla al celular
+                return _json(await self.photo_current())
+            if path == "/api/fotos/archivo":  # el archivo de una foto (solo imágenes de las carpetas de Fotos)
+                return await self.photo_file(query)
             if path == "/api/music/art":
                 art = await self.music.art(query)
                 if art is None:
@@ -529,6 +534,65 @@ class WebRemote:
         return {"ok": True, "added": added, "count": n,
                 "message": f"♥ Guardada en Favoritas ({n})" if added else f"Sacada de Favoritas ({n})"}
 
+    # ---------------------------------------------------------------- Fotos: bajar al celular
+    async def photo_current(self) -> dict[str, Any]:
+        """La foto que se ve en la TV, fija: la página la muestra y la baja por su ruta aunque la presentación siga."""
+        act = self.ctl.activities.get("fotos")
+        if not isinstance(act, activities_mod.PhotosActivity) or not act.running():
+            return {"ok": False, "error": "Fotos no está abierto en la TV"}
+        info = await act.photo_info()
+        if not info:
+            return {"ok": False, "error": "No sé qué foto se está viendo"}
+        if Path(info["path"]).suffix.lower() in activities_mod.VIDEO_EXT:
+            return {"ok": False, "error": "Es un video: al celular se bajan solo fotos"}
+        found = await asyncio.to_thread(self._photo_path, act, info["path"])
+        if found is None:
+            return {"ok": False, "error": "Esa foto no se puede bajar"}
+        path, size = found
+        lines = act.describe_photo(info).split("\n")
+        log.info("Celular: muestro para bajar %s", path.name)
+        return {"ok": True, "name": path.name, "where": lines[0], "pos": lines[2] if len(lines) > 2 else "",
+                "size": size, "url": "/api/fotos/archivo?" + urllib.parse.urlencode({"p": str(path)})}
+
+    @staticmethod
+    def _photo_path(act: Any, raw: str) -> tuple[Path, int] | None:
+        """La foto (y su tamaño) si es una imagen dentro de una de las carpetas de Fotos; si no, None."""
+        try:
+            path = Path(raw).resolve()
+            if path.suffix.lower() not in activities_mod.IMAGE_EXT or not path.is_file():
+                return None
+            size = path.stat().st_size
+            roots = [Path(r).resolve() for r in act.roots()]
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if not any(path.is_relative_to(r) for r in roots) or not 0 < size <= PHOTO_MAX_BYTES:
+            return None
+        return path, size
+
+    async def photo_file(self, query: dict[str, str]) -> tuple[int, bytes, str, dict[str, str]]:
+        act = self.ctl.activities.get("fotos")
+        if not isinstance(act, activities_mod.PhotosActivity):
+            return 404, b"", "text/plain", {}
+
+        def read() -> tuple[Path, bytes] | None:
+            found = self._photo_path(act, query.get("p", ""))
+            if found is None:
+                return None
+            try:
+                return found[0], found[0].read_bytes()
+            except OSError:
+                return None
+        got = await asyncio.to_thread(read)  # puede estar en la otra Pi (Samba): que no frene lo demás
+        if got is None:
+            return 404, "Esa foto no se puede bajar\n".encode(), "text/plain; charset=utf-8", {}
+        path, data = got
+        ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        if query.get("dl"):
+            log.info("Celular: bajo %s (%d KB)", path.name, len(data) // 1024)
+        return 200, data, ctype, {"Content-Disposition": _disposition("attachment" if query.get("dl") else "inline",
+                                                                      path.name),
+                                  "Cache-Control": "private, max-age=3600"}
+
     # ---------------------------------------------------------------- escribir
     async def type_text(self, text: str, key: str) -> dict[str, Any]:
         """Escribir en la TV (buscar en Netflix o YouTube…): el texto y, si se pide, Enter o Borrar."""
@@ -796,6 +860,12 @@ class WebRemote:
 
 
 # ---------------------------------------------------------------- HTTP mínimo
+def _disposition(kind: str, name: str) -> str:
+    """Content-Disposition con el nombre del archivo: en ASCII para los navegadores viejos y en UTF-8 (RFC 6266)."""
+    plain = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;' else "_" for c in name) or "foto"
+    return f"{kind}; filename=\"{plain}\"; filename*=UTF-8''{urllib.parse.quote(name, safe='')}"
+
+
 def _icon(name: str) -> tuple[int, bytes, str, dict[str, str]]:
     """Los íconos del menú (tele_cec/ui/icons/*.svg), solo por nombre: nada de rutas."""
     if not re.match(r"^[a-z0-9_-]{1,40}\.svg$", name):
