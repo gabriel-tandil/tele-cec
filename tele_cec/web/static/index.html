@@ -211,7 +211,8 @@
   .rcolors .rk:active { filter: brightness(1.35); }
   .rcolors .c-red { background: var(--red); } .rcolors .c-green { background: var(--green); }
   .rcolors .c-yellow { background: var(--yellow); } .rcolors .c-blue { background: var(--blue); }
-  .rmedia { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .rmedia { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+  .rmedia .fav.on { color: var(--heart); }
   .rmedia .rk { height: 44px; }
   .rtext { display: grid; grid-template-columns: minmax(0, 1fr) 46px 46px; gap: 6px; }
   .rtext .rk { height: 46px; }
@@ -337,6 +338,7 @@
     <button class="rk" data-key="PAUSE_PLAY_FUNCTION" aria-label="Play o pausa"><svg class="i"><use href="#i-pp"/></svg></button>
     <button class="rk" data-key="STOP" aria-label="Stop"><svg class="i"><use href="#i-stop"/></svg></button>
     <button class="rk" data-key="FAST_FORWARD" aria-label="Adelantar"><svg class="i"><use href="#i-ff"/></svg></button>
+    <button class="rk fav" id="rFav" hidden aria-label="Favoritos"><svg class="i"><use href="#i-heart-o"/></svg></button>
   </div>
 </div>
 <div class="toast" id="toast" role="status"></div>
@@ -1700,6 +1702,11 @@ function remoteAuto() {
   $("rType").hidden = !state.text;
   if (!state.text && !$("rText").hidden) remoteText(false);
   const app = (state.app && state.app.id) || "";
+  // ♥: «Me gusta» del tema en Tidal, o la foto a Favoritas (como el 1 del control, que en otras apps es otra cosa).
+  const fav = $("rFav"), liked = app === "tidal" && !!(state.now && state.now.tidal && state.now.liked);
+  fav.hidden = app !== "tidal" && app !== "fotos";
+  fav.classList.toggle("on", liked);
+  setIcon(fav, liked ? "heart" : "heart-o");
   if (app === REMOTE.app) return;
   REMOTE.app = app;
   if (state.remote && !REMOTE.open) remoteShow(true, true);
@@ -1737,6 +1744,14 @@ $("remote").addEventListener("click", (ev) => {
   const btn = ev.target.closest("button[data-key]");
   if (!btn || btn.dataset.repeat) return;  // las que repiten ya salieron al apoyar el dedo
   remotePress(btn);
+});
+$("rFav").addEventListener("click", async () => {
+  buzz();
+  const app = state && state.app && state.app.id;
+  if (app === "fotos") { await post("/api/fotos/favorite", {}); return; }
+  if (!(state && state.now && state.now.tidal)) { toast("No está sonando nada en Tidal"); return; }
+  const r = await media("like");
+  if (r && r.ok) { state.now.liked = !state.now.liked; remoteAuto(); if (player.update) player.update(); }
 });
 $("rbtn").addEventListener("click", () => { buzz(); remoteShow(!REMOTE.open); });
 $("rClose").addEventListener("click", () => { buzz(); remoteShow(false); });
