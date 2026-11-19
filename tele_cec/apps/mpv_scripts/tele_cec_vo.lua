@@ -10,6 +10,14 @@
 --
 -- Además, la placa de video de la Pi no acepta imágenes de más de 4096 píxeles de lado: una foto de 4160 × 3120
 -- (13 MP) salía negra (o azul). Esas se achican antes de dibujarlas (a 4096 del lado mayor).
+--
+-- Saltos de brillo con subtítulos: con dmabuf-wayland, mientras no hay nada encima del video, labwc le pasa el cuadro
+-- directo a la placa de video (que lo convierte a colores con la fórmula de BT.601), y cuando aparece un subtítulo
+-- o la barra lo compone con la GPU (que lo convierte distinto: medido, en una escena oscura, ~1,5 niveles más claro).
+-- Cada subtítulo cambiaba de un camino al otro, y en películas oscuras se veía como un salto de brillo. mpv 0.40 no
+-- le dice a labwc qué colores tiene el video (wp_color_representation), así que no hay forma de que coincidan: en
+-- cambio, mientras se ve un video se deja un píxel casi transparente en el OSD y labwc compone siempre (keep_composed).
+-- Medido en una Pi 400: sin cuadros perdidos de más (también con 1080p60).
 
 local mp = require "mp"
 local msg = require "mp.msg"
@@ -20,6 +28,7 @@ local opts = {
     image_vo = "gpu",
     hw_codecs = "h264,hevc",
     max_texture = 4096,            -- lado máximo de una imagen para la placa de video (0 = no achicar)
+    keep_composed = true,          -- videos por hardware: siempre compuestos por labwc (sin saltos de brillo)
 }
 require("mp.options").read_options(opts, "tele_cec_vo")
 
@@ -29,6 +38,18 @@ for c in opts.hw_codecs:gmatch("[^,%s]+") do hw[c] = true end
 local current_vo = mp.get_property("options/vo", "")
 
 local scaled = false   -- si el filtro para achicar lo puso este script (para sacarlo después)
+
+-- un píxel en la esquina con alfa FE (casi transparente del todo): obliga a labwc a componer el video
+local veil = mp.create_osd_overlay("ass-events")
+veil.res_x, veil.res_y, veil.z = 1920, 1080, -1000
+veil.data = "{\\an7\\pos(0,0)\\bord0\\shad0\\1c&H000000&\\1a&HFE&\\p1}m 0 0 l 1 0 1 1 0 1{\\p0}"
+local veil_on = false
+
+local function set_veil(on)
+    if on == veil_on then return end
+    if on then veil:update() else veil:remove() end
+    veil_on = on
+end
 
 -- "video" (va por hardware), "image" (foto, tapa o video que se decodifica con el procesador) o nil (solo sonido);
 -- y la pista de imagen (para ver su tamaño)
@@ -68,6 +89,7 @@ mp.add_hook("on_preloaded", 50, function()
     if mp.get_property("options/hwdec") ~= hwdec then
         mp.set_property("options/hwdec", hwdec)
     end
+    set_veil(opts.keep_composed and vo == opts.video_vo)
     if current_vo ~= vo then
         msg.info(string.format("salida de video: %s (%s)", vo, k))
         mp.set_property("options/vo", vo)
