@@ -802,7 +802,7 @@ function folderPage(app, path, atDefault) {
             ]);
           }
           else openApp(app, f.mode ? {folder: f.path, mode: f.mode} : {folder: f.path});
-        }, f.kind === "file" && f.resume ? {badges: false, moreText: "✕", more: () => {  // quitar de «Seguir viendo»
+        }, f.kind === "file" && f.direct ? {badges: false, moreText: "✕", more: () => {  // quitar de «Seguir viendo» (solo en esa fila)
           const name = f.name.replace(/^Seguir viendo: /, "");
           optionsSheet(name, `Quedó en ${fmt(f.resume)}`, [
             ["✕ Quitar de «Seguir viendo»", async () => {

@@ -38,7 +38,7 @@ PAGES: list[tuple[str, str]] = [
 NOTES: dict[str, list[tuple[str, str]]] = {
     "videos": [
         ("Menú › rojo ×2", "Quitar de «Seguir viendo» el video resaltado"),
-        ("", "Sin abrirlo · en el celular: la ✕ de la fila"),
+        ("", "Sin abrirlo · en el celular: la ✕ de «Seguir viendo»"),
     ],
     "juegos": [
         ("Joystick", "Lo usa el juego (Start, Back = moneda…)"),
