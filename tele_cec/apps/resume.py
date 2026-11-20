@@ -60,12 +60,14 @@ def positions(watch_dir: Path | None = None) -> dict[str, float]:
     return {path: secs for _f, path, secs, _t in _read(watch_dir or WATCH_DIR) if secs >= MIN_SECONDS}
 
 
-def recent(limit: int = 3, watch_dir: Path | None = None, within: Path | None = None) -> list[tuple[str, float]]:
+def recent(limit: int | None = 3, watch_dir: Path | None = None,
+           within: Path | list[Path] | None = None) -> list[tuple[str, float]]:
     """Los últimos que quedaron a la mitad (el más reciente primero) y que siguen estando; con `within`, solo los
-    de esa carpeta (y sus subcarpetas)."""
+    de esa carpeta o esas carpetas (y sus subcarpetas)."""
+    dirs = None if within is None else [within] if isinstance(within, Path) else list(within)
     found = sorted(_read(watch_dir or WATCH_DIR), key=lambda x: -x[3])
     return [(path, secs) for _f, path, secs, _t in found
-            if secs >= MIN_SECONDS and (within is None or Path(path).is_relative_to(within))
+            if secs >= MIN_SECONDS and (dirs is None or any(Path(path).is_relative_to(d) for d in dirs))
             and os.path.isfile(path)][:limit]
 
 

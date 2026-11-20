@@ -1304,7 +1304,37 @@ async def main() -> int:
             seguir = [i["path"] for i in its2 if i["name"].startswith("Seguir viendo")]
             check(seguir == [peli] and resume_mod.recent(3, within=otra.parent) == [(str(otra), 900.0)],
                   f"«Seguir viendo» solo con los de la carpeta actual (y sus subcarpetas): {seguir}")
-            (wdir / "CCC").unlink()
+            # La lista de carpetas: todos los que quedaron a la mitad (el más reciente primero) y, abajo de cada
+            # carpeta, qué se está viendo adentro.
+            sub = otra.parent / "Temporada 1"
+            sub.mkdir()
+            (sub / "cap.01.mkv").write_bytes(b"")
+            (wdir / "DDD").write_text(f"# {sub / 'cap.01.mkv'}\nstart=600\n")
+            os.utime(wdir / "DDD", (time.time() + 120, time.time() + 120))
+            ctl.activities["videos"] = activities_mod.VideosActivity({"folders": [str(vdir), str(otra.parent)]})
+            _, roots_its = ctl._picker_entries("videos", None)
+            seguir = [i["path"] for i in roots_its if i["kind"] == "file"]
+            dirs = {i["path"]: i["sub"] for i in roots_its if i["kind"] == "dir"}
+            check(seguir == [str(sub / "cap.01.mkv"), str(otra), peli] and roots_its[3]["kind"] == "dir"
+                  and all(i.get("direct") for i in roots_its[:3]),
+                  f"en la lista de carpetas, todos los «Seguir viendo», del más reciente al más viejo: {seguir}")
+            check(dirs[str(otra.parent)] == "viendo: La película (quedó en 10:00) y 1 más"
+                  and dirs[str(vdir)].endswith("viendo: La película (quedó en 1:06:40)"),
+                  f"abajo de cada carpeta, qué se está viendo adentro: {dirs}")
+            _, its3 = ctl._picker_entries("videos", otra.parent)
+            check(next(i["sub"] for i in its3 if i["kind"] == "dir") == "viendo: La película (quedó en 10:00)",
+                  f"también en las subcarpetas: {[(i['name'], i['sub']) for i in its3]}")
+            ctl._menu_open, ctl._menu_mode, ctl._picker_act, ctl._picker_path = True, "folders", "videos", sub
+            ctl._picker_stack = [(otra.parent, 0), (None, 0)][::-1]
+            await ctl._picker_back()
+            check(ctl._menu_items[ctl._menu_sel]["path"] == str(sub),
+                  f"◀ vuelve parado en la carpeta de la que se viene: {ctl._menu_items[ctl._menu_sel]}")
+            await ctl._picker_back()
+            check(ctl._menu_items[ctl._menu_sel]["path"] == str(otra.parent),
+                  f"también en la lista de carpetas (con los «Seguir viendo» arriba): {ctl._menu_items[ctl._menu_sel]}")
+            ctl.activities["videos"] = activities_mod.VideosActivity({"folders": [str(vdir)]})
+            for n in ("CCC", "DDD"):
+                (wdir / n).unlink()
             ctl._menu_open, ctl._menu_mode, ctl._picker_act, ctl._picker_path = True, "folders", "videos", vdir
             ctl._menu_items, ctl._menu_sel, ctl._picker_stack = its, 1, []
             await ctl._picker_choose(1)

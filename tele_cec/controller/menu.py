@@ -178,22 +178,59 @@ def _favorites_item(act: activities_mod.PhotosActivity, path: Path) -> dict:
     return item
 
 
-def _continue_items(act: activities_mod.MediaActivity, folder: Path) -> list[dict]:
-    """«Seguir viendo»: los últimos videos de esta carpeta (o sus subcarpetas) que quedaron a la mitad, arriba de todo."""
-    found = [(Path(p), s) for p, s in resume.recent(3, within=folder) if Path(p).suffix.lower() in act.exts]
+CONTINUE_MAX_ROOT = 20  # «Seguir viendo» en la lista de carpetas: todos (hasta este tope), del más reciente al más viejo
+CONTINUE_MAX_FOLDER = 3
+
+
+def _resume_on(act: activities_mod.MediaActivity) -> bool:
+    """Videos con «Seguir viendo» ([apps.videos] resume)."""
+    return isinstance(act, activities_mod.VideosActivity) and not act.command and bool(act.cfg.get("resume", True))
+
+
+def _in_progress(act: activities_mod.MediaActivity, within: list[Path]) -> list[tuple[Path, float, dict]]:
+    """Los videos de esas carpetas (o sus subcarpetas) que quedaron a la mitad, el más reciente primero, sin los que
+    quedaron en los créditos: (ruta, segundos, datos del video)."""
+    found = [(Path(p), s) for p, s in resume.recent(None, within=within) if Path(p).suffix.lower() in act.exts]
     if not found:
         return []
     infos = fileinfo.video_info().get([str(p) for p, _s in found], budget=0.5)
     out = []
     for p, secs in found:
         meta = infos.get(str(p)) or {}
-        if resume.finished(secs, meta.get("dur")):
-            continue
+        if not resume.finished(secs, meta.get("dur")):
+            out.append((p, secs, meta))
+    return out
+
+
+def _continue_items(act: activities_mod.MediaActivity, found: list[tuple[Path, float, dict]],
+                    limit: int = CONTINUE_MAX_FOLDER) -> list[dict]:
+    """«Seguir viendo»: los últimos que quedaron a la mitad (arriba de todo; siguen directo, sin preguntar)."""
+    out = []
+    for p, secs, meta in found[:limit]:
         of = f" de {fileinfo.duration_text(meta['dur'])}" if meta.get("dur") else ""
         out.append({"kind": "file", "path": str(p), "name": f"Seguir viendo: {meta.get('title') or p.stem}",
                     "icon": "media-playback-start", "sub": f"quedó en {fileinfo.duration_text(secs)}{of}",
                     "enabled": True, "current": False, "resume": secs, "direct": True})
     return out
+
+
+def _watching_text(folder: Path, found: list[tuple[Path, float, dict]]) -> str:
+    """Abajo de una carpeta: qué se está viendo adentro («viendo: La película (quedó en 1:06:40) y 2 más»)."""
+    here = [(p, s, m) for p, s, m in found if p.is_relative_to(folder)]
+    if not here:
+        return ""
+    p, secs, meta = here[0]
+    more = f" y {len(here) - 1} más" if len(here) > 1 else ""
+    return f"viendo: {meta.get('title') or p.stem} (quedó en {fileinfo.duration_text(secs)}){more}"
+
+
+def _add_watching(items: list[dict], found: list[tuple[Path, float, dict]]) -> None:
+    """A cada carpeta de la lista le agrega qué se está viendo adentro."""
+    for it in items:
+        if it["kind"] == "dir":
+            text = _watching_text(Path(it["path"]), found)
+            if text:
+                it["sub"] = " · ".join(x for x in (it["sub"], text) if x)
 
 
 class MenuMixin:
@@ -771,6 +808,10 @@ class MenuMixin:
                               "enabled": True, "current": False})
             if isinstance(act, activities_mod.PhotosActivity) and not act.command and items:
                 items.append(_favorites_item(act, Path(items[0]["path"])))  # las guardadas con 1
+            if _resume_on(act) and items:
+                found = _in_progress(act, act.roots())
+                _add_watching(items, found)
+                items[:0] = _continue_items(act, found, CONTINUE_MAX_ROOT)  # todos, el más reciente primero
             return f"{act.name} · elegir carpeta", items
         pick = act.pick_files and not act.command  # los archivos, para elegir uno (Videos, Música)
         subfolders = activities_mod.list_subfolders(path)
@@ -824,16 +865,22 @@ class MenuMixin:
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})
         if pick:
-            if isinstance(act, activities_mod.VideosActivity) and act.cfg.get("resume", True):
-                items[:0] = _continue_items(act, path)  # solo los de esta carpeta
+            if _resume_on(act):
+                found = _in_progress(act, [path])  # solo los de esta carpeta (y sus subcarpetas)
+                _add_watching(items, found)
+                items[:0] = _continue_items(act, found)
             items += _file_items(path, act, files[:500])
             if not items:
                 items.append({"kind": "empty", "path": str(path), "name": act.empty_in_folder, "icon": "folder",
                               "sub": "Conectá un pendrive o elegí otra carpeta", "enabled": False, "current": False})
         return f"{act.name} · {self._picker_title(act, path)}", items
 
-    async def _picker_show(self, ident: str, path: Path | None, sel: int = 0) -> bool:
+    async def _picker_show(self, ident: str, path: Path | None, sel: int = 0, came_from: Path | None = None) -> bool:
+        """Muestra una carpeta del selector, parado en `sel` o, si está, en la subcarpeta de la que se vuelve (las filas
+        «Seguir viendo» de arriba pueden haber cambiado y correr las demás)."""
         title, items = await asyncio.to_thread(self._picker_entries, ident, path)
+        if came_from is not None:
+            sel = next((i for i, it in enumerate(items) if it["kind"] == "dir" and it["path"] == str(came_from)), sel)
         if not items:
             await self.overlay.toast("No hay carpetas configuradas (ver [apps.videos] / [apps.fotos] folders)", 3000)
             self._menu_restart_timer()
@@ -872,8 +919,9 @@ class MenuMixin:
 
     async def _picker_back(self) -> None:
         if self._picker_stack:
+            came_from = self._picker_path
             path, sel = self._picker_stack.pop()
-            await self._picker_show(self._picker_act, path, sel)
+            await self._picker_show(self._picker_act, path, sel, came_from)
         else:
             await self.menu_open(self._menu_act_sel)
 
