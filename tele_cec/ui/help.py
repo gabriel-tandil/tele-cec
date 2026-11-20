@@ -36,6 +36,10 @@ PAGES: list[tuple[str, str]] = [
 ]
 # Filas que no son teclas, al final de la página de una app (cómo se usa la primera vez). Una línea cada una.
 NOTES: dict[str, list[tuple[str, str]]] = {
+    "videos": [
+        ("Menú › rojo ×2", "Quitar de «Seguir viendo» el video resaltado"),
+        ("", "Sin abrirlo · en el celular: la ✕ de la fila"),
+    ],
     "juegos": [
         ("Joystick", "Lo usa el juego (Start, Back = moneda…)"),
         ("Botón del medio", "Nuestro menú, con el juego en pausa"),
@@ -92,7 +96,7 @@ SUB_ACTIONS = {
              "back": "Volver · cerrar", "close": "Cerrar", "left": "Otra columna · carpeta de arriba",
              "right": "Botón de la fila (Carpetas…) · otra columna", "pick": "Elegir directo", "help": "Ayuda",
              "options": "Opciones: carpetas, radios, conectar, juegos",
-             "delete": "Sitios del Navegador: borrar el resaltado (dos veces)"},
+             "delete": "Borrar el resaltado (dos veces): un sitio o un «Seguir viendo»"},
     "music": {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "stop": "Pausa", "next": "Tema siguiente",
               "previous": "Tema anterior", "like": "Me gusta (favoritos)", "shuffle": "Aleatorio",
               "my_tracks": "Mis canciones → Colección → Inicio (en ciclo)", "lyrics": "Letras (otra vez: volver)", "back": "Atrás en la app (en la primera pantalla: cerrar)",

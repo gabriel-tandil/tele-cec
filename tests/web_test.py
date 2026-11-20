@@ -1338,6 +1338,12 @@ async def main() -> int:
         _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": peli, "restart": True}, H)
         check(json.loads(body)["ok"] and not (resume_mod.WATCH_DIR / "X1").exists(),
               "«Desde el principio» desde el celular: se borra dónde quedó")
+        (resume_mod.WATCH_DIR / "X2").write_text(f"# {peli}\nstart=754\n")
+        _, _, body = await http(port, "POST", "/api/videos/forget", {"path": peli}, H)
+        _, _, other = await http(port, "POST", "/api/videos/forget", {"path": "/etc/passwd"}, H)
+        check(json.loads(body) == {"ok": True, "gone": True} and not (resume_mod.WATCH_DIR / "X2").exists()
+              and json.loads(other)["ok"] is False,
+              f"✕ en el celular: lo quita de «Seguir viendo» sin abrirlo (solo de las carpetas de Videos): {body} {other}")
         (tmp / "Vacaciones" / "nota.txt").write_text("")
         (outside / "otra.mp4").write_bytes(b"x")
         for bad in (tmp / "Vacaciones" / "nota.txt", outside / "otra.mp4"):

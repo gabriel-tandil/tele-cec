@@ -233,6 +233,7 @@ class FakeOverlay:
     async def show(self, items, selected, title="Actividades", hint="", numbers=True, columns=1, chip=False,
                    qr=None) -> bool:
         self.items, self.sel, self.visible, self.columns, self.qr = items, selected, True, columns, qr
+        self.hint, self.title = hint, title
         self.busy_on = False
         self.log.append(f"ov:show:{selected}")
         return True
@@ -1354,6 +1355,33 @@ async def main() -> int:
             await ctl._macro_task
             check(switched[-1]["folder"] == peli and (wdir / "AAA").exists() and len(switched) == 2,
                   "«Seguir viendo» abre directo (mpv sigue desde ahí)")
+            # Rojo dos veces: quitar de «Seguir viendo» sin abrirlo (en su fila, la de arriba o el «¿Seguir desde…?»).
+            ctl._menu_open = True
+            await ctl._picker_show("videos", vdir, 0)
+            check("rojo quitar" in ctl.overlay.hint, f"la línea de abajo avisa del rojo: {ctl.overlay.hint}")
+            await ctl.a_menu("delete")
+            check((wdir / "AAA").exists() and "Rojo otra vez" in ctl.overlay.hint,
+                  f"rojo una vez: pregunta: {ctl.overlay.hint}")
+            await ctl.a_menu("down")
+            await ctl.a_menu("delete")
+            check((wdir / "AAA").exists() and "Rojo otra vez" in ctl.overlay.hint,
+                  "otra tecla en el medio: no se quita (vuelve a preguntar)")
+            await ctl.a_menu("delete")
+            check(not (wdir / "AAA").exists() and len(switched) == 2
+                  and not ctl._menu_items[0]["name"].startswith("Seguir viendo")
+                  and ctl._menu_items[ctl._menu_sel]["path"] == peli and "Quité" in ctl.overlay.hint,
+                  f"rojo otra vez: lo quita sin abrirlo, parado en el mismo video: {ctl.overlay.hint}")
+            await ctl.a_menu("delete")
+            check("no quedó a la mitad" in ctl.overlay.hint, f"sobre uno que no quedó a la mitad: {ctl.overlay.hint}")
+            (wdir / "AAA").write_text(f"# {peli}\nstart=4000.5\n")
+            await ctl._picker_show("videos", vdir, 1)
+            await ctl._picker_choose(1)  # «¿Seguir desde…?»
+            await ctl.a_menu("delete")
+            await ctl.a_menu("delete")
+            check(not (wdir / "AAA").exists() and ctl._menu_items[ctl._menu_sel]["path"] == peli
+                  and ctl._menu_items[ctl._menu_sel]["kind"] == "file" and len(switched) == 2,
+                  "también desde el «¿Seguir desde…?»: lo quita y vuelve a la carpeta")
+            (wdir / "AAA").write_text(f"# {peli}\nstart=4000.5\n")
             (wdir / "AAA").write_text(f"# {peli}\nstart=5300\n")
             _, its = ctl._picker_entries("videos", vdir)
             check(not its[0]["name"].startswith("Seguir") and "quedó" not in its[0]["sub"],

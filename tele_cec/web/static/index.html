@@ -447,7 +447,7 @@ function row(item, onTap, opts = {}) {
     c.addEventListener("click", (ev) => { ev.stopPropagation(); buzz(); opts.onChip(); });
     r.appendChild(c);
   } else if (opts.more) {
-    const m = el("span", "more", "⋯");
+    const m = el("span", "more", opts.moreText || "⋯");
     m.addEventListener("click", (ev) => { ev.stopPropagation(); opts.more(); });
     r.appendChild(m);
   } else r.appendChild(el("span"));
@@ -802,7 +802,15 @@ function folderPage(app, path, atDefault) {
             ]);
           }
           else openApp(app, f.mode ? {folder: f.path, mode: f.mode} : {folder: f.path});
-        }, {badges: false}));
+        }, f.kind === "file" && f.resume ? {badges: false, moreText: "✕", more: () => {  // quitar de «Seguir viendo»
+          const name = f.name.replace(/^Seguir viendo: /, "");
+          optionsSheet(name, `Quedó en ${fmt(f.resume)}`, [
+            ["✕ Quitar de «Seguir viendo»", async () => {
+              const x = await post("/api/videos/forget", {path: f.path});
+              if (x && x.ok) { toast(`Quité «${name}» de «Seguir viendo»`); render(); }
+            }],
+          ]);
+        }} : {badges: false}));
       });
       body.replaceChildren(rows);
     },

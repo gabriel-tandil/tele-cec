@@ -247,7 +247,7 @@ NUMBER8 = "menu:pick:8"
 NUMBER9 = "menu:pick:9"
 HELP = "menu:help"
 DOT = "menu:help"             # el punto (•): la ayuda, como con todo cerrado (muchas TVs no mandan Ayuda)
-F2_RED = "menu:delete"        # en los sitios del Navegador: borrar el resaltado (rojo dos veces)
+F2_RED = "menu:delete"        # rojo dos veces: borrar el resaltado (un sitio del Navegador o un «Seguir viendo» de Videos)
 
 [keys.tidal]
 SELECT = "music:play_pause"

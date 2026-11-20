@@ -302,6 +302,8 @@ class WebRemote:
             return _json(await self.open_app(data))
         if path == "/api/close":
             return _json(await self.menu.close(str(data.get("id") or "")))
+        if path == "/api/videos/forget":  # quitar un video de «Seguir viendo» (sin abrirlo)
+            return _json(await self.forget_video(str(data.get("path") or "")))
         if path == "/api/fotos/favorite":  # la foto que se ve en la TV: guardarla en Favoritas (o sacarla)
             return _json(await self.photo_favorite())
         if path == "/api/search":
@@ -766,6 +768,13 @@ class WebRemote:
         if ident == "netflix":
             names.append(self.ctl.browser.engine)
         return names
+
+    async def forget_video(self, path: str) -> dict[str, Any]:
+        """Quita un video de «Seguir viendo»: borra dónde quedó (como «Desde el principio», pero sin abrirlo)."""
+        if not path or self.menu.allowed_folder("videos", path) is None:
+            return {"ok": False, "error": "ese video no está entre las carpetas de Videos"}
+        gone = await asyncio.to_thread(resume.forget, path)
+        return {"ok": True, "gone": gone}
 
     def _app_of(self, player: str) -> str:
         """De qué app es un reproductor (para mostrarlo: «Tidal», «Videos»…)."""

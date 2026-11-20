@@ -24,6 +24,7 @@ log = logging.getLogger("tele")
 MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Radio, Juegos, Android) · Atrás cerrar · • ayuda"
 GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar · • (punto) ayuda, en cualquier app"
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
+RESUME_HINT = FOLDER_HINT + " · rojo quitar de «Seguir viendo»"  # si hay alguno a la mitad en la lista
 SOUND_HINT = "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida · Atrás volver"
 RADIO_HINT = "▲ ▼ o 1 – 9 elegir · OK escuchar · Atrás volver"
 SITES_HINT = "▲ ▼ o 1 – 9 elegir · OK abrir · rojo borrar · Atrás volver"
@@ -258,6 +259,9 @@ class MenuMixin:
         self._radio_back_closes = False  # la lista de radios abierta desde la Radio (amarillo): Atrás vuelve a ella
         self._sites_back_closes = False  # la lista de sitios abierta desde el Navegador (amarillo): Atrás vuelve a él
         self._sites_delete: tuple[int, float] | None = None  # rojo una vez sobre un sitio: (cuál, cuándo)
+        self._picker_title_text = ""
+        self._resume_ask_title = ""
+        self._resume_delete: tuple[str, float] | None = None  # rojo una vez sobre un video a la mitad: (ruta, cuándo)
         # Ayuda (desde el menú, con • o con la tecla Ayuda): páginas por app y desde dónde se abrió.
         self._menu_from_ctx = "offline"
         self._help_pages: list[tuple[str, str]] = []
@@ -693,9 +697,17 @@ class MenuMixin:
         if sub == "delete":
             if self._menu_mode == "sites":
                 await self._sites_delete_key()
+            elif self._menu_mode == "folders":
+                await self._resume_delete_key()
             else:
                 self._menu_restart_timer()
             return
+        if self._resume_delete is not None:
+            self._resume_delete = None  # otra tecla: no se quita
+            if self._menu_mode == "folders" and sub in ("up", "prev", "previous", "down"):
+                asking = any(it["kind"] == "resume" for it in self._menu_items)
+                await self.overlay.show(self._menu_items, self._menu_sel, numbers=False, hint=self._picker_hint(),
+                                        title=self._resume_ask_title if asking else self._picker_title_text)
         if self._sites_delete is not None:
             self._sites_delete = None
             if self._menu_mode == "sites" and sub in ("up", "prev", "previous", "down"):
@@ -875,22 +887,61 @@ class MenuMixin:
                               "sub": "Conectá un pendrive o elegí otra carpeta", "enabled": False, "current": False})
         return f"{act.name} · {self._picker_title(act, path)}", items
 
-    async def _picker_show(self, ident: str, path: Path | None, sel: int = 0, came_from: Path | None = None) -> bool:
-        """Muestra una carpeta del selector, parado en `sel` o, si está, en la subcarpeta de la que se vuelve (las filas
-        «Seguir viendo» de arriba pueden haber cambiado y correr las demás)."""
+    async def _picker_show(self, ident: str, path: Path | None, sel: int = 0, came_from: Path | None = None,
+                           at_file: str | None = None, note: str = "") -> bool:
+        """Muestra una carpeta del selector, parado en `sel` o, si está, en la subcarpeta de la que se vuelve o en el
+        archivo `at_file` (las filas «Seguir viendo» de arriba pueden haber cambiado y correr las demás)."""
         title, items = await asyncio.to_thread(self._picker_entries, ident, path)
         if came_from is not None:
             sel = next((i for i, it in enumerate(items) if it["kind"] == "dir" and it["path"] == str(came_from)), sel)
+        if at_file is not None:
+            sel = next((i for i, it in enumerate(items)
+                        if it["kind"] == "file" and not it.get("direct") and it["path"] == at_file), sel)
         if not items:
             await self.overlay.toast("No hay carpetas configuradas (ver [apps.videos] / [apps.fotos] folders)", 3000)
             self._menu_restart_timer()
             return False
         self._menu_mode, self._picker_act, self._picker_path = "folders", ident, path
         self._menu_items, self._menu_sel = items, max(0, min(sel, len(items) - 1))
-        await self.overlay.show(items, self._menu_sel, title=title, hint=FOLDER_HINT, numbers=False)
+        self._picker_title_text, self._resume_delete = title, None
+        hint = self._picker_hint()
+        await self.overlay.show(items, self._menu_sel, title=title,
+                                hint=f"{note} · {hint}" if note else hint, numbers=False)
         log.info("Menú: %s", title)
         self._menu_restart_timer()
         return True
+
+    def _picker_hint(self) -> str:
+        return RESUME_HINT if any(it.get("resume") or it["kind"] == "resume" for it in self._menu_items) else FOLDER_HINT
+
+    async def _resume_delete_key(self) -> None:
+        """Rojo sobre un video que quedó a la mitad (su fila, la de «Seguir viendo» o el «¿Seguir desde…?»): la primera
+        vez pregunta; la segunda (enseguida), lo quita de «Seguir viendo» sin abrirlo."""
+        item = self._menu_items[self._menu_sel] if 0 <= self._menu_sel < len(self._menu_items) else None
+        self._menu_restart_timer()
+        asking = item is not None and item["kind"] in ("resume", "restart")  # el «¿Seguir desde…?»
+        if item is None or not (asking or (item["kind"] == "file" and item.get("resume"))):
+            self._resume_delete = None
+            await self.overlay.show(self._menu_items, self._menu_sel, title=self._picker_title_text,
+                                    hint="Rojo quita un video de «Seguir viendo» (este no quedó a la mitad)",
+                                    numbers=False)
+            return
+        path = item["path"]
+        name = Path(path).stem if asking else item["name"].removeprefix("Seguir viendo: ")
+        pending, self._resume_delete = self._resume_delete, None
+        if pending is None or pending[0] != path or time.monotonic() - pending[1] > SITES_DELETE_S:
+            self._resume_delete = (path, time.monotonic())
+            title = self._resume_ask_title if asking else self._picker_title_text
+            await self.overlay.show(self._menu_items, self._menu_sel, title=title,
+                                    hint=f"Rojo otra vez = quitar «{name}» de «Seguir viendo» · otra tecla, no",
+                                    numbers=False)
+            return
+        await asyncio.to_thread(resume.forget, path)
+        sel = self._menu_sel
+        if asking and self._picker_stack:  # vuelve a la carpeta
+            _path, sel = self._picker_stack.pop()
+        await self._picker_show(self._picker_act, self._picker_path, sel, at_file=path,
+                                note=f"Quité «{name}» de «Seguir viendo»")
 
     async def _picker_open(self, ident: str, at_default: bool = False) -> None:
         """El selector: la lista de carpetas configuradas o, con at_default, directo en la predeterminada (◀ vuelve a
@@ -963,7 +1014,8 @@ class MenuMixin:
                  {"kind": "restart", "path": item["path"], "name": "Desde el principio", "icon": "view-refresh",
                   "sub": "Empezar de nuevo", "enabled": True, "current": False}]
         self._menu_items, self._menu_sel = items, 0
-        await self.overlay.show(items, 0, title=item["name"], hint=FOLDER_HINT, numbers=False)
+        self._resume_ask_title, self._resume_delete = item["name"], None
+        await self.overlay.show(items, 0, title=item["name"], hint=RESUME_HINT, numbers=False)
         log.info("Menú: %s quedó en %s", item["name"], at)
         self._menu_restart_timer()
 
