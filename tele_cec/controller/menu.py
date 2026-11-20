@@ -178,10 +178,9 @@ def _favorites_item(act: activities_mod.PhotosActivity, path: Path) -> dict:
     return item
 
 
-def _continue_items(act: activities_mod.MediaActivity, roots: list[Path]) -> list[dict]:
-    """«Seguir viendo»: los últimos videos que quedaron a la mitad (arriba de todo en la carpeta de Videos)."""
-    found = [(Path(p), s) for p, s in resume.recent(3)
-             if any(Path(p).is_relative_to(r) for r in roots) and Path(p).suffix.lower() in act.exts]
+def _continue_items(act: activities_mod.MediaActivity, folder: Path) -> list[dict]:
+    """«Seguir viendo»: los últimos videos de esta carpeta (o sus subcarpetas) que quedaron a la mitad, arriba de todo."""
+    found = [(Path(p), s) for p, s in resume.recent(3, within=folder) if Path(p).suffix.lower() in act.exts]
     if not found:
         return []
     infos = fileinfo.video_info().get([str(p) for p, _s in found], budget=0.5)
@@ -825,8 +824,8 @@ class MenuMixin:
             items.append({"kind": "dir", "path": str(d), "name": d.name, "icon": "folder", "sub": "",
                           "enabled": True, "current": False})
         if pick:
-            if isinstance(act, activities_mod.VideosActivity) and act.cfg.get("resume", True) and path in act.roots():
-                items[:0] = _continue_items(act, act.roots())
+            if isinstance(act, activities_mod.VideosActivity) and act.cfg.get("resume", True):
+                items[:0] = _continue_items(act, path)  # solo los de esta carpeta
             items += _file_items(path, act, files[:500])
             if not items:
                 items.append({"kind": "empty", "path": str(path), "name": act.empty_in_folder, "icon": "folder",

@@ -1329,9 +1329,12 @@ async def main() -> int:
         peli = str((tmp / "Vacaciones" / "peli.mp4").resolve())
         (resume_mod.WATCH_DIR / "X1").write_text(f"# {peli}\nstart=754\n")
         _, _, body = await http(port, "GET", f"/api/folders?app=videos&path={tmp / 'Vacaciones'}")
-        f = next(i for i in json.loads(body)["items"] if i["kind"] == "file")
-        check(f["resume"] == 754 and not f["direct"] and "quedó en 12:34" in f["sub"],
+        files = [i for i in json.loads(body)["items"] if i["kind"] == "file"]
+        f = next(i for i in files if not i["direct"])
+        check(f["resume"] == 754 and "quedó en 12:34" in f["sub"],
               f"Seguir viendo: el celular sabe dónde quedó (para preguntar): {f}")
+        check(files[0]["direct"] and files[0]["name"] == "Seguir viendo: peli",
+              f"también en una subcarpeta, arriba «Seguir viendo» con los de esa carpeta: {files[0]}")
         _, _, body = await http(port, "POST", "/api/app", {"id": "videos", "folder": peli, "restart": True}, H)
         check(json.loads(body)["ok"] and not (resume_mod.WATCH_DIR / "X1").exists(),
               "«Desde el principio» desde el celular: se borra dónde quedó")

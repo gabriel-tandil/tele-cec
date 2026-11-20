@@ -16,6 +16,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1294,6 +1295,16 @@ async def main() -> int:
             check(its[0]["name"] == "Seguir viendo: La película" and its[0]["sub"] == "quedó en 1:06:40 de 1:30:00"
                   and its[0].get("direct") and its[1]["kind"] == "file",
                   f"arriba de todo, «Seguir viendo» con el último que quedó a la mitad: {[i['name'] for i in its]}")
+            otra = tmp / "otra-carpeta" / "otro.2020.mkv"  # quedó a la mitad en otra carpeta (más reciente)
+            otra.parent.mkdir()
+            otra.write_bytes(b"")
+            (wdir / "CCC").write_text(f"# {otra}\nstart=900\n")
+            os.utime(wdir / "CCC", (time.time() + 60, time.time() + 60))
+            _, its2 = ctl._picker_entries("videos", vdir)
+            seguir = [i["path"] for i in its2 if i["name"].startswith("Seguir viendo")]
+            check(seguir == [peli] and resume_mod.recent(3, within=otra.parent) == [(str(otra), 900.0)],
+                  f"«Seguir viendo» solo con los de la carpeta actual (y sus subcarpetas): {seguir}")
+            (wdir / "CCC").unlink()
             ctl._menu_open, ctl._menu_mode, ctl._picker_act, ctl._picker_path = True, "folders", "videos", vdir
             ctl._menu_items, ctl._menu_sel, ctl._picker_stack = its, 1, []
             await ctl._picker_choose(1)
