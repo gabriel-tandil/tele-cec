@@ -15,6 +15,7 @@ local utils = require "mp.utils"
 local opts = {
     audio = false,        -- Música: siempre a la vista
     title = true,         -- mostrar el título del archivo
+    tags = true,          -- el título sale de las etiquetas; con tags=no (Videos), del nombre del archivo
     show_s = 4,           -- cuánto queda a la vista después de un cambio
     scrub_delay = 1.3,    -- segundos sin tocar ◀ ▶ antes de saltar al punto elegido
 }
@@ -50,11 +51,23 @@ local function esc(s)
 end
 
 local function meta(key)
+    if key == "title" and not opts.tags then return nil end  -- Videos: siempre el nombre del archivo
     local m = mp.get_property_native("metadata") or {}
     for k, v in pairs(m) do
         if k:lower() == key then return v end
     end
     return nil
+end
+
+-- Con tags=no, media-title (lo que usan esta barra, el azul de tele-cec y mpv-mpris para el celular) es el nombre
+-- del archivo sin la extensión, aunque el archivo traiga otro título en sus etiquetas.
+if not opts.tags then
+    mp.add_hook("on_load", 50, function()
+        local path = mp.get_property("path", "")
+        local name = path:match("([^/]+)$") or path
+        name = name:gsub("%.[^.]+$", "")
+        if name ~= "" then mp.set_property("file-local-options/force-media-title", name) end
+    end)
 end
 
 local function has_picture()

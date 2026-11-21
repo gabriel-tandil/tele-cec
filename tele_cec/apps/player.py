@@ -79,7 +79,7 @@ class MpvMediaActivity(MediaActivity):
         if plugin:
             out.append(f"--script={plugin}")
         out.append(f"--script={SCRIPTS / (OSD + '.lua')}")
-        opts = [f"{OSD}-audio={'yes' if self.audio_only else 'no'}"]
+        opts = [f"{OSD}-audio={'yes' if self.audio_only else 'no'}", f"{OSD}-tags={'yes' if self.tag_titles() else 'no'}"]
         if self.thumbnails and not self.audio_only and (SCRIPTS / "thumbfast.lua").is_file():
             out.append(f"--script={SCRIPTS / 'thumbfast.lua'}")
             # Miniaturas grandes (se ven desde el sillón); sin aceleración (en la Pi el decodificador es uno solo).
@@ -98,6 +98,14 @@ class MpvMediaActivity(MediaActivity):
 
     def extra_args(self) -> list[str]:
         return []
+
+    def tag_titles(self) -> bool:
+        """Si el nombre que se muestra sale de la etiqueta «título» del archivo (Música) o del nombre del archivo."""
+        return True
+
+    def display_name(self, path: Path, meta: dict[str, Any]) -> str:
+        """Cómo se llama un archivo en las listas: su título (si se usan las etiquetas) o el nombre sin extensión."""
+        return (str(meta.get("title") or "") if self.tag_titles() else "") or path.stem
 
     async def open(self, folder: Path | None = None) -> bool:
         self.fail_text = ""
@@ -228,6 +236,8 @@ class MpvMediaActivity(MediaActivity):
             return ""
         meta = await self.mpv.get("metadata") or {}
         meta = {str(k).lower(): str(v) for k, v in meta.items()} if isinstance(meta, dict) else {}
+        if not self.tag_titles():  # Videos: el nombre del archivo (el OSD fuerza media-title a ese nombre)
+            meta.pop("title", None)
         lines = [meta.get("title") or title]
         extra = " · ".join(x for x in (meta.get("artist"), meta.get("album")) if x) if meta.get("title") else ""
         if extra:

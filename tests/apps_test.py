@@ -1257,8 +1257,15 @@ async def main() -> int:
     fileinfo_mod._ffprobe = fake_probe
     try:
         vi_items = menu_ctl._file_items(vdir, activities_mod.VideosActivity({}))
-        check([(i["name"], i["sub"]) for i in vi_items] == [("La película", "1 h 30 min · 1080p · 2 MB · con subtítulos")],
-              f"el video con su título, duración, calidad, tamaño y subtítulos de adentro: {vi_items}")
+        check([(i["name"], i["sub"]) for i in vi_items] == [("rip.2019.1080p", "1 h 30 min · 1080p · 2 MB · con subtítulos")],
+              f"el video con el nombre del archivo (no el título de las etiquetas), duración, calidad, tamaño y "
+              f"subtítulos de adentro: {vi_items}")
+        tagged = activities_mod.VideosActivity({"tag_titles": True})
+        check([i["name"] for i in menu_ctl._file_items(vdir, tagged)] == ["La película"]
+              and "tele_cec_osd-tags=yes" in tagged.scripts()[-1]
+              and "tele_cec_osd-tags=no" in activities_mod.VideosActivity({}).scripts()[-1]
+              and "tele_cec_osd-tags=yes" in activities_mod.MusicActivity({}).scripts()[-1],
+              "con tag_titles = true, el título de las etiquetas (Música siempre las usa)")
         menu_ctl._file_items(vdir, activities_mod.VideosActivity({}))
         check(len(probes) == 1 and json.loads((tmp / "videos-info.json").read_text())["files"],
               f"lo leído se guarda: la segunda vez no se vuelve a leer: {probes}")
@@ -1293,7 +1300,7 @@ async def main() -> int:
         ctl._menu_switch = fake_switch  # type: ignore[method-assign]
         try:
             _, its = ctl._picker_entries("videos", vdir)
-            check(its[0]["name"] == "Seguir viendo: La película" and its[0]["sub"] == "quedó en 1:06:40 de 1:30:00"
+            check(its[0]["name"] == "Seguir viendo: rip.2019.1080p" and its[0]["sub"] == "quedó en 1:06:40 de 1:30:00"
                   and its[0].get("direct") and its[1]["kind"] == "file",
                   f"arriba de todo, «Seguir viendo» con el último que quedó a la mitad: {[i['name'] for i in its]}")
             otra = tmp / "otra-carpeta" / "otro.2020.mkv"  # quedó a la mitad en otra carpeta (más reciente)

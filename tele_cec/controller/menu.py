@@ -83,6 +83,12 @@ def _song_items(folder: Path, files: list[Path]) -> list[dict]:
     return out
 
 
+def _video_name(act: activities_mod.MediaActivity, path: Path, meta: dict) -> str:
+    """El nombre de un video en las listas: el que diga la actividad (Videos: el del archivo, salvo tag_titles)."""
+    name = getattr(act, "display_name", None)
+    return name(path, meta) if callable(name) else (meta.get("title") or path.stem)
+
+
 def _file_items(folder: Path, act: activities_mod.MediaActivity, files: list[Path] | None = None) -> list[dict]:
     """Los archivos de la carpeta para elegir uno: los temas (Música) o los videos (con su título, duración,
     calidad, tamaño y si tienen subtítulos)."""
@@ -114,7 +120,7 @@ def _file_items(folder: Path, act: activities_mod.MediaActivity, files: list[Pat
         stem = f.stem.lower()
         if meta.get("subs") or any(s.startswith(stem) for s in subs):  # adentro, o «peli.srt», «peli.es.srt»…
             info.append("con subtítulos")
-        out.append({"kind": "file", "path": str(f), "name": meta.get("title") or f.stem, "icon": "video-x-generic",
+        out.append({"kind": "file", "path": str(f), "name": _video_name(act, f, meta), "icon": "video-x-generic",
                     "sub": " · ".join(info), "enabled": True, "current": False, **({"resume": pos} if pos else {})})
     return out
 
@@ -209,7 +215,7 @@ def _continue_items(act: activities_mod.MediaActivity, found: list[tuple[Path, f
     out = []
     for p, secs, meta in found[:limit]:
         of = f" de {fileinfo.duration_text(meta['dur'])}" if meta.get("dur") else ""
-        out.append({"kind": "file", "path": str(p), "name": f"Seguir viendo: {meta.get('title') or p.stem}",
+        out.append({"kind": "file", "path": str(p), "name": f"Seguir viendo: {_video_name(act, p, meta)}",
                     "icon": "media-playback-start", "sub": f"quedó en {fileinfo.duration_text(secs)}{of}",
                     "enabled": True, "current": False, "resume": secs, "direct": True})
     return out

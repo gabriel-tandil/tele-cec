@@ -36,6 +36,11 @@ class VideosActivity(MpvMediaActivity):
             return self.SUB_SCALE
         return scale if 0.3 <= scale <= 4 else self.SUB_SCALE
 
+    def tag_titles(self) -> bool:
+        # Los títulos de las etiquetas de los videos bajados suelen estar mal (el del grupo que lo subió, otra
+        # película...): por defecto se muestra el nombre del archivo. tag_titles = true vuelve a las etiquetas.
+        return bool(self.cfg.get("tag_titles", False))
+
     def extra_args(self) -> list[str]:
         # Subtítulos: los que estén al lado del video aunque el nombre no sea idéntico; idioma preferido español.
         args = ["--sub-auto=fuzzy", "--slang=spa,es,es-419,eng,en", "--alang=spa,es,es-419"]

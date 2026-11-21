@@ -707,6 +707,7 @@ extensions = []                      # otros .xpi de Firefox para copiar al perf
 folders = ["/media/*/*", "~/Vídeos", "~/Videos"]
 shuffle = false                      # orden aleatorio
 resume = true                        # Seguir viendo: recordar dónde quedó cada video (y preguntar al abrirlo)
+tag_titles = false                   # true: mostrar el título de las etiquetas del video en vez del nombre del archivo
 volume_step = 0.05
 command = []                         # otro programa en vez de mpv; {carpeta} = la carpeta elegida, p. ej.
                                      #   ["vlc", "--fullscreen", "{carpeta}"]
