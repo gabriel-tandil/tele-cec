@@ -234,6 +234,7 @@ class FakeOverlay:
                    qr=None) -> bool:
         self.items, self.sel, self.visible, self.columns, self.qr = items, selected, True, columns, qr
         self.hint, self.title = hint, title
+        self.numbers = numbers
         self.busy_on = False
         self.log.append(f"ov:show:{selected}")
         return True
@@ -1628,8 +1629,8 @@ async def main() -> int:
           "el ícono del Navegador es el del navegador configurado (Firefox o Chromium)")
     page_html = wa.start_page_html()
     check(wa.home_url() == (tmp / "nav-perfil" / "inicio.html").as_uri() and (tmp / "nav-perfil" / "inicio.html").is_file()
-          and 'href="https://es.wikipedia.org"' in page_html and "<small>1</small>" in page_html and "0 = escribir" in page_html,
-          "la página de inicio: un archivo propio con los sitios en cuadros grandes y el número de cada uno")
+          and 'href="https://es.wikipedia.org"' in page_html and "<small>" not in page_html and "0 = escribir" in page_html and "1 = guardar" in page_html,
+          "la página de inicio: un archivo propio con los sitios en cuadros grandes (sin números)")
     check(nav_mod.WebActivity({"home": "https://www.google.com"}, {}).home_url() == "https://www.google.com"
           and nav_mod.WebActivity({}, {"engine": "chromium"}).profile.name == "chromium-navegador"
           and any(a.startswith("--force-device-scale-factor=1.5") for a in
@@ -1812,10 +1813,10 @@ async def main() -> int:
     check(out == ["web:ctx", "web:nav:down", "web:ctx", "web:nav:right", "web:ctx", "web:activate", "web:click:10,20",
                   "web:clicked", "web:ctx",
                   "web:back", "web:ctx", "web:navigate:" + wf.home_url(), "web:ctx", "web:scroll:down", "web:ctx",
-                  "ov:toast:Clarín", "web:navigate:https://www.clarin.com", "web:ctx", "web:playPause:",
+                  "web:ctx", "web:playPause:",
                   "ov:toast:No hay ningún video en esta página"],
           f"flechas = moverse, OK = clic de verdad (y pregunta si le llegó), Atrás, azul = inicio, Canal− = página "
-          f"abajo, 2 = sitio 2, ⏯: {out}")
+          f"abajo, 2 = nada (los sitios, con el amarillo), ⏯: {out}")
     closed_web = []
     real_close_web = ctl.a_close
 
@@ -1883,7 +1884,8 @@ async def main() -> int:
               and ctl.overlay.items[1]["icon"] == "navegador.svg",
               f"cada sitio con su ícono (si ya se bajó; si no, el genérico): {[i['icon'] for i in ctl.overlay.items]}")
         start = len(log)
-        await ctl.a_menu("pick:2")
+        await ctl.a_menu("down")
+        await ctl.a_menu("ok")
         check(log[start:] == ["ov:select:1", "web:navigate:https://www.clarin.com", "ov:hide"] and not ctl._menu_open,
               f"elegir uno lo abre y cierra el menú: {log[start:]}")
         await ctl.a_web("sites")
@@ -1892,7 +1894,8 @@ async def main() -> int:
         check(out == ["ov:hide"] and not ctl._menu_open, f"Atrás vuelve a la página: {out}")
         await ctl.a_web("sites")
         check(ctl._menu_sel == 2, "desde el Navegador, con una página sin guardar: «Guardar esta página» ya resaltado")
-        await ctl.a_menu("pick:4")
+        await ctl.a_menu("down")
+        await ctl.a_menu("ok")
         check(not ctl._menu_open and log[-1] == "web:go:", f"«Escribir una dirección» abre el cuadro «Ir a»: {log[-3:]}")
 
         # guardar la página que se ve y borrar sitios (rojo dos veces)
@@ -1909,9 +1912,18 @@ async def main() -> int:
               == "Raspberry Pi 400" and nav_mod.site_name("", "https://www.clarin.com/") == "clarin.com",
               "el nombre de un sitio nuevo: el título (sin la cola larga) o el nombre del sitio")
         check("Una página" in wf.start_page_html() and ctl.overlay.items[2]["current"], "y aparece en la página de inicio")
+        check("<small>" not in wf.start_page_html(), "la página de inicio, sin números en los cuadros")
         await press("EXIT")
         out = await press("NUMBER3")
-        check("web:navigate:https://x.example/p" in out, f"3 lo abre desde el Navegador: {out}")
+        check(not any(x.startswith("web:navigate") for x in out) and len(wf.bookmarks) == 3,
+              f"los números ya no abren sitios: {out}")
+        out = await press("NUMBER1")
+        check([b["name"] for b in wf.bookmarks] == ["Wiki", "Clarín"]
+              and any(x.startswith("ov:toast:Saqué «Una página - El sitio»") for x in out),
+              f"1 en una página guardada: la saca de los sitios: {out}")
+        out = await press("NUMBER1")
+        check([b["name"] for b in wf.bookmarks] == ["Wiki", "Clarín", "Una página - El sitio"]
+              and any(x.startswith("ov:toast:♥ Guardado") for x in out), f"1 otra vez: la guarda (♥): {out}")
         await ctl.a_web("save")
         check(len(wf.bookmarks) == 3 and log[-1].startswith("ov:toast:Ya estaba guardado"), f"web:save otra vez: ya estaba: {log[-1]}")
         await ctl.a_web("sites")
@@ -1930,6 +1942,23 @@ async def main() -> int:
         check([b["name"] for b in wf.bookmarks] == ["Clarín"], f"y se puede borrar cualquiera: {wf.bookmarks}")
         wf2 = nav_mod.WebActivity({"profile": str(tmp / "nav-perfil"), "bookmarks": [{"name": "Otro", "url": "https://otro.example"}]}, {})
         check([b["name"] for b in wf2.bookmarks] == ["Clarín"], "el archivo manda sobre [apps.navegador] bookmarks (al reabrir)")
+        await press("EXIT")
+        await ctl.a_web("sites")
+        check(ctl.overlay.numbers is False, "la lista de sitios, sin números al lado (los números ya no eligen)")
+        check(ctl._menu_sel == 1, "abre en «Guardar esta página» (la que se ve no está guardada)")
+        await press("UP", "NUMBER2")
+        check([b["name"] for b in wf.bookmarks] == ["Clarín"] and ctl._menu_open and ctl._menu_sel == 0,
+              "en la lista, los números (salvo el 1) no hacen nada")
+        await press("NUMBER1")
+        check(wf.bookmarks == [] and ctl._menu_open and ctl._menu_mode == "sites"
+              and ctl.overlay.items[0]["name"] == "Guardar esta página",
+              f"en la lista, 1 saca el sitio resaltado (sin preguntar): {[i['name'] for i in ctl.overlay.items]}")
+        check(ctl._menu_sel == 0, "queda resaltada la fila que vino a ese lugar")
+        await press("NUMBER1")
+        check([b["name"] for b in wf.bookmarks] == ["Una página - El sitio"],
+              f"y 1 sobre «Guardar esta página» la guarda: {wf.bookmarks}")
+        wf.remove_bookmark(0)
+        wf._save_sites([{"name": "Clarín", "url": "https://www.clarin.com"}])
         await press("EXIT")
 
         # modo mouse (CC)
@@ -1993,7 +2022,7 @@ async def main() -> int:
         check(any(x.startswith("web:click:") for x in out) and "web:submit" not in out,
               f"y si la flecha se movió después de escribir, OK es un clic: {out}")
         wf.fake.ctx = "page"
-        out = await press("NUMBER1")
+        out = await press("NUMBER2")
         check("web:ctx:{'x': 678.4, 'y': 384.0}" in out or any(x.startswith("web:ctx:") for x in out),
               f"con cada tecla la página se entera de dónde va la flecha (por si cambió de página): {out}")
         out = await press("SUB_PICTURE")
@@ -2012,7 +2041,7 @@ async def main() -> int:
             await ctl.menu_open(select_id="navegador")
             await ctl._menu_options(ctl._menu_sel)
             check([i["name"] for i in ctl.overlay.items] == ["Clarín"], "cerrado: la lista sin «Guardar» ni «Escribir una dirección»")
-            await ctl.a_menu("pick:1")
+            await ctl.a_menu("ok")
             await ctl._macro_task
             check(switched_w and switched_w[0]["id"] == "navegador" and wf.want_url == "https://www.clarin.com",
                   f"cerrado: elegir un sitio abre el Navegador en él: {switched_w} {wf.want_url}")

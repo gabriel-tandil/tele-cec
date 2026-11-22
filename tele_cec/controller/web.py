@@ -62,7 +62,7 @@ class WebMixin:
         """web:nav:up|down|left|right · ok · back · home · reload · go (el cuadro «Ir a») · url:<dirección> ·
         submit (Enter / ir) · t9:0-9 (escribir) · t9:mode (abc → ABC → 123) · key:<Tecla> (Backspace, ArrowLeft…) ·
         clear · scroll:up|down · play_pause|play|pause (el video de la página) · sites (la lista) · site:N ·
-        mouse (prender / apagar el modo mouse) · mouse:up|down|left|right · mouse:click · save (guardar la página)."""
+        mouse (prender / apagar el modo mouse) · mouse:up|down|left|right · mouse:click · save (guardar la página) · fav (guardarla, o sacarla si ya estaba)."""
         w = self._web()
         if w is None or not w.running():
             log.info("El Navegador no está abierto: no ejecuto web:%s", arg)
@@ -164,6 +164,8 @@ class WebMixin:
             await self._web_mouse(w, rest.lower())
         elif cmd == "save":
             await self.web_save_page()
+        elif cmd == "fav":
+            await self.web_fav_toggle()
         elif cmd == "toast":
             await self.toast(rest)
         else:
@@ -222,6 +224,24 @@ class WebMixin:
         elif before >= 0:
             await self.toast(f"Ya estaba guardado: «{w.bookmarks[index]['name']}» (sitio {index + 1})", 2500)
         else:
-            num = f" · {index + 1} lo abre" if index < 9 else ""
-            await self.toast(f"Guardado: «{w.bookmarks[index]['name']}»{num}", 2500)
+            await self.toast(f"♥ Guardado: «{w.bookmarks[index]['name']}» · amarillo, los sitios", 2500)
         return index
+
+    async def web_fav_toggle(self) -> None:
+        """1 (♥, como en las otras apps): guarda la página que se ve en los sitios; si ya estaba, la saca."""
+        w = self._web()
+        if w is None or not w.running():
+            return
+        url, _title = await w.page_info()
+        if w.on_start_page(url):
+            await self.toast("Acá no hay qué guardar: abrí una página y apretá 1 · amarillo, los sitios", 2500)
+            return
+        index = w.saved_index(url) if activities_mod.navegador.allowed_url(url) else -1
+        if index < 0:
+            await self.web_save_page()
+            return
+        gone = w.remove_bookmark(index)
+        if gone is None:
+            await self.toast("No pude sacar el sitio", 2500)
+        else:
+            await self.toast(f"Saqué «{gone['name']}» de los sitios · 1 otra vez lo guarda", 2500)

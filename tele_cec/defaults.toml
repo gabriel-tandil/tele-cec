@@ -116,7 +116,7 @@ trusted_click = true            # clic con mouse real vía DevTools (más compat
 #    web:submit  web:t9:0-9 (escribir)  web:t9:mode (abc/ABC/123)  web:key:Backspace|ArrowLeft|ArrowRight  web:clear
 #    web:scroll:up|down  web:play_pause|play|pause  web:sites (la lista)  web:site:N  web:url:<dirección>
 #    web:mouse (modo mouse: prender / apagar)  web:mouse:up|down|left|right  web:mouse:click
-#    web:save (guardar la página que se ve en los sitios)
+#    web:save (guardar la página que se ve en los sitios)  web:fav (guardarla, o sacarla si ya estaba)
 #  Fotos: fotos:next  fotos:previous  fotos:pause  fotos:rotate  fotos:random  fotos:info  fotos:filename  fotos:mode
 #    fotos:date (la fecha en una esquina)  fotos:favorite (guardar en Favoritas, o sacarla)
 #    fotos:zoom_in  fotos:zoom_out  fotos:fit (sin zoom)  fotos:scroll:left|right|up|down
@@ -329,7 +329,7 @@ AN_RETURN = "web:back"
 F1_BLUE = "web:home"          # azul = la página de inicio (los sitios guardados)
 F2_RED = "web:go"             # rojo (o 0) = escribir una dirección o qué buscar
 F3_GREEN = "web:reload"
-F4_YELLOW = "web:sites"       # amarillo = los sitios guardados (ahí: «Guardar esta página»; rojo borra uno)
+F4_YELLOW = "web:sites"       # amarillo = los sitios guardados (ahí: 1 saca el resaltado)
 SUB_PICTURE = "web:mouse"     # CC = modo mouse: las flechas mueven una flecha y OK hace clic ahí (otra vez: volver)
 CHANNEL_UP = "web:scroll:up"  # Canal ± y ⏪ ⏩: una página entera arriba o abajo
 CHANNEL_DOWN = "web:scroll:down"
@@ -342,15 +342,15 @@ STOP = "web:pause"
 FORWARD = ""
 BACKWARD = ""
 NUMBER0 = "web:go"
-NUMBER1 = "web:site:1"        # 1 – 9: ese sitio de la lista
-NUMBER2 = "web:site:2"
-NUMBER3 = "web:site:3"
-NUMBER4 = "web:site:4"
-NUMBER5 = "web:site:5"
-NUMBER6 = "web:site:6"
-NUMBER7 = "web:site:7"
-NUMBER8 = "web:site:8"
-NUMBER9 = "web:site:9"
+NUMBER1 = "web:fav"           # 1 = ♥ guardar la página en los sitios (otra vez: sacarla), como el 1 en las otras apps
+NUMBER2 = ""                  # (los sitios se abren desde la lista, con el amarillo; "web:site:N" abre el N.º)
+NUMBER3 = ""
+NUMBER4 = ""
+NUMBER5 = ""
+NUMBER6 = ""
+NUMBER7 = ""
+NUMBER8 = ""
+NUMBER9 = ""
 
 [keys.navegador_mouse]        # Navegador en modo mouse (CC): para lo que el marco no alcanza (un «No soy un robot»,
 UP = "web:mouse:up"           # un video embebido, un menú que se abre al pasar por encima). Las demás teclas, como
@@ -694,11 +694,11 @@ t9_ms = 1200                         # escribiendo: cuánto espera para pasar a 
 ublock = true                        # uBlock Origin (saca la publicidad, lo más pesado de las páginas): se copia el
                                      # que tenga instalado el Firefox de siempre
 extensions = []                      # otros .xpi de Firefox para copiar al perfil: ["~/Descargas/algo.xpi"]
-# bookmarks = [                      # los sitios: la página de inicio, el botoncito «Sitios» y las teclas 1 – 9
+# bookmarks = [                      # los sitios: la página de inicio, el botoncito «Sitios» y el amarillo
 #   { name = "Google", url = "https://www.google.com" },     (sin la lista: Google, DuckDuckGo y Wikipedia,
 #   { name = "Wikipedia", url = "https://es.wikipedia.org" },  cada uno con su ícono)
-# ]                                  Al guardar o borrar un sitio desde la TV (amarillo › «Guardar esta página»,
-#                                    rojo sobre un sitio) la lista pasa a ~/.local/share/tele-cec/navegador-sitios.json
+# ]                                  Al guardar o sacar un sitio desde la TV (1 en una página, o 1 sobre un
+#                                    sitio en la lista) la lista pasa a ~/.local/share/tele-cec/navegador-sitios.json
 #                                    y esta queda de lado (borrá ese archivo para volver a ella).
 # prefs = { }                        # otras preferencias de Firefox para este perfil
 

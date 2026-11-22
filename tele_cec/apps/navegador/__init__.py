@@ -7,9 +7,10 @@ números escriben como en un celular viejo (t9.py). 0 abre el cuadro «Ir a» (u
 prende el modo mouse: las flechas mueven una flecha dibujada y OK hace un clic de verdad en ese punto (para lo que el
 marco no alcanza: un «No soy un robot», un video embebido, un menú que se abre al pasar por encima).
 
-La página de inicio es un archivo propio con los sitios guardados en cuadros; 1 – 9 los abren directo. Los sitios
-salen de [apps.navegador] bookmarks hasta que se guarda o se borra uno desde la TV (amarillo › «Guardar esta página»,
-rojo sobre un sitio): desde ahí la lista vive en ~/.local/share/tele-cec/navegador-sitios.json.
+La página de inicio es un archivo propio con los sitios guardados en cuadros; el amarillo los muestra en una lista
+desde cualquier página. El 1 (♥, como en las otras apps) guarda la página que se ve, o la saca si ya estaba; en la
+lista, saca el sitio resaltado. Los sitios salen de [apps.navegador] bookmarks hasta que se guarda o se saca uno desde
+la TV: desde ahí la lista vive en ~/.local/share/tele-cec/navegador-sitios.json.
 
 Para que vaya rápido en la Pi: las mismas preferencias que Netflix (sin animaciones, sin trabajo de fondo), las
 páginas más grandes (scale: todo al 150 %, para leer desde el sillón), sin ventanas nuevas ni avisos, uBlock
@@ -341,15 +342,13 @@ class WebActivity(Activity):
 
     def start_page_html(self) -> str:
         tiles = []
-        for i, b in enumerate(self.bookmarks):
-            n = f"<small>{i + 1}</small>" if i < 9 else ""
+        for b in self.bookmarks:
             ico = self.favicon(b["url"])
             img = (f'<img src="{html.escape(ico.as_uri(), quote=True)}" alt="">' if ico
                    else f"<b>{html.escape((b['name'][:1] or '?').upper())}</b>")
-            tiles.append(f'<a href="{html.escape(b["url"], quote=True)}">{n}{img}<div><span>{html.escape(b["name"])}</span>'
+            tiles.append(f'<a href="{html.escape(b["url"], quote=True)}">{img}<div><span>{html.escape(b["name"])}</span>'
                          f'<i>{html.escape(urllib.parse.urlparse(b["url"]).netloc.removeprefix("www."))}</i></div></a>')
-        body = "\n".join(tiles) or ("<p>No hay sitios guardados: abrí una página y guardala con el amarillo "
-                                     "(«Guardar esta página»)</p>")
+        body = "\n".join(tiles) or "<p>No hay sitios guardados: abrí una página y guardala con el 1</p>"
         return f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><title>{html.escape(self.name)}</title>
 <style>
@@ -364,12 +363,11 @@ a{{display:flex;align-items:center;gap:12px;min-height:64px;padding:10px 14px;bo
 a div{{display:flex;flex-direction:column;min-width:0}}
 a span{{font-size:1.05em;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 a i{{font-style:normal;color:#999;font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-a small{{position:absolute;top:6px;right:10px;color:#2f7cf6;font-size:.8em;font-weight:700}}
 a img,a b{{flex:none;width:40px;height:40px;border-radius:9px}}
 a b{{display:flex;align-items:center;justify-content:center;background:#2a2a33;color:#9cc0ff;font-size:1.2em}}
 </style></head><body><main>
 <h1>{html.escape(self.name)}</h1>
-<p class="h">0 = escribir una dirección o buscar · 1 – 9 = estos sitios · flechas y OK · CC = mouse · Atrás vuelve · azul = esta página</p>
+<p class="h">0 = escribir una dirección o buscar · flechas y OK · 1 = guardar o sacar una página · amarillo = los sitios · CC = mouse · Atrás vuelve · azul = esta página</p>
 <nav>
 {body}
 </nav></main></body></html>

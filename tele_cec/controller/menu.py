@@ -27,7 +27,7 @@ FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
 RESUME_HINT = FOLDER_HINT + " · rojo quitar de «Seguir viendo»"  # si hay alguno a la mitad en la lista
 SOUND_HINT = "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida · Atrás volver"
 RADIO_HINT = "▲ ▼ o 1 – 9 elegir · OK escuchar · Atrás volver"
-SITES_HINT = "▲ ▼ o 1 – 9 elegir · OK abrir · rojo borrar · Atrás volver"
+SITES_HINT = "▲ ▼ elegir · OK abrir · 1 sacar de la lista · Atrás volver"
 SITES_DELETE_S = 5.0   # rojo sobre un sitio: hay que apretarlo otra vez antes de esto para borrarlo
 VOLUME_STEP = 5        # % por cada ◀ ▶ en la fila «Volumen»
 SOUND_FIRST = 2        # en Sonido, las salidas empiezan después de las filas «Volumen» y «Temporizador»
@@ -718,7 +718,7 @@ class MenuMixin:
             self._sites_delete = None
             if self._menu_mode == "sites" and sub in ("up", "prev", "previous", "down"):
                 await self.overlay.show(self._menu_items, self._menu_sel, title=self._sites_title(), hint=SITES_HINT,
-                                        numbers=True)  # sin el «rojo otra vez para borrar»
+                                        numbers=False)  # sin el «rojo otra vez para borrar»
         if sub in ("up", "prev", "previous", "down", "left", "right") and self._grid():
             await self._grid_move({"up": -1, "prev": -1, "previous": -1, "down": 1}.get(sub, 0),
                                   {"left": -1, "right": 1}.get(sub, 0))
@@ -788,6 +788,8 @@ class MenuMixin:
                 await self.menu_close()
         elif sub == "ok":
             await self._menu_choose(self._menu_sel)
+        elif sub == "pick" and self._menu_mode == "sites":
+            await self._sites_number_key(rest)
         elif sub == "pick":
             try:
                 await self._menu_choose(int(rest) - 1)
@@ -1104,7 +1106,7 @@ class MenuMixin:
         self._sites_back_closes = from_app
         self._sites_delete = None
         self._menu_mode, self._menu_items, self._menu_sel = "sites", items, sel
-        await self.overlay.show(items, sel, title=self._sites_title(), hint=SITES_HINT, numbers=True)
+        await self.overlay.show(items, sel, title=self._sites_title(), hint=SITES_HINT, numbers=False)
         log.info("Menú: sitios: %s", " · ".join(b["name"] for b in w.bookmarks))
         self._menu_restart_timer()
 
@@ -1117,24 +1119,45 @@ class MenuMixin:
         self._menu_restart_timer()
         if item is None or not str(item["id"]).removeprefix("_site").isdigit():
             await self.overlay.show(self._menu_items, self._menu_sel, title=self._sites_title(),
-                                    hint="Rojo borra un sitio guardado (este no es uno)", numbers=True)
+                                    hint="Rojo borra un sitio guardado (este no es uno)", numbers=False)
             return
         index = int(str(item["id"]).removeprefix("_site"))
         pending, self._sites_delete = self._sites_delete, None
         if pending is None or pending[0] != index or time.monotonic() - pending[1] > SITES_DELETE_S:
             self._sites_delete = (index, time.monotonic())
             await self.overlay.show(self._menu_items, self._menu_sel, title=self._sites_title(),
-                                    hint=f"Rojo otra vez = borrar «{item['name']}» · otra tecla, no", numbers=True)
+                                    hint=f"Rojo otra vez = borrar «{item['name']}» · otra tecla, no", numbers=False)
             return
+        await self._sites_remove(index)
+
+    async def _sites_remove(self, index: int) -> None:
         w = self.activities["navegador"]
         assert isinstance(w, activities_mod.WebActivity)
         gone = w.remove_bookmark(index)
         await self._sites_open(from_app=self._sites_back_closes, sel=self._menu_sel)
         if gone is not None:
             await self.overlay.show(self._menu_items, self._menu_sel, title=self._sites_title(),
-                                    hint=f"Borré «{gone['name']}» · " + SITES_HINT, numbers=True)
+                                    hint=f"Saqué «{gone['name']}» · " + SITES_HINT, numbers=False)
             if w.running() and w.on_start_page(await w.current_url()):
                 await w.navigate(w.home_url())  # la página de inicio, sin el sitio borrado
+
+    async def _sites_number_key(self, n: str) -> None:
+        """Un número en la lista de sitios: el 1 (♥, como en las otras apps) saca el sitio resaltado, sin preguntar
+        (se vuelve a guardar con 1 en su página), o guarda «Guardar esta página». Los demás no hacen nada."""
+        self._sites_delete = None
+        item = self._menu_items[self._menu_sel] if 0 <= self._menu_sel < len(self._menu_items) else None
+        if n != "1" or item is None:
+            self._menu_restart_timer()
+            return
+        if item["id"] == "_site_save":
+            await self._sites_choose(self._menu_sel)
+            return
+        self._menu_restart_timer()
+        if not str(item["id"]).removeprefix("_site").isdigit():
+            await self.overlay.show(self._menu_items, self._menu_sel, title=self._sites_title(),
+                                    hint="1 saca un sitio guardado (este no es uno) · " + SITES_HINT, numbers=False)
+            return
+        await self._sites_remove(int(str(item["id"]).removeprefix("_site")))
 
     async def radio_open_from_app(self) -> None:
         """Amarillo en la Radio: la lista de radios encima; OK cambia, Atrás vuelve a la Radio."""
@@ -1170,12 +1193,11 @@ class MenuMixin:
             added = w.add_bookmark(item["url"], item["sub"])
             if added < 0:
                 await self.overlay.show(self._menu_items, index, title=self._sites_title(),
-                                        hint="No pude guardar esta página · " + SITES_HINT, numbers=True)
+                                        hint="No pude guardar esta página · " + SITES_HINT, numbers=False)
                 return
             await self._sites_open(from_app=self._sites_back_closes, sel=added)
-            num = f" · {added + 1} lo abre desde el Navegador" if added < 9 else ""
             await self.overlay.show(self._menu_items, added, title=self._sites_title(),
-                                    hint=f"Guardé «{w.bookmarks[added]['name']}»{num} · Atrás volver", numbers=True)
+                                    hint=f"Guardé «{w.bookmarks[added]['name']}» · 1 lo saca · Atrás volver", numbers=False)
             if w.on_start_page(await w.current_url()):
                 await w.navigate(w.home_url())
             return
