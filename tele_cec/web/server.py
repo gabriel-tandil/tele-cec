@@ -304,6 +304,8 @@ class WebRemote:
             return _json(await self.menu.close(str(data.get("id") or "")))
         if path == "/api/videos/forget":  # quitar un video de «Seguir viendo» (sin abrirlo)
             return _json(await self.forget_video(str(data.get("path") or "")))
+        if path == "/api/videos/favorite":  # un video (o el que se ve en la TV): guardarlo en Favoritos (o sacarlo)
+            return _json(await self.video_favorite(str(data.get("path") or "")))
         if path == "/api/fotos/favorite":  # la foto que se ve en la TV: guardarla en Favoritas (o sacarla)
             return _json(await self.photo_favorite())
         if path == "/api/search":
@@ -776,6 +778,25 @@ class WebRemote:
         gone = await asyncio.to_thread(resume.forget, path)
         return {"ok": True, "gone": gone}
 
+    async def video_favorite(self, path: str) -> dict[str, Any]:
+        """★ de Videos: el video `path` (uno de la lista) o, sin path, el que se está viendo en la TV."""
+        act = self.ctl.activities.get("videos")
+        if not isinstance(act, activities_mod.VideosActivity):
+            return {"ok": False, "error": "Videos no está configurado"}
+        if not path:
+            path = await act.current_path()
+            if not path:
+                return {"ok": False, "error": "No se está viendo ningún video"}
+        if self.menu.allowed_folder("videos", path) is None:
+            return {"ok": False, "error": "ese video no está entre las carpetas de Videos"}
+        added = await asyncio.to_thread(act.toggle_favorite, path)
+        if added is None:
+            return {"ok": False, "error": "No pude guardar la lista de favoritos"}
+        n = len(act.favorites())
+        log.info("Celular: %s %s", "guardo en Favoritos" if added else "saco de Favoritos", Path(path).name)
+        return {"ok": True, "added": added,
+                "message": f"★ Guardado en Favoritos ({n})" if added else f"Sacado de Favoritos ({n})"}
+
     def _app_of(self, player: str) -> str:
         """De qué app es un reproductor (para mostrarlo: «Tidal», «Videos»…)."""
         base = player.split(".")[0]
@@ -819,6 +840,9 @@ class WebRemote:
                 if not now["art"] and act.cover_path is not None:  # la tapa que se encontró en línea para lo que suena
                     self._art = str(act.cover_path)
                     now["art"] = f"/api/art?v={abs(hash(self._art)) % 10 ** 8}"
+            if isinstance(act, activities_mod.VideosActivity) and track.url.startswith("file://"):
+                # ★ en el celular: si el video que se ve está en Favoritos
+                now["fav"] = act.is_favorite(urllib.parse.unquote(urllib.parse.urlparse(track.url).path))
             now.pop("url", None)
             now["tidal"] = self._is_tidal(track.player)
             if now["tidal"]:

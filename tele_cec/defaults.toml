@@ -431,6 +431,7 @@ PLAY = "video:play"
 PAUSE = "video:pause"
 PAUSE_PLAY_FUNCTION = "video:ok"
 STOP = "close:videos"         # ■ = cerrar (guarda por dónde ibas) y volver al menú
+NUMBER1 = "video:favorite"    # 1 = ★ guardar el video en Favoritos (otra vez: sacarlo); se ven desde Carpetas ▸
 LEFT = "video:seek:-10"       # ◀ ▶: buscar de a 10 s (la barra muestra a dónde, con una miniatura; salta al soltar)
 RIGHT = "video:seek:+10"
 REWIND = "video:seek:-60"     # ⏪ ⏩: de a 1 minuto

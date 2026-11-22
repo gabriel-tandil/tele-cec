@@ -791,7 +791,7 @@ function folderPage(app, path, atDefault) {
       retitle(page, r.title);
       const rows = el("div", "rows");
       r.items.forEach((f) => {
-        const it = {name: f.name, sub: f.sub, enabled: f.enabled, glyph: f.kind === "dir" || f.kind === "empty" ? "folder" : "play"};
+        const it = {name: f.fav ? f.name.replace(/^★ /, "") : f.name, sub: f.sub, enabled: f.enabled, glyph: f.kind === "dir" || f.kind === "empty" ? "folder" : "play"};
         rows.appendChild(row(it, () => {
           if (f.kind === "dir") show(folderPage(app, f.path));
           else if (!f.enabled) toast((f.kind === "empty" ? f.name : f.sub) || "No hay nada para mostrar");
@@ -810,6 +810,10 @@ function folderPage(app, path, atDefault) {
               if (x && x.ok) { toast(`Quité «${name}» de «Seguir viendo»`); render(); }
             }],
           ]);
+        }} : f.kind === "file" && r.favs ? {badges: false, moreText: f.fav ? "★" : "☆", more: async () => {  // Favoritos
+          buzz();
+          const x = await post("/api/videos/favorite", {path: f.path});
+          if (x && x.ok) render();
         }} : {badges: false}));
       });
       body.replaceChildren(rows);
@@ -1432,7 +1436,12 @@ function openPlayer() {
     tx.append(title, sub, from);
     const like = el("button", "like");
     like.appendChild(svg("star-o"));
-    like.addEventListener("click", async () => { buzz(); const r = await media("like"); if (r && r.ok) { state.now.liked = !state.now.liked; player.update(); } });
+    like.addEventListener("click", async () => {
+      buzz();
+      if (!state.now.tidal) { await videoFav(); return; }  // Videos: Favoritos
+      const r = await media("like");
+      if (r && r.ok) { state.now.liked = !state.now.liked; player.update(); }
+    });
     head.append(tx, like);
     const seek = el("div", "seek");
     const trk = el("div", "tr");
@@ -1483,9 +1492,10 @@ function openPlayer() {
       from.textContent = n.app + (n.status === "Paused" ? " · en pausa" : "");
       setArt(art, n.art);
       setIcon(pp, n.status === "Playing" ? "pause" : "play");
-      like.hidden = !(n.tidal && n.liked != null);
-      like.classList.toggle("on", !!n.liked);
-      setIcon(like, n.liked ? "star" : "star-o");
+      const on = n.tidal ? !!n.liked : !!n.fav;
+      like.hidden = n.tidal ? n.liked == null : n.fav == null;
+      like.classList.toggle("on", on);
+      setIcon(like, on ? "star" : "star-o");
       shuf.style.visibility = n.shuffle == null ? "hidden" : "";
       shuf.classList.toggle("on", !!n.shuffle);
       loop.style.visibility = n.loop ? "" : "hidden";
@@ -1755,8 +1765,8 @@ fsVeil();
 // cierra con ⌄; solo, al elegir en la TV una
 // actividad que se maneja con flechas ([web] remote_apps: Netflix, YouTube, Tidal…). Si se cierra a mano, no vuelve
 // a abrirse solo hasta que cambie la actividad; y si se abrió solo, se cierra solo al pasar a otra que no lo usa.
-// ★: me gusta en Tidal y YouTube, Favoritas en Fotos, Mi lista en Netflix, guardar el sitio en el Navegador (como el 1 del control).
-const FAV_APPS = ["tidal", "fotos", "netflix", "youtube", "navegador"];
+// ★: me gusta en Tidal y YouTube, Favoritas en Fotos y Videos, Mi lista en Netflix, guardar el sitio en el Navegador (como el 1 del control).
+const FAV_APPS = ["tidal", "fotos", "videos", "netflix", "youtube", "navegador"];
 const REMOTE = {open: false, auto: false, app: undefined};
 function remoteSize() {
   const h = REMOTE.open ? $("remote").offsetHeight + 8 : 0, fab = REMOTE.open ? 0 : 66;
@@ -1780,7 +1790,8 @@ function remoteAuto() {
   const app = (state.app && state.app.id) || "";
   $("rGet").hidden = app !== "fotos";
   // ★: «Me gusta» del tema en Tidal, o la foto a Favoritas (como el 1 del control, que en otras apps es otra cosa).
-  const fav = $("rFav"), liked = app === "tidal" && !!(state.now && state.now.tidal && state.now.liked);
+  const n = state.now, liked = app === "tidal" ? !!(n && n.tidal && n.liked) : app === "videos" && !!(n && n.fav);
+  const fav = $("rFav");
   fav.classList.toggle("off", !FAV_APPS.includes(app));  // en las demás no hace nada: apagado
   fav.classList.toggle("on", liked);
   setIcon(fav, liked ? "star" : "star-o");
@@ -1824,12 +1835,18 @@ $("rFav").addEventListener("click", async () => {
   buzz();
   const app = state && state.app && state.app.id;
   if (app === "fotos") { await post("/api/fotos/favorite", {}); return; }
+  if (app === "videos") { await videoFav(); return; }
   if (app === "netflix" || app === "youtube" || app === "navegador") { remoteKey("NUMBER1"); return; }
-  if (app !== "tidal") { toast("★ es para Netflix (Mi lista), YouTube y Tidal (me gusta), Fotos (Favoritas) y el Navegador (sitios)"); return; }
+  if (app !== "tidal") { toast("★ es para Netflix (Mi lista), YouTube y Tidal (me gusta), Fotos y Videos (favoritos) y el Navegador (sitios)"); return; }
   if (!(state && state.now && state.now.tidal)) { toast("No está sonando nada en Tidal"); return; }
   const r = await media("like");
   if (r && r.ok) { state.now.liked = !state.now.liked; remoteAuto(); if (player.update) player.update(); }
 });
+// ★ en Videos: el video que se ve en la TV a Favoritos (otra vez lo saca), como el 1 del control.
+async function videoFav() {
+  const r = await post("/api/videos/favorite", {});
+  if (r && r.ok && state.now) { state.now.fav = r.added; remoteAuto(); if (player.update) player.update(); }
+}
 // Mantener apretado un botón del control: un cuadrito con qué hace ahora (lo mismo que dice la ayuda de la TV en
 // este contexto). Sin repetición, al soltar no se aprieta; las flechas y Canal ± siguen repitiendo mientras tanto.
 const TIP_NAMES = {CONTENTS_MENU: "Menú", UP: "▲", DOWN: "▼", LEFT: "◀", RIGHT: "▶", SELECT: "OK", EXIT: "Atrás",

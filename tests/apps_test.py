@@ -459,6 +459,8 @@ async def main() -> int:
     photodates_mod._dates.pause_s = 0.0  # sin la pausa entre fotos (en la Pi va de a poco)
     from tele_cec.apps import photos as photos_main
     photos_main.DATA_DIR = tmp / "datos"  # las fotos favoritas: no tocar las de verdad
+    from tele_cec.apps import videos as videos_main
+    videos_main.DATA_DIR = tmp / "datos"  # los videos favoritos: tampoco
     from tele_cec.apps import navegador as navegador_main
     navegador_main.DATA_DIR = tmp / "datos"  # los sitios guardados desde la TV: tampoco
     cfg_file = tmp / "config.toml"
@@ -891,8 +893,9 @@ async def main() -> int:
         await press("DOWN")
     out = await press("RIGHT")
     names = [it["name"] for it in ctl.overlay.items]
-    check(ctl._menu_mode == "folders" and len(names) == 2 and ctl.overlay.items[0]["sub"] == "predeterminada",
-          f"▶ sobre Videos: las carpetas configuradas, con la predeterminada marcada: {names}")
+    check(ctl._menu_mode == "folders" and len(names) == 3 and ctl.overlay.items[0]["sub"] == "predeterminada"
+          and names[2] == "★ Favoritos", f"▶ sobre Videos: las carpetas configuradas, con la predeterminada marcada, "
+          f"y al final «★ Favoritos»: {names}")
     out = await press("RIGHT")
     names = [it["name"] for it in ctl.overlay.items]
     check(names == ["▶ Reproducir esta carpeta", "Pelis", "Series"], f"▶ entra: primero reproducir, después subcarpetas (sin ocultas): {names}")
@@ -953,6 +956,24 @@ async def main() -> int:
                                                                            ("file", "peli")],
               f"OK no arranca nada: abre la predeterminada, con subcarpetas y videos (sin «Reproducir»): {kinds}")
         check(ctl.overlay.items[2]["sub"] == "3 MB · con subtítulos", f"el video dice tamaño y subtítulos: {ctl.overlay.items[2]}")
+        await press("DOWN", "DOWN")
+        out = await press("NUMBER1")
+        vact = ctl.activities["videos"]
+        check(vact.favorites() == [str(usb / "peli.mkv")] and ctl.overlay.items[ctl._menu_sel]["name"] == "★ peli"
+              and ctl._menu_sel == 2 and not opened(out), f"1 sobre un video lo guarda en Favoritos (★ adelante): "
+              f"{vact.favorites()} {ctl.overlay.items[ctl._menu_sel]}")
+        from tele_cec.apps.videos import FAVORITES_DIR
+        roots = ctl._picker_entries("videos", None)[1]
+        check(roots[-1]["name"] == "★ Favoritos" and roots[-1]["sub"] == "1 video guardado con 1",
+              f"en las carpetas, «★ Favoritos» dice cuántos hay: {roots[-1]}")
+        title, favs = ctl._picker_entries("videos", FAVORITES_DIR)
+        check(title == "Videos · ★ Favoritos" and [(it["kind"], it["path"]) for it in favs] == [("file", str(usb / "peli.mkv"))],
+              f"adentro, los guardados: {title} {favs}")
+        out = await press("NUMBER1")
+        check(vact.favorites() == [] and ctl.overlay.items[ctl._menu_sel]["name"] == "peli",
+              f"1 otra vez lo saca: {ctl.overlay.items[ctl._menu_sel]}")
+        check(ctl._picker_entries("videos", FAVORITES_DIR)[1][0]["kind"] == "empty", "sin favoritos, lo dice")
+        await press("UP", "UP")
         out = await press("LEFT")
         check(ctl._menu_mode == "folders" and ctl.overlay.items[0]["sub"] == "predeterminada" and ctl._menu_sel == 0,
               f"◀ sube a las carpetas configuradas (hay dos): {[it['name'] for it in ctl.overlay.items]}")

@@ -36,6 +36,7 @@ from typing import Any
 from ..system.keyboard import xdotool_key
 from ..system.procs import DATA_DIR, LOG_DIR, find_pids, run_cmd
 from . import photodates
+from .favorites import FavoritesMixin
 from .folders import IMAGE_EXT, VIDEO_EXT, describe_folder, scan_media
 from .media import MediaActivity
 from .mpv import SCRIPTS, Mpv, base_args, mpv_pids
@@ -67,7 +68,7 @@ def is_video(path: str) -> bool:
 log = logging.getLogger("actividades")
 
 
-class PhotosActivity(MediaActivity):
+class PhotosActivity(FavoritesMixin, MediaActivity):
     """Presentación con feh. Con ▲ se hace zoom: la presentación se pausa y las flechas recorren la foto."""
 
     id = "fotos"
@@ -107,57 +108,11 @@ class PhotosActivity(MediaActivity):
         self._show_year = False     # «Un día como hoy»: el año de cada foto en una esquina
         self.show_date = self._load_show_date()   # la fecha de cada foto en una esquina (CC en el control)
         self._corner_path = ""      # de qué foto es lo que dice la esquina
-        self._favorites: list[str] | None = None   # las guardadas con 1 (se leen la primera vez que hacen falta)
+        self._favorites: list[str] | None = None   # las guardadas con 1 (ver favorites.py)
         self.reset_view()
 
-    # ------------------------------------------------------------ favoritas (1 en el control)
-    def favorites_file(self) -> Path:
+    def favorites_file(self) -> Path:  # las favoritas (1 en el control): ver favorites.py
         return DATA_DIR / FAVORITES_FILE
-
-    def favorites(self) -> list[str]:
-        """Las rutas guardadas, en el orden en que se guardaron (sin repetidas)."""
-        if self._favorites is None:
-            try:
-                lines = self.favorites_file().read_text("utf-8").splitlines()
-            except OSError:
-                lines = []
-            self._favorites = list(dict.fromkeys(ln.strip() for ln in lines if ln.strip()))
-        return list(self._favorites)
-
-    def _save_favorites(self) -> bool:
-        f = self.favorites_file()
-        try:
-            f.parent.mkdir(parents=True, exist_ok=True)
-            tmp = f.with_suffix(".tmp")
-            tmp.write_text("".join(p + "\n" for p in self._favorites or []), "utf-8")
-            tmp.replace(f)
-        except OSError as exc:
-            log.warning("Fotos: no pude guardar las favoritas (%s)", exc)
-            return False
-        return True
-
-    def is_favorite(self, path: str) -> bool:
-        return path in self.favorites()
-
-    def toggle_favorite(self, path: str) -> bool | None:
-        """Guarda la foto en Favoritas (True) o la saca si ya estaba (False); None si no se pudo guardar."""
-        favs = self.favorites()
-        if path in favs:
-            favs.remove(path)
-            added = False
-        else:
-            favs.append(path)
-            added = True
-        self._favorites = favs
-        if not self._save_favorites():
-            return None
-        log.info("Fotos: %s %s (%d favoritas)", "guardo" if added else "saco de Favoritas", os.path.basename(path),
-                 len(favs))
-        return added
-
-    def favorite_files(self, folder: Path | None = None) -> list[str]:
-        """Las favoritas que todavía existen (de todas las carpetas, no solo de esta: son pocas y van juntas)."""
-        return [p for p in self.favorites() if os.path.isfile(p)]
 
     # ------------------------------------------------------------ la fecha en la esquina
     def _show_date_file(self) -> Path:

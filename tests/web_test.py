@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import urllib.parse
 import json
 import sys
 import time
@@ -1344,6 +1345,27 @@ async def main() -> int:
         check(json.loads(body) == {"ok": True, "gone": True} and not (resume_mod.WATCH_DIR / "X2").exists()
               and json.loads(other)["ok"] is False,
               f"✕ en el celular: lo quita de «Seguir viendo» sin abrirlo (solo de las carpetas de Videos): {body} {other}")
+        from tele_cec.apps import videos as videos_mod
+        real_vdata, videos_mod.DATA_DIR = videos_mod.DATA_DIR, tmp / "datos-videos"
+        vact = ctl.activities["videos"]
+        vact._favorites = None
+        try:
+            _, _, body = await http(port, "POST", "/api/videos/favorite", {"path": peli}, H)
+            _, _, other = await http(port, "POST", "/api/videos/favorite", {"path": "/etc/passwd"}, H)
+            check(json.loads(body)["added"] is True and vact.favorites() == [peli] and json.loads(other)["ok"] is False,
+                  f"☆ en el celular: guarda el video en Favoritos (solo de las carpetas de Videos): {body} {other}")
+            _, _, body = await http(port, "GET", f"/api/folders?app=videos&path={tmp / 'Vacaciones'}")
+            r = json.loads(body)
+            f = next(i for i in r["items"] if i["kind"] == "file")
+            check(r["favs"] and f["fav"] and f["name"] == "★ peli", f"y la lista lo marca: {f}")
+            _, _, body = await http(port, "GET", "/api/folders?app=videos&path=" + urllib.parse.quote("★ Favoritos"))
+            r = json.loads(body)
+            check([(i["kind"], i["path"]) for i in r["items"]] == [("file", peli)], f"«★ Favoritos» en el celular: {r}")
+            _, _, body = await http(port, "POST", "/api/videos/favorite", {"path": peli}, H)
+            check(json.loads(body)["added"] is False and vact.favorites() == [], f"otra vez lo saca: {body}")
+        finally:
+            videos_mod.DATA_DIR = real_vdata
+            vact._favorites = None
         (tmp / "Vacaciones" / "nota.txt").write_text("")
         (outside / "otra.mp4").write_bytes(b"x")
         for bad in (tmp / "Vacaciones" / "nota.txt", outside / "otra.mp4"):

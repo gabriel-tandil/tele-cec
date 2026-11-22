@@ -25,6 +25,7 @@ MENU_HINT = "▲ ▼ elegir · OK abrir · ▶ más opciones (Videos, Fotos, Rad
 GRID_HINT = "▲ ▼ ◀ ▶ moverse · OK abrir · Atrás cerrar · • (punto) ayuda, en cualquier app"
 FOLDER_HINT = "▲ ▼ elegir · OK abrir · ◀ volver"
 RESUME_HINT = FOLDER_HINT + " · rojo quitar de «Seguir viendo»"  # si hay alguno a la mitad en la lista
+FAV_HINT = " · 1 ★ favorito"   # Videos: si hay videos en la lista, el 1 guarda (o saca) el resaltado
 SOUND_HINT = "▲ ▼ elegir · Volumen y temporizador: ◀ ▶ cambiar · OK usar esa salida · Atrás volver"
 RADIO_HINT = "▲ ▼ o 1 – 9 elegir · OK escuchar · Atrás volver"
 SITES_HINT = "▲ ▼ elegir · OK abrir · 1 sacar de la lista · Atrás volver"
@@ -104,6 +105,7 @@ def _file_items(folder: Path, act: activities_mod.MediaActivity, files: list[Pat
     except OSError:
         subs = []
     left = resume.positions()  # Seguir viendo: los que quedaron a la mitad
+    favs = set(act.favorites()) if isinstance(act, activities_mod.VideosActivity) else set()
     out = []
     for f in files:
         meta = infos.get(str(f)) or {}
@@ -120,8 +122,31 @@ def _file_items(folder: Path, act: activities_mod.MediaActivity, files: list[Pat
         stem = f.stem.lower()
         if meta.get("subs") or any(s.startswith(stem) for s in subs):  # adentro, o «peli.srt», «peli.es.srt»…
             info.append("con subtítulos")
-        out.append({"kind": "file", "path": str(f), "name": _video_name(act, f, meta), "icon": "video-x-generic",
-                    "sub": " · ".join(info), "enabled": True, "current": False, **({"resume": pos} if pos else {})})
+        fav = str(f) in favs
+        out.append({"kind": "file", "path": str(f), "name": ("★ " if fav else "") + _video_name(act, f, meta),
+                    "icon": "video-x-generic", "sub": " · ".join(info), "enabled": True, "current": False,
+                    "fav": fav, **({"resume": pos} if pos else {})})
+    return out
+
+
+def _video_favorites_item(act: activities_mod.VideosActivity) -> dict:
+    """«★ Favoritos» en la lista de carpetas de Videos: los guardados con 1 (de todas las carpetas)."""
+    n = len(act.favorite_files())
+    return {"kind": "dir", "path": str(activities_mod.videos.FAVORITES_DIR), "name": "★ Favoritos", "icon": "folder",
+            "sub": _plural(n, act.unit) + (" guardado" if n == 1 else " guardados") + " con 1" if n
+            else "Todavía no hay: 1 guarda el video resaltado",
+            "enabled": True, "current": False}
+
+
+def _video_favorite_items(act: activities_mod.VideosActivity) -> list[dict]:
+    """Adentro de «★ Favoritos»: los videos guardados, en el orden en que se guardaron."""
+    out: list[dict] = []
+    for p in act.favorite_files():
+        out += _file_items(Path(p).parent, act, [Path(p)])
+    if not out:
+        out.append({"kind": "empty", "path": str(activities_mod.videos.FAVORITES_DIR), "name": "Todavía no hay favoritos",
+                    "icon": "folder", "sub": "1 sobre un video (en la lista o mirándolo) lo guarda acá",
+                    "enabled": False, "current": False})
     return out
 
 
@@ -790,6 +815,8 @@ class MenuMixin:
             await self._menu_choose(self._menu_sel)
         elif sub == "pick" and self._menu_mode == "sites":
             await self._sites_number_key(rest)
+        elif sub == "pick" and self._menu_mode == "folders" and await self._picker_number_key(rest):
+            pass
         elif sub == "pick":
             try:
                 await self._menu_choose(int(rest) - 1)
@@ -804,6 +831,8 @@ class MenuMixin:
 
     def _picker_title(self, act: activities_mod.MediaActivity, path: Path) -> str:
         """«Fotos · En red: fotos-red › 2017 › 07» (las últimas partes, si es muy largo)."""
+        if path == activities_mod.videos.FAVORITES_DIR:
+            return "★ Favoritos"
         for root in act.roots():
             try:
                 rel = path.relative_to(root)
@@ -828,11 +857,15 @@ class MenuMixin:
                               "enabled": True, "current": False})
             if isinstance(act, activities_mod.PhotosActivity) and not act.command and items:
                 items.append(_favorites_item(act, Path(items[0]["path"])))  # las guardadas con 1
+            if isinstance(act, activities_mod.VideosActivity) and not act.command and items:
+                items.append(_video_favorites_item(act))  # los guardados con 1
             if _resume_on(act) and items:
                 found = _in_progress(act, act.roots())
                 _add_watching(items, found)
                 items[:0] = _continue_items(act, found, CONTINUE_MAX_ROOT)  # todos, el más reciente primero
             return f"{act.name} · elegir carpeta", items
+        if path == activities_mod.videos.FAVORITES_DIR and isinstance(act, activities_mod.VideosActivity):
+            return f"{act.name} · ★ Favoritos", _video_favorite_items(act)
         pick = act.pick_files and not act.command  # los archivos, para elegir uno (Videos, Música)
         subfolders = activities_mod.list_subfolders(path)
         files = activities_mod.list_media(path, act.exts, limit=None)  # los de acá (sin las subcarpetas)
@@ -920,7 +953,37 @@ class MenuMixin:
         return True
 
     def _picker_hint(self) -> str:
-        return RESUME_HINT if any(it.get("resume") or it["kind"] == "resume" for it in self._menu_items) else FOLDER_HINT
+        hint = RESUME_HINT if any(it.get("resume") or it["kind"] == "resume" for it in self._menu_items) else FOLDER_HINT
+        if self._picker_act == "videos" and any(it["kind"] == "file" for it in self._menu_items):
+            hint += FAV_HINT
+        return hint
+
+    async def _picker_number_key(self, n: str) -> bool:
+        """Un número en las carpetas de Videos: el 1 (★, como en las otras apps) guarda en Favoritos el video
+        resaltado, o lo saca si ya estaba. False si no es para eso (los demás números siguen eligiendo)."""
+        act = self.activities.get(self._picker_act)
+        if n != "1" or not isinstance(act, activities_mod.VideosActivity) or act.command:
+            return False
+        item = self._menu_items[self._menu_sel] if 0 <= self._menu_sel < len(self._menu_items) else None
+        self._menu_restart_timer()
+        if item is None or item["kind"] not in ("file", "resume", "restart"):
+            await self.overlay.show(self._menu_items, self._menu_sel, title=self._picker_title_text, numbers=False,
+                                    hint="1 guarda en Favoritos un video (esto no es uno) · " + self._picker_hint())
+            return True
+        path = item["path"]
+        added = await asyncio.to_thread(act.toggle_favorite, path)
+        if added is None:
+            note = "No pude guardar la lista de favoritos"
+        else:
+            note = (f"★ Guardé «{Path(path).stem}» en Favoritos" if added
+                    else f"Saqué «{Path(path).stem}» de Favoritos")
+        if item["kind"] in ("resume", "restart"):  # el «¿Seguir desde…?»: se queda ahí
+            await self.overlay.show(self._menu_items, self._menu_sel, title=self._resume_ask_title, numbers=False,
+                                    hint=f"{note} · {RESUME_HINT}")
+            return True
+        await self._picker_show(self._picker_act, self._picker_path, self._menu_sel,
+                                at_file=None if item.get("direct") else path, note=note)
+        return True
 
     async def _resume_delete_key(self) -> None:
         """Rojo sobre un video que quedó a la mitad (su fila, la de «Seguir viendo» o el «¿Seguir desde…?»): la primera

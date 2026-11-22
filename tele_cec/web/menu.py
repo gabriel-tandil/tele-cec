@@ -158,7 +158,9 @@ class MenuWeb:
         if act is None:
             return {"error": "esa app no tiene carpetas"}
         path = None
-        if query.get("path"):
+        if query.get("path") == str(activities_mod.videos.FAVORITES_DIR) and isinstance(act, activities_mod.VideosActivity):
+            path = activities_mod.videos.FAVORITES_DIR  # «★ Favoritos»: los guardados con 1
+        elif query.get("path"):
             path = self.allowed_folder(ident, query["path"])
             if path is None or not path.is_dir():
                 return {"error": "esa carpeta no está entre las configuradas"}
@@ -168,10 +170,12 @@ class MenuWeb:
         if not items:
             return {"error": "No hay carpetas configuradas"}
         return {"title": title, "app": ident, "path": str(path) if path else "",
+                "favs": isinstance(act, activities_mod.VideosActivity) and not act.command,  # ★ en cada video
                 "items": [{"kind": it["kind"], "path": it["path"], "name": it["name"], "sub": it.get("sub", ""),
                            "enabled": bool(it.get("enabled", True)), "mode": it.get("mode") or "",
                            # Seguir viendo: dónde quedó (y si la fila ya es «Seguir viendo», que no pregunta)
-                           "resume": round(it.get("resume") or 0), "direct": bool(it.get("direct"))}
+                           "resume": round(it.get("resume") or 0), "direct": bool(it.get("direct")),
+                           "fav": bool(it.get("fav"))}
                           for it in items]}
 
     # ---------------------------------------------------------------- Radio

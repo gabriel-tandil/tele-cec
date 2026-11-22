@@ -39,6 +39,7 @@ NOTES: dict[str, list[tuple[str, str]]] = {
     "videos": [
         ("Menú › rojo ×2", "Quitar de «Seguir viendo» el video resaltado"),
         ("", "Sin abrirlo · en el celular: la ✕ de «Seguir viendo»"),
+        ("Menú › 1", "★ Favorito el video resaltado (Carpetas › ★ Favoritos)"),
     ],
     "juegos": [
         ("Joystick", "Lo usa el juego (Start, Back = moneda…)"),
@@ -105,7 +106,8 @@ SUB_ACTIONS = {
     "video": {"play_pause": "Play / pausa", "ok": "Play / pausa (buscando: saltar ahí)", "play": "Play",
               "pause": "Pausa", "stop": "Pausa", "next": "Video siguiente", "previous": "Video anterior",
               "subtitles": "Subtítulos", "audio": "Idioma de audio", "aspect": "Proporción de la imagen",
-              "back": "Cerrar y volver al menú (buscando: dejar de buscar)", "info": "Qué es (nombre, por dónde va)"},
+              "back": "Cerrar y volver al menú (buscando: dejar de buscar)", "info": "Qué es (nombre, por dónde va)",
+              "favorite": "★ Guardar el video en Favoritos (otra vez: sacarlo)"},
     "musica": {"play_pause": "Play / pausa", "ok": "Play / pausa (buscando: saltar ahí)", "play": "Play",
                "pause": "Pausa", "stop": "Pausa", "next": "Tema siguiente", "previous": "Tema anterior",
                "shuffle": "Mezclar / volver al orden", "loop": "Repetir: la lista, el tema o nada",

@@ -2,16 +2,27 @@
 
 Seguir viendo: al cerrarlo a la mitad, mpv guarda dónde quedó y la próxima vez sigue desde ahí (resume.py); el menú
 y el celular preguntan si seguir o empezar desde el principio.
+
+Favoritos (1 = ★ en el control): mirando un video, o parado sobre él en la lista, lo guarda en
+~/.local/share/tele-cec/videos-favoritos.txt (otra vez lo saca). En Carpetas está «★ Favoritos» para verlos juntos.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from ..system.procs import DATA_DIR
 from . import resume
+from .favorites import FavoritesMixin
 from .folders import VIDEO_EXT
 from .player import MpvMediaActivity
 
+FAVORITES_FILE = "videos-favoritos.txt"
+# «★ Favoritos» en el selector de carpetas: no es una carpeta de verdad (las configuradas son rutas absolutas).
+FAVORITES_DIR = Path("★ Favoritos")
 
-class VideosActivity(MpvMediaActivity):
+
+class VideosActivity(FavoritesMixin, MpvMediaActivity):
     id = "videos"
     name = "Videos"
     icon = "peliculas.svg"
@@ -26,6 +37,14 @@ class VideosActivity(MpvMediaActivity):
     play_folder = False
     TITLE = "tele-cec videos"
     UNIT = "Video"
+
+    def favorites_file(self) -> Path:
+        return DATA_DIR / FAVORITES_FILE
+
+    async def current_path(self) -> str:
+        """El archivo que se está viendo ("" si no se sabe)."""
+        path = await self.mpv.get("path") if self.running() else None
+        return str(path) if path else ""
 
     SUB_SCALE = 1.15   # tamaño de la letra de los subtítulos (1 = el de mpv)
 

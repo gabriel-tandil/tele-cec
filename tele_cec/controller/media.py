@@ -27,8 +27,27 @@ class MediaMixin:
     # ---------------------------------------------------------------- Videos, Música (mpv) y Fotos
     async def a_video(self, arg: str) -> None:
         """Videos (mpv): video:play_pause (OK: si se está buscando, salta ahí), play, pause, next, previous, stop,
-        seek:+10 (buscar con la barra), volume:+, subtitles, audio, aspect (proporción), back (deja de buscar)."""
-        await self._player_action(self.activities.get("videos"), "video", arg)
+        seek:+10 (buscar con la barra), volume:+, subtitles, audio, aspect (proporción), back (deja de buscar),
+        favorite (★: guardar el video en Favoritos, otra vez lo saca)."""
+        v = self.activities.get("videos")
+        if arg.strip() in ("favorite", "fav") and isinstance(v, activities_mod.VideosActivity) and v.running():
+            await self._video_favorite(v)
+            return
+        await self._player_action(v, "video", arg)
+
+    async def _video_favorite(self, v: activities_mod.VideosActivity) -> None:
+        """1 viendo un video: lo guarda en Favoritos (otra vez lo saca). Se ven desde Carpetas › «★ Favoritos»."""
+        path = await v.current_path()
+        if not path:
+            await self.toast("No sé qué video se está viendo", 2500)
+            return
+        added = await asyncio.to_thread(v.toggle_favorite, path)
+        if added is None:
+            await self.toast("No pude guardar la lista de favoritos", 3000)
+            return
+        n = len(v.favorites())
+        await self.toast(f"★ Guardado en Favoritos ({n}) · 1 otra vez lo saca" if added
+                         else f"Sacado de Favoritos ({n})", 2500)
 
     async def a_musica(self, arg: str) -> None:
         """Música local (mpv): las mismas que video: (play_pause, next, previous, seek:+10, volume:+, audio…), y
