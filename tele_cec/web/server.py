@@ -541,7 +541,7 @@ class WebRemote:
         n = len(act.favorites())
         log.info("Celular: %s %s", "guardo en Favoritas" if added else "saco de Favoritas", Path(info["path"]).name)
         return {"ok": True, "added": added, "count": n,
-                "message": f"♥ Guardada en Favoritas ({n})" if added else f"Sacada de Favoritas ({n})"}
+                "message": f"★ Guardada en Favoritas ({n})" if added else f"Sacada de Favoritas ({n})"}
 
     # ---------------------------------------------------------------- Fotos: bajar al celular
     @property

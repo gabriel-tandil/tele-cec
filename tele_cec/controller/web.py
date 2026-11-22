@@ -224,11 +224,11 @@ class WebMixin:
         elif before >= 0:
             await self.toast(f"Ya estaba guardado: «{w.bookmarks[index]['name']}» (sitio {index + 1})", 2500)
         else:
-            await self.toast(f"♥ Guardado: «{w.bookmarks[index]['name']}» · amarillo, los sitios", 2500)
+            await self.toast(f"★ Guardado: «{w.bookmarks[index]['name']}» · amarillo, los sitios", 2500)
         return index
 
     async def web_fav_toggle(self) -> None:
-        """1 (♥, como en las otras apps): guarda la página que se ve en los sitios; si ya estaba, la saca."""
+        """1 (★, como en las otras apps): guarda la página que se ve en los sitios; si ya estaba, la saca."""
         w = self._web()
         if w is None or not w.running():
             return

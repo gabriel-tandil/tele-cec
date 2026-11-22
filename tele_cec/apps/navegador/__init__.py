@@ -8,7 +8,7 @@ prende el modo mouse: las flechas mueven una flecha dibujada y OK hace un clic d
 marco no alcanza: un «No soy un robot», un video embebido, un menú que se abre al pasar por encima).
 
 La página de inicio es un archivo propio con los sitios guardados en cuadros; el amarillo los muestra en una lista
-desde cualquier página. El 1 (♥, como en las otras apps) guarda la página que se ve, o la saca si ya estaba; en la
+desde cualquier página. El 1 (★, como en las otras apps) guarda la página que se ve, o la saca si ya estaba; en la
 lista, saca el sitio resaltado. Los sitios salen de [apps.navegador] bookmarks hasta que se guarda o se saca uno desde
 la TV: desde ahí la lista vive en ~/.local/share/tele-cec/navegador-sitios.json.
 

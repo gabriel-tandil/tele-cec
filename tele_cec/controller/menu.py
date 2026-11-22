@@ -169,10 +169,10 @@ def _today_item(act: activities_mod.PhotosActivity, path: Path) -> dict | None:
 
 
 def _favorites_item(act: activities_mod.PhotosActivity, path: Path) -> dict:
-    """«♥ Favoritas»: las fotos guardadas con 1 (de todas las carpetas), en el orden en que se guardaron."""
+    """«★ Favoritas»: las fotos guardadas con 1 (de todas las carpetas), en el orden en que se guardaron."""
     files = act.favorite_files()
     item = {"kind": "play", "mode": activities_mod.photos.FAVORITES, "path": str(path), "icon": "media-playback-start",
-            "name": "▶ ♥ Favoritas", "enabled": bool(files), "current": False}
+            "name": "▶ ★ Favoritas", "enabled": bool(files), "current": False}
     if files:
         videos = sum(1 for f in files if activities_mod.photos.is_video(f))
         photos = len(files) - videos
@@ -1142,7 +1142,7 @@ class MenuMixin:
                 await w.navigate(w.home_url())  # la página de inicio, sin el sitio borrado
 
     async def _sites_number_key(self, n: str) -> None:
-        """Un número en la lista de sitios: el 1 (♥, como en las otras apps) saca el sitio resaltado, sin preguntar
+        """Un número en la lista de sitios: el 1 (★, como en las otras apps) saca el sitio resaltado, sin preguntar
         (se vuelve a guardar con 1 en su página), o guarda «Guardar esta página». Los demás no hacen nada."""
         self._sites_delete = None
         item = self._menu_items[self._menu_sel] if 0 <= self._menu_sel < len(self._menu_items) else None

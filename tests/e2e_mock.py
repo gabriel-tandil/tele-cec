@@ -237,7 +237,7 @@ key_echo = true
         check("modal-close" in s["log"], "Atrás cierra el modal (Escape)")
         check(s["cur"] == focused_before, f"y el resaltado vuelve a la tarjeta: {s['cur']!r}")
 
-        print("♥ Mi lista (1)")
+        print("★ Mi lista (1)")
         mylist = "JSON.parse(sessionStorage.getItem('mylist') || '[]')"
         card_href = await ctl.cdp.evaluate("(document.querySelector('.nfx-focused') || document.body).getAttribute('href') || ''")
         card_id = card_href.split("=")[-1].split("/")[-1]
@@ -253,7 +253,7 @@ key_echo = true
         await press("NUMBER1", pause=0.6)
         check(card_id not in await ctl.cdp.evaluate(mylist), "1 con la ficha abierta la saca de Mi lista")
         check(await ctl.cdp.evaluate("!!document.querySelector('[role=dialog][aria-modal=true]:not([style*=none])')"),
-              "y la ficha sigue abierta (no la había abierto ♥)")
+              "y la ficha sigue abierta (no la había abierto ★)")
         await press("EXIT", pause=0.6)
         await press("RIGHT")
         s = await st()

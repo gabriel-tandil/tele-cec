@@ -13,7 +13,7 @@ los tres modos (también con [apps.fotos] shuffle = true); al cambiar de modo co
 La fecha de cada foto en una esquina (CC en el control, con mpv): el día, o el mes, o el año, según lo que se sepa
 (del nombre, de la foto o de las carpetas). Queda prendida o apagada para las próximas veces.
 Favoritas (1 en el control): guarda la foto que se ve en una lista (~/.local/share/tele-cec/fotos-favoritas.txt);
-otra vez la saca. En Carpetas ▸ está «♥ Favoritas» para verlas, y en la esquina se ve un ♥ en las guardadas.
+otra vez la saca. En Carpetas ▸ está «★ Favoritas» para verlas, y en la esquina se ve un ★ en las guardadas.
 Mientras suena un video, la música de Tidal de fondo se pausa (on_video, lo pone el controlador).
 """
 
@@ -42,7 +42,7 @@ from .mpv import SCRIPTS, Mpv, base_args, mpv_pids
 
 MODES = ("photos", "mixed", "videos")   # los que pasa ▼
 TODAY = "today"                          # «Un día como hoy»: las fotos de esta fecha en otros años
-FAVORITES = "favorites"                  # «♥ Favoritas»: las guardadas con 1
+FAVORITES = "favorites"                  # «★ Favoritas»: las guardadas con 1
 ALL_MODES = MODES + (TODAY, FAVORITES)
 FAVORITES_FILE = "fotos-favoritas.txt"   # en ~/.local/share/tele-cec: una ruta por línea, en el orden en que se guardaron
 TODAY_SPREAD = 3        # si no hay de este día exacto: esta semana (± 3 días) en otros años
@@ -471,12 +471,12 @@ class PhotosActivity(MediaActivity):
     async def _update_corner(self, path: str) -> None:
         """La esquina de abajo a la derecha (tele_cec_corner.lua): con la fecha prendida, la de la foto con lo que se
         sepa («sábado 20 de diciembre de 2008 · hace 17 años», «diciembre de 2008», «2008»); en «Un día como hoy»,
-        el año («2014 · hace 11 años»). Si la foto está en Favoritas, un ♥ adelante (aunque la fecha esté apagada); con
+        el año («2014 · hace 11 años»). Si la foto está en Favoritas, un ★ adelante (aunque la fecha esté apagada); con
         la fecha prendida, un globo terráqueo a la derecha si la foto o el video tiene la ubicación (GPS)."""
         self._corner_path = path
-        heart = "♥" if self.is_favorite(path) else ""
+        star = "★" if self.is_favorite(path) else ""
         if not self._corner_on():
-            await self._corner(heart, "")
+            await self._corner(star, "")
             return
         full = await asyncio.to_thread(photodates.dates().date_of, path)
         # Con la fecha prendida, un globito si la foto (o el video) dice dónde se sacó: el verde muestra el mapa.
@@ -486,12 +486,12 @@ class PhotosActivity(MediaActivity):
             return  # ya pasó a otra foto mientras se leía la fecha
         parts = photodates.date_parts(path, full)
         if not parts:
-            await self._corner(heart, "", where)
+            await self._corner(star, "", where)
             return
         if not self.show_date:  # solo «Un día como hoy»: el año
             parts = (parts[0], None, None, parts[3])
         big, ago = photodates.date_text(parts)
-        await self._corner(f"{heart} {big}".strip(), ago, where)
+        await self._corner(f"{star} {big}".strip(), ago, where)
 
     async def _corner(self, big: str, small: str, globe: bool = False) -> None:
         if big or globe:

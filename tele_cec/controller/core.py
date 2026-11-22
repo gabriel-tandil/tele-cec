@@ -18,7 +18,7 @@ REPEATABLE = {"nav", "seek", "volume", "key", "type", "music", "video", "musica"
 # Y algunas del Navegador (no todas: OK mantenido no tiene que abrir el enlace varias veces).
 REPEATABLE_PREFIXES = ("web:nav:", "web:scroll:", "web:key:", "web:mouse:up", "web:mouse:down", "web:mouse:left",
                        "web:mouse:right")
-# Pero estas no, aunque sean de esas apps: mantener ♥ apretado no tiene que poner y sacar el me gusta.
+# Pero estas no, aunque sean de esas apps: mantener ★ apretado no tiene que poner y sacar el me gusta.
 ONCE = {"music:like", "fotos:favorite", "yt:like"}
 # Una repetición (botón mantenido) que esperó más que esto en la cola ya no se ejecuta.
 STALE_REPEAT_S = 0.35

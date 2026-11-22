@@ -11,7 +11,7 @@ log = logging.getLogger("tele")
 
 # Tope de la espera automática a que una fila termine de pasar de página (netflix.page_delay_ms = 0).
 PAGE_WAIT_MAX_MS = 1200
-# ♥ Mi lista: cuánto esperar a la ficha y a su botón (en la Pi la página llega a tardar más de 8 s en contestar).
+# ★ Mi lista: cuánto esperar a la ficha y a su botón (en la Pi la página llega a tardar más de 8 s en contestar).
 MY_LIST_WAIT_S = 15.0
 
 
@@ -218,7 +218,7 @@ class NetflixMixin:
         await self.navigate(self.cfg.netflix.get("my_list_url") or "https://www.netflix.com/browse/my-list")
 
     async def a_my_list_toggle(self, arg: str) -> None:
-        """♥ (1): agrega o quita de Mi lista el título resaltado o el de la ficha abierta."""
+        """★ (1): agrega o quita de Mi lista el título resaltado o el de la ficha abierta."""
         r = await self.js("myList")
         if r.get("none"):
             await self.toast("Mi lista: desde la ficha (viendo un video, todavía no)" if r.get("player")
@@ -285,7 +285,7 @@ class NetflixMixin:
             log.info("Mi lista: Firefox tardó en confirmar el clic (la página está ocupada)")
 
     async def _my_list_close(self, opened: bool) -> None:
-        """Cierra la ficha que abrió ♥ (y el resaltado vuelve a la tarjeta)."""
+        """Cierra la ficha que abrió ★ (y el resaltado vuelve a la tarjeta)."""
         if not opened:
             return
         await self.key("Escape")
@@ -300,7 +300,7 @@ class NetflixMixin:
             return
         name = f"«{title}» " if title and len(title) <= 40 else ""
         log.info("Mi lista: %s%s", name, "agregado" if in_list else "quitado")
-        await self.toast(f"♥ {name}en Mi lista" if in_list else f"{name}fuera de Mi lista" if name
+        await self.toast(f"★ {name}en Mi lista" if in_list else f"{name}fuera de Mi lista" if name
                          else "Fuera de Mi lista", 3000)
 
     async def a_home(self, arg: str) -> None:

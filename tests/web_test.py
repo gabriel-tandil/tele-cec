@@ -981,7 +981,7 @@ async def main() -> int:
             fotos_on[0] = True
             _, _, body = await http(port, "POST", "/api/fotos/favorite", {}, H)
             r = json.loads(body)
-            check(r["ok"] and r["added"] and r["count"] == 1 and r["message"] == "♥ Guardada en Favoritas (1)"
+            check(r["ok"] and r["added"] and r["count"] == 1 and r["message"] == "★ Guardada en Favoritas (1)"
                   and (tmp_r / "datos" / "fotos-favoritas.txt").read_text() == str(tmp_r / "IMG_1.jpg") + "\n", f"la guarda: {r}")
             _, _, body = await http(port, "POST", "/api/fotos/favorite", {}, H)
             r = json.loads(body)

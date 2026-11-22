@@ -882,7 +882,7 @@
     return { navMode: S.navMode };
   }
 
-  // ------------------------------------------------------------ Mi lista (♥)
+  // ------------------------------------------------------------ Mi lista (★)
   // El botón «Mi lista» de la ficha (Agregar a / Quitar de). No el enlace «Mi lista» de la barra de arriba.
   function listButtons(root) {
     return $$(C.my_list, root).filter((e) => !e.hasAttribute('href') && !closest(e, C.header) && !closest(e, 'a[href]')
@@ -894,7 +894,7 @@
     return IN_LIST_RE.test([el.getAttribute('aria-label'), el.getAttribute('data-uia'), el.getAttribute('title'),
       el.textContent].join(' '));
   }
-  // ♥: qué hacer. En la ficha abierta, su botón; sobre una tarjeta, abrir su ficha. (Viendo un video, todavía no:
+  // ★: qué hacer. En la ficha abierta, su botón; sobre una tarjeta, abrir su ficha. (Viendo un video, todavía no:
   // el reproductor no tiene botón de Mi lista.)
   function myList() {
     if (inPlayer()) return { none: true, player: true };

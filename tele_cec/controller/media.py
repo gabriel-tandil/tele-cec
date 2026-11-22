@@ -120,7 +120,7 @@ class MediaMixin:
 
     async def a_yt(self, arg: str) -> None:
         """YouTube para TV: yt:key:<Tecla> (flechas, Return, Escape: la interfaz las entiende de fábrica),
-        yt:play_pause|play|pause (MPRIS), yt:next|previous (Canal ±), yt:seek:+10|-10, yt:subtitles y yt:like (♥, por el canal de control de la página)."""
+        yt:play_pause|play|pause (MPRIS), yt:next|previous (Canal ±), yt:seek:+10|-10, yt:subtitles y yt:like (★, por el canal de control de la página)."""
         y = self.activities.get("youtube")
         if not isinstance(y, activities_mod.YouTubeActivity) or not y.running():
             log.info("YouTube no está abierto: no ejecuto yt:%s", arg)
@@ -284,7 +284,7 @@ class MediaMixin:
             return
         n = len(f.favorites())
         await f.refresh_corner()
-        await self.toast(f"♥ Guardada en Favoritas ({n}) · 1 otra vez la saca" if added
+        await self.toast(f"★ Guardada en Favoritas ({n}) · 1 otra vez la saca" if added
                          else f"Sacada de Favoritas ({n})", 2500)
 
     async def _fotos_map(self, f: activities_mod.PhotosActivity) -> None:

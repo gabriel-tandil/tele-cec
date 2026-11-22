@@ -18,7 +18,7 @@
     --bg: #0b0b0e; --panel: rgba(18, 18, 22, 0.94); --panel-solid: #121216; --line: rgba(255, 255, 255, 0.10);
     --text: #f2f2f2; --muted: rgba(242, 242, 242, 0.72); --faint: rgba(242, 242, 242, 0.5);
     --row-hover: rgba(255, 255, 255, 0.07); --sel-bg: #f2f2f2; --sel-text: #111111;
-    --badge: rgba(255, 255, 255, 0.16); --chip-line: rgba(255, 255, 255, 0.28); --msg: #ffd166; --heart: #f43f5e;
+    --badge: rgba(255, 255, 255, 0.16); --chip-line: rgba(255, 255, 255, 0.28); --msg: #ffd166; --star: #fbbf24;
     --radius: 20px; --mini-h: 68px;
     --dock: 0px;   /* lo que tapa el control remoto abierto (ver remoteSize): lugar abajo para llegar con scroll */
     --fab: 66px;   /* lo mismo con el botoncito redondo que lo abre (control cerrado) */
@@ -155,7 +155,7 @@
   .np-sub { color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .np-from { color: var(--faint); font-size: 12px; margin-top: 2px; }
   .like { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); }
-  .like.on { color: var(--heart); }
+  .like.on { color: var(--star); }
   .seek { position: relative; height: 28px; margin-top: 10px; touch-action: none; cursor: pointer; }
   .seek .tr { position: absolute; left: 0; right: 0; top: 12px; height: 4px; border-radius: 4px; background: rgba(255,255,255,0.14); overflow: hidden; }
   .seek .tr > i { display: block; height: 100%; width: 0; background: var(--text); }
@@ -229,7 +229,7 @@
   .ar.right svg { transform: rotate(-90deg); }
   .rside .fav { color: var(--muted); }
   .rside .fav svg.i { width: 26px; height: 26px; }
-  .rside .fav.on { color: var(--heart); }
+  .rside .fav.on { color: var(--star); }
   .rside .fav.off { opacity: .35; }
   .rcolors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .rcolors .rk { height: 30px; }
@@ -267,8 +267,8 @@
   <symbol id="i-pause" viewBox="0 0 24 24"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></symbol>
   <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M17 3l4 4-4 4V8h-2.6l-2.5 3.2-1.3-1.6L13.4 6H17V3zM3 6h4.6l9.8 12H17v-3l4 4-4 4v-3h-.6L6.6 8H3V6zm0 12h3.6l2.5-3.2 1.3 1.6L7.6 20H3v-2z"/></symbol>
   <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></symbol>
-  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21l-1.5-1.3C5.4 15.1 2 12 2 8.3 2 5.3 4.4 3 7.4 3c1.7 0 3.4.8 4.6 2.1C13.2 3.8 14.9 3 16.6 3 19.6 3 22 5.3 22 8.3c0 3.7-3.4 6.8-8.5 11.4L12 21z"/></symbol>
-  <symbol id="i-heart-o" viewBox="0 0 24 24"><path d="M16.6 3c-1.7 0-3.4.8-4.6 2.1C10.8 3.8 9.1 3 7.4 3 4.4 3 2 5.3 2 8.3c0 3.7 3.4 6.8 8.5 11.4L12 21l1.5-1.3C18.6 15.1 22 12 22 8.3 22 5.3 19.6 3 16.6 3zm-4.5 15.2l-.1.1-.1-.1C7.1 14 4 11.2 4 8.3 4 6.3 5.5 4.9 7.4 4.9c1.5 0 3 1 3.5 2.3h2.2c.5-1.3 2-2.3 3.5-2.3 1.9 0 3.4 1.4 3.4 3.4 0 2.9-3.1 5.7-7.9 9.9z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z"/></symbol>
+  <symbol id="i-star-o" viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M4.6 8.6L12 16l7.4-7.4-1.4-1.4-6 6-6-6z"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15.4 4.6L8 12l7.4 7.4 1.4-1.4-6-6 6-6z"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V6z"/></symbol>
@@ -323,7 +323,7 @@
   </form>
   <div class="rmid">
     <div class="rside">
-      <button class="rk fav off" id="rFav" aria-label="Favoritos"><svg class="i"><use href="#i-heart-o"/></svg></button>
+      <button class="rk fav off" id="rFav" aria-label="Favoritos"><svg class="i"><use href="#i-star-o"/></svg></button>
       <span></span>
       <button class="rk" data-key="NUMBER0" aria-label="Cero (en Tidal y en un video de Netflix: cambia lo que hacen las flechas)">0</button>
     </div>
@@ -648,7 +648,7 @@ function tapActivity(it) {
     if (it.option) options.push([it.chip, () => openOption(it)]);
     if (it.id === "fotos") {
       options.push(["⤓ Bajar al celular lo que se ve", photoSheet]);
-      options.push(["♥ Guardar esta foto en Favoritas", async () => {
+      options.push(["★ Guardar esta foto en Favoritas", async () => {
         const r = await post("/api/fotos/favorite", {});
         if (r.ok) toast(r.message);
       }]);
@@ -1420,7 +1420,7 @@ $("miniPP").addEventListener("click", (ev) => { ev.stopPropagation(); buzz(); me
 $("miniNext").addEventListener("click", (ev) => { ev.stopPropagation(); buzz(); media("next"); });
 $("mini").addEventListener("click", () => openPlayer());
 
-// El reproductor grande: tapa, barra (tocar o arrastrar), ⏮ ⏯ ⏭, aleatorio, repetir, ♥ y volumen.
+// El reproductor grande: tapa, barra (tocar o arrastrar), ⏮ ⏯ ⏭, aleatorio, repetir, ★ y volumen.
 const player = {};
 function openPlayer() {
   if (!state || !state.now || player.close) return;
@@ -1431,7 +1431,7 @@ function openPlayer() {
     const title = el("div", "np-title"), sub = el("div", "np-sub"), from = el("div", "np-from");
     tx.append(title, sub, from);
     const like = el("button", "like");
-    like.appendChild(svg("heart-o"));
+    like.appendChild(svg("star-o"));
     like.addEventListener("click", async () => { buzz(); const r = await media("like"); if (r && r.ok) { state.now.liked = !state.now.liked; player.update(); } });
     head.append(tx, like);
     const seek = el("div", "seek");
@@ -1485,7 +1485,7 @@ function openPlayer() {
       setIcon(pp, n.status === "Playing" ? "pause" : "play");
       like.hidden = !(n.tidal && n.liked != null);
       like.classList.toggle("on", !!n.liked);
-      setIcon(like, n.liked ? "heart" : "heart-o");
+      setIcon(like, n.liked ? "star" : "star-o");
       shuf.style.visibility = n.shuffle == null ? "hidden" : "";
       shuf.classList.toggle("on", !!n.shuffle);
       loop.style.visibility = n.loop ? "" : "hidden";
@@ -1755,7 +1755,7 @@ fsVeil();
 // cierra con ⌄; solo, al elegir en la TV una
 // actividad que se maneja con flechas ([web] remote_apps: Netflix, YouTube, Tidal…). Si se cierra a mano, no vuelve
 // a abrirse solo hasta que cambie la actividad; y si se abrió solo, se cierra solo al pasar a otra que no lo usa.
-// ♥: me gusta en Tidal y YouTube, Favoritas en Fotos, Mi lista en Netflix, guardar el sitio en el Navegador (como el 1 del control).
+// ★: me gusta en Tidal y YouTube, Favoritas en Fotos, Mi lista en Netflix, guardar el sitio en el Navegador (como el 1 del control).
 const FAV_APPS = ["tidal", "fotos", "netflix", "youtube", "navegador"];
 const REMOTE = {open: false, auto: false, app: undefined};
 function remoteSize() {
@@ -1779,11 +1779,11 @@ function remoteAuto() {
   if (!state.text && !$("rText").hidden) remoteText(false);
   const app = (state.app && state.app.id) || "";
   $("rGet").hidden = app !== "fotos";
-  // ♥: «Me gusta» del tema en Tidal, o la foto a Favoritas (como el 1 del control, que en otras apps es otra cosa).
+  // ★: «Me gusta» del tema en Tidal, o la foto a Favoritas (como el 1 del control, que en otras apps es otra cosa).
   const fav = $("rFav"), liked = app === "tidal" && !!(state.now && state.now.tidal && state.now.liked);
   fav.classList.toggle("off", !FAV_APPS.includes(app));  // en las demás no hace nada: apagado
   fav.classList.toggle("on", liked);
-  setIcon(fav, liked ? "heart" : "heart-o");
+  setIcon(fav, liked ? "star" : "star-o");
   if (app === REMOTE.app) return;
   REMOTE.app = app;
   if (state.remote && !REMOTE.open) remoteShow(true, true);
@@ -1825,7 +1825,7 @@ $("rFav").addEventListener("click", async () => {
   const app = state && state.app && state.app.id;
   if (app === "fotos") { await post("/api/fotos/favorite", {}); return; }
   if (app === "netflix" || app === "youtube" || app === "navegador") { remoteKey("NUMBER1"); return; }
-  if (app !== "tidal") { toast("♥ es para Netflix (Mi lista), YouTube y Tidal (me gusta), Fotos (Favoritas) y el Navegador (sitios)"); return; }
+  if (app !== "tidal") { toast("★ es para Netflix (Mi lista), YouTube y Tidal (me gusta), Fotos (Favoritas) y el Navegador (sitios)"); return; }
   if (!(state && state.now && state.now.tidal)) { toast("No está sonando nada en Tidal"); return; }
   const r = await media("like");
   if (r && r.ok) { state.now.liked = !state.now.liked; remoteAuto(); if (player.update) player.update(); }
@@ -1833,7 +1833,7 @@ $("rFav").addEventListener("click", async () => {
 // Mantener apretado un botón del control: un cuadrito con qué hace ahora (lo mismo que dice la ayuda de la TV en
 // este contexto). Sin repetición, al soltar no se aprieta; las flechas y Canal ± siguen repitiendo mientras tanto.
 const TIP_NAMES = {CONTENTS_MENU: "Menú", UP: "▲", DOWN: "▼", LEFT: "◀", RIGHT: "▶", SELECT: "OK", EXIT: "Atrás",
-  SUB_PICTURE: "CC", HELP: "?", CHANNEL_UP: "Canal +", CHANNEL_DOWN: "Canal −", NUMBER0: "0", NUMBER1: "♥",
+  SUB_PICTURE: "CC", HELP: "?", CHANNEL_UP: "Canal +", CHANNEL_DOWN: "Canal −", NUMBER0: "0", NUMBER1: "★",
   F2_RED: "Rojo", F4_YELLOW: "Amarillo", F1_BLUE: "Azul", REWIND: "⏪", PAUSE_PLAY_FUNCTION: "⏯", STOP: "■",
   FAST_FORWARD: "⏩"};
 const TIP = {timer: 0, hide: 0, btn: null, x: 0, y: 0, eat: false, help: null, at: 0};

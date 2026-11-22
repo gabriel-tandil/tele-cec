@@ -61,7 +61,7 @@ STEP_JS = """((dir) => {
 })(%d)"""
 
 
-# ♥: el botón «me gusta» de los controles del reproductor (probado con YouTube para TV en Chromium: aparece la
+# ★: el botón «me gusta» de los controles del reproductor (probado con YouTube para TV en Chromium: aparece la
 # primera vez que se muestran los controles y después queda, oculto y midiendo 0; aria-pressed dice si ya está). Responde a un clic «real»
 # (por el canal de control), no a element.click().
 LIKE_JS = """(() => {
@@ -261,7 +261,7 @@ class YouTubeActivity(ProcActivity):
                 await page.close()
 
     async def like(self) -> str:
-        """♥: me gusta en el video que se está viendo (otra vez: sacarlo). Devuelve el aviso para la pantalla."""
+        """★: me gusta en el video que se está viendo (otra vez: sacarlo). Devuelve el aviso para la pantalla."""
         async def state(page: Any) -> dict:
             raw = await page.evaluate(LIKE_JS)
             try:
@@ -272,8 +272,8 @@ class YouTubeActivity(ProcActivity):
             async with self._session() as page:
                 r = await state(page)
                 if r.get("error") == "nowatch":
-                    log.info("YouTube: ♥ sin video (%s)", r)
-                    return "♥ en YouTube: con un video puesto"
+                    log.info("YouTube: ★ sin video (%s)", r)
+                    return "★ en YouTube: con un video puesto"
                 if not r.get("shown"):
                     # Con los controles ocultos el botón no se ve (y antes de mostrarlos por primera vez, ni
                     # existe): una flecha los muestra, sin hacer nada más.
@@ -284,7 +284,7 @@ class YouTubeActivity(ProcActivity):
                         if r.get("shown"):
                             break
                 if not r.get("shown"):
-                    log.info("YouTube: ♥ no pude mostrar los controles (%s)", r)
+                    log.info("YouTube: ★ no pude mostrar los controles (%s)", r)
                     return "No pude mostrar el botón «me gusta»"
                 was = bool(r.get("pressed"))
                 await page.mouse_click(float(r["x"]), float(r["y"]))
@@ -298,8 +298,8 @@ class YouTubeActivity(ProcActivity):
                     if now != was:
                         break
         except NotConnected as exc:
-            log.info("YouTube: sin canal de control para ♥ (%s)", exc)
-            return "Para ♥, cerrá YouTube y abrilo de nuevo"
+            log.info("YouTube: sin canal de control para ★ (%s)", exc)
+            return "Para ★, cerrá YouTube y abrilo de nuevo"
         except (cdp.CDPError, OSError, asyncio.TimeoutError, KeyError, ValueError) as exc:
             log.warning("YouTube: no pude poner me gusta: %s", exc)
             return "No pude poner «me gusta»"
@@ -307,7 +307,7 @@ class YouTubeActivity(ProcActivity):
         if now == was:
             # Sin cuenta, YouTube muestra «Agregá tu cuenta de Google» en vez de marcarlo.
             return "No cambió «me gusta» (¿YouTube tiene la sesión iniciada?)"
-        return "♥ Me gusta" if now else "Sin «me gusta»"
+        return "★ Me gusta" if now else "Sin «me gusta»"
 
     async def step(self, direction: int) -> bool:
         """Canal ±: el video siguiente (1) o el anterior (-1). Por el reproductor; si no hay canal, por MPRIS."""

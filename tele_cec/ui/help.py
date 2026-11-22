@@ -84,7 +84,7 @@ ACTIONS = {
     "nav": "Moverse", "ok": "Abrir / elegir (la 1.ª vez muestra el resaltado)", "back": "Volver · cerrar ficha o menú",
     "smart_skip": "Saltar intro o resumen · siguiente episodio", "continue_watching": "Seguir viendo",
     "profiles": "¿Quién está viendo?", "profile": "Elegir perfil", "home": "Ir al inicio", "my_list": "Mi lista",
-    "my_list_toggle": "♥ Agregar o quitar de Mi lista (el título resaltado o la ficha)",
+    "my_list_toggle": "★ Agregar o quitar de Mi lista (el título resaltado o la ficha)",
     "pause": "Pausa", "mute": "Silencio", "subtitles": "Subtítulos", "audio": "Idioma de audio",
     "next_episode": "Siguiente episodio", "nav_mode": "Recorrer los controles con las flechas",
     "type": "Escribir el número", "fullscreen": "Pantalla completa", "launch": "Abrir Netflix", "reload": "Recargar",
@@ -118,7 +118,7 @@ SUB_ACTIONS = {
             "play_pause": "Play / pausa del video de la página", "play": "Play", "pause": "Pausa",
             "sites": "Los sitios guardados (ahí, 1 saca el resaltado)", "site": "Ese sitio de la lista",
             "url": "Abrir esa dirección", "save": "Guardar esta página en los sitios",
-            "fav": "♥ Guardar esta página en los sitios (otra vez: sacarla)"},
+            "fav": "★ Guardar esta página en los sitios (otra vez: sacarla)"},
     "radio": {"play_pause": "Pausa / seguir (después de un rato: en vivo otra vez)", "ok": "Pausa / seguir",
               "play": "Seguir", "pause": "Pausa", "stop": "Pausa", "next": "Radio siguiente",
               "previous": "Radio anterior", "station": "Esa radio de la lista",
@@ -162,7 +162,7 @@ def describe(action: Any, ctx: str, cfg: Config) -> str:
             return _plus_minus("seek", rest or "+")
         return {"play_pause": "Play / pausa", "play": "Play", "pause": "Pausa", "next": "Video siguiente",
                 "previous": "Video anterior", "home": "Inicio de YouTube", "subtitles": "Subtítulos",
-                "like": "♥ Me gusta en el video (otra vez: sacarlo)"}.get(sub, str(action))
+                "like": "★ Me gusta en el video (otra vez: sacarlo)"}.get(sub, str(action))
     if name == "android" and sub == "key":
         if rest.isdigit():
             return "Escribir el número (p. ej. el PIN)"

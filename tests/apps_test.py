@@ -531,11 +531,11 @@ async def main() -> int:
     check(ctl.cfg.action_for("browse", parse_key("NUMBER1"))[0] == "my_list_toggle"
           and ctl.cfg.action_for("player", parse_key("NUMBER1"))[0] == "my_list_toggle"
           and ctl.cfg.action_for("player_menu", parse_key("NUMBER1"))[0] == "my_list_toggle",
-          "Netflix: 1 = ♥ Mi lista en el inicio, en una ficha y viendo un video")
+          "Netflix: 1 = ★ Mi lista en el inicio, en una ficha y viendo un video")
     check(ctl.cfg.action_for("profiles", parse_key("NUMBER1"))[0] == "profile:1"
           and ctl.cfg.action_for("text", parse_key("NUMBER1"))[0] == "type:1",
           "pero en los perfiles sigue eligiendo el 1, y escribiendo escribe el 1")
-    check(ctl.cfg.action_for("youtube", parse_key("NUMBER1"))[0] == "yt:like", "YouTube: 1 = ♥ me gusta")
+    check(ctl.cfg.action_for("youtube", parse_key("NUMBER1"))[0] == "yt:like", "YouTube: 1 = ★ me gusta")
     check(ctl.cfg.action_for("menu", parse_key("DOT")) == ("menu:help", "menu"),
           "con el menú abierto, el punto (•) abre la ayuda (muchas TVs no mandan la tecla Ayuda)")
     check(ctl.cfg.action_for("offline", parse_key("EXIT")) == ("menu", "offline"),
@@ -568,7 +568,7 @@ async def main() -> int:
     out = await press("SELECT", "FORWARD", "BACKWARD", "UP", "DOWN", "NUMBER1", "F1_BLUE")
     check(out == ["mpris:play-pause", "mpris:next", "mpris:previous", "mpris:volume+", "mpris:volume-",
                   "like", "ov:toast:Volver a Volver\nGabo Ferro · Mancha de Rolando\n1:02 de 3:40 · en pausa"],
-          f"OK, ⏭, ⏮, ▲, ▼, 1 (♥ me gusta), azul (qué suena): {out}")
+          f"OK, ⏭, ⏮, ▲, ▼, 1 (★ me gusta), azul (qué suena): {out}")
     out = await press("CHANNEL_UP", "CHANNEL_DOWN", "RIGHT", "LEFT", "FAST_FORWARD", "REWIND")
     check(out == ["mpris:next", "mpris:previous", "mpris:seek+10", "mpris:seek-10", "mpris:seek+60", "mpris:seek-60"],
           f"Canal ± = tema, ◀ ▶ = 10 s, ⏪ ⏩ = 1 min (como en Música y Videos): {out}")
@@ -594,9 +594,9 @@ async def main() -> int:
           f"en modo navegación: flechas, OK y Atrás van tal cual a la app (sin seguir el foco): {out}")
     out = await press("FORWARD", "BACKWARD", "CHANNEL_UP", "CHANNEL_DOWN", "NUMBER1")
     check(out == ["mpris:next", "mpris:previous", "mpris:next", "mpris:previous", "like"],
-          f"⏭ ⏮ y Canal ± cambian de tema también recorriendo la interfaz; 1 = ♥ me gusta: {out}")
+          f"⏭ ⏮ y Canal ± cambian de tema también recorriendo la interfaz; 1 = ★ me gusta: {out}")
     out = await press("NUMBER4", "NUMBER2")
-    check(out == ["go:collection", "go:home"], f"4 = Colección, 2 = Inicio (el 1 es ♥): {out}")
+    check(out == ["go:collection", "go:home"], f"4 = Colección, 2 = Inicio (el 1 es ★): {out}")
     out = await press("ROOT_MENU")
     check(await ctl.context() == "menu", "Menú también se abre en el modo navegación")
     await press("EXIT")
@@ -655,7 +655,7 @@ async def main() -> int:
           "en Fotos y en la Radio, Atrás cierra y vuelve al menú (como ■)")
     check(fotos.paused, "queda en pausa")
     out = await press("NUMBER1")
-    check(out == ["ov:toast:♥ Guardada en Favoritas (1) · 1 otra vez la saca"]
+    check(out == ["ov:toast:★ Guardada en Favoritas (1) · 1 otra vez la saca"]
           and fotos.favorites() == ["/mnt/fotos-red/2017/07/IMG_0001.jpg"],
           f"1 guarda la foto que se ve en Favoritas (también con feh): {out}")
     out = await press("NUMBER1")
@@ -663,7 +663,7 @@ async def main() -> int:
     check(ctl.cfg.action_for("fotos_zoom", parse_key("NUMBER1"))[0] == "fotos:favorite"
           and ctl.cfg.action_for("tidal", parse_key("NUMBER1"))[0] == "music:like"
           and ctl.cfg.action_for("fotos", parse_key("NUMBER2")) is None,
-          "también con zoom; el 1 es ♥ también en Tidal; el 2 queda libre")
+          "también con zoom; el 1 es ★ también en Tidal; el 2 queda libre")
     await press("SELECT")
     fotos.current_folder = Path("/mnt/fotos-red")
     out = await press("F2_RED", "F4_YELLOW", "F1_BLUE")
@@ -1923,7 +1923,7 @@ async def main() -> int:
               f"1 en una página guardada: la saca de los sitios: {out}")
         out = await press("NUMBER1")
         check([b["name"] for b in wf.bookmarks] == ["Wiki", "Clarín", "Una página - El sitio"]
-              and any(x.startswith("ov:toast:♥ Guardado") for x in out), f"1 otra vez: la guarda (♥): {out}")
+              and any(x.startswith("ov:toast:★ Guardado") for x in out), f"1 otra vez: la guarda (★): {out}")
         await ctl.a_web("save")
         check(len(wf.bookmarks) == 3 and log[-1].startswith("ov:toast:Ya estaba guardado"), f"web:save otra vez: ya estaba: {log[-1]}")
         await ctl.a_web("sites")
@@ -3662,12 +3662,12 @@ echo '</mame>'
         ph.show_date = False
         corner.clear()
         await ph._mpv_file(fav)
-        check(corner == [("script-message-to", "tele_cec_corner", "show", "♥", "")],
-              f"en la esquina se ve un ♥ (aunque la fecha esté apagada): {corner}")
+        check(corner == [("script-message-to", "tele_cec_corner", "show", "★", "")],
+              f"en la esquina se ve un ★ (aunque la fecha esté apagada): {corner}")
         ph.show_date = True
         corner.clear()
         await ph.refresh_corner()
-        check(corner and corner[-1][3] == "♥ domingo 15 de noviembre de 2009", f"con la fecha prendida: ♥ y la fecha: {corner}")
+        check(corner and corner[-1][3] == "★ domingo 15 de noviembre de 2009", f"con la fecha prendida: ★ y la fecha: {corner}")
         ph.show_date = False
         corner.clear()
         await ph._mpv_file(str(hoy / "2009" / "11" / "sin_fecha.jpg"))
@@ -3677,10 +3677,10 @@ echo '</mame>'
         check(ph.favorite_files() == [fav, vid], "para verlas: las que existen, en el orden en que se guardaron")
         _, its = ctl._picker_entries("fotos", None)
         row = its[-1]
-        check(row.get("mode") == "favorites" and row["name"] == "▶ ♥ Favoritas" and row["enabled"]
+        check(row.get("mode") == "favorites" and row["name"] == "▶ ★ Favoritas" and row["enabled"]
               and row["sub"] == "1 foto y 1 video guardadas con 1 · otra vez 1 las saca" and row["path"] == its[0]["path"]
               and its[0]["kind"] == "dir",
-              f"en Carpetas ▸ (la lista de carpetas), al final: «♥ Favoritas» con cuántas hay: {row}")
+              f"en Carpetas ▸ (la lista de carpetas), al final: «★ Favoritas» con cuántas hay: {row}")
         _, its = ctl._picker_entries("fotos", hoy)
         check([i.get("mode") for i in its if i.get("mode") in ("today", "favorites")] == ["today", "favorites"],
               "y adentro de la carpeta, después de «Un día como hoy»")
