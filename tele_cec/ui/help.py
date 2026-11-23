@@ -37,11 +37,10 @@ PAGES: list[tuple[str, str]] = [
 # Filas que no son teclas, al final de la página de una app (cómo se usa la primera vez). Una línea cada una.
 NOTES: dict[str, list[tuple[str, str]]] = {
     "videos": [
-        ("Menú › rojo ×2", "Quitar de «Seguir viendo» el video resaltado"),
-        ("", "Sin abrirlo · en el celular: la ✕ de «Seguir viendo»"),
+        ("Menú › rojo ×2", "Quitar de «Seguir viendo» el video resaltado, sin abrirlo"),
         ("Menú › 1", "★ Favorito el video resaltado (Carpetas › ★ Favoritos)"),
         ("Menú › 2–9", "Filtrar la lista como en un teléfono (266 = «amo», «con»…)"),
-        ("", "◀ borra un número · 0 saca el filtro · en el celular: «Filtrar»"),
+        ("", "◀ borra un número · 0 saca el filtro"),
     ],
     "juegos": [
         ("Joystick", "Lo usa el juego (Start, Back = moneda…)"),
