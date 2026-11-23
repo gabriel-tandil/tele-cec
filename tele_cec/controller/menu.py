@@ -303,8 +303,8 @@ class MenuMixin:
         self._picker_act = ""
         self._picker_path: Path | None = None
         self._picker_stack: list[tuple[Path | None, int]] = []
-        # Filtro T9 (números 2–9) de cada carpeta mientras se navega el selector, y la lista entera de la carpeta.
-        self._picker_t9: dict[str, str] = {}
+        # Filtro T9 (números 2–9) de la carpeta que se está viendo (se pierde al salir de ella) y su lista entera.
+        self._picker_t9 = ""
         self._picker_all: list[dict] = []
         # Lista de juegos: si se abrió desde el juego (menú cerrado), Atrás vuelve al juego en vez de al menú.
         self._games_back_closes = False
@@ -814,8 +814,6 @@ class MenuMixin:
                 await self.menu_close()  # se había abierto desde el Navegador (amarillo): seguir ahí
             else:
                 await self.menu_open(self._menu_act_sel)
-        elif sub in ("left", "back") and self._menu_mode == "folders" and self._t9_active():
-            await self._t9_key("del")  # con filtro, ◀ y Atrás borran el último número
         elif sub == "left":
             if self._menu_mode == "folders":
                 await self._picker_back()
@@ -841,7 +839,7 @@ class MenuMixin:
         elif sub == "pick" and self._menu_mode == "folders" and await self._picker_number_key(rest):
             pass
         elif sub == "pick" and self._menu_mode == "folders":
-            await self._t9_key(rest)  # los demás números filtran (T9); el 0 borra el filtro
+            await self._t9_key(rest)  # los demás números filtran (T9); el 0 borra el último
         elif sub == "pick":
             try:
                 await self._menu_choose(int(rest) - 1)
@@ -959,13 +957,14 @@ class MenuMixin:
         archivo `at_file` (las filas «Seguir viendo» de arriba pueden haber cambiado y correr las demás)."""
         title, items = await asyncio.to_thread(self._picker_entries, ident, path)
         self._picker_all = items
-        seq = self._picker_t9.get(str(path), "")
-        if seq and items:
-            shown = t9_filter(items, seq)
+        if self._menu_mode != "folders" or path != self._picker_path:
+            self._picker_t9 = ""  # otra carpeta: el filtro se pierde (se queda solo al volver a mostrar la misma)
+        if self._picker_t9 and items:
+            shown = t9_filter(items, self._picker_t9)
             if shown:
-                items, title = shown, self._t9_title(title, seq)
+                items, title = shown, self._t9_title(title, self._picker_t9)
             else:
-                self._picker_t9.pop(str(path), None)  # ya no queda nada con ese filtro (se borró algo): sin filtro
+                self._picker_t9 = ""  # ya no queda nada con ese filtro (se borró algo): sin filtro
         if came_from is not None:
             sel = next((i for i, it in enumerate(items) if it["kind"] == "dir" and it["path"] == str(came_from)), sel)
         if at_file is not None:
@@ -990,7 +989,7 @@ class MenuMixin:
         if self._picker_act == "videos" and any(it["kind"] == "file" for it in self._menu_items):
             hint += FAV_HINT
         if self._t9_active():
-            hint = hint.replace("◀ volver", "◀ borrar un número · 0 sin filtro")
+            hint += " · 0 borra un número"
         elif not self._t9_asking() and len(self._menu_items) > 1:
             hint += T9_HINT
         return hint
@@ -1001,7 +1000,7 @@ class MenuMixin:
         return any(it["kind"] in ("resume", "restart") for it in self._menu_items)
 
     def _t9_active(self) -> str:
-        return "" if self._t9_asking() else self._picker_t9.get(str(self._picker_path), "")
+        return "" if self._t9_asking() else self._picker_t9
 
     @staticmethod
     def _t9_title(title: str, seq: str) -> str:
@@ -1009,17 +1008,14 @@ class MenuMixin:
 
     async def _t9_key(self, n: str) -> None:
         """Un número en las carpetas: 2–9 suman su letra al filtro (como escribir en un teléfono viejo, una vez por
-        letra: «266» encuentra «Amor», «Bonito»…); «del» borra el último; el 0 lo borra entero. El 1 no hace nada
+        letra: «266» encuentra «Amor», «Bonito»…); el 0 borra el último número. El 1 no hace nada
         (en Videos guarda en Favoritos, ver _picker_number_key)."""
         self._menu_restart_timer()
         if self._t9_asking() or not self._picker_all:
             return
-        key = str(self._picker_path)
-        seq = self._picker_t9.get(key, "")
-        if n == "del":
+        seq = self._picker_t9
+        if n == "0":
             new = seq[:-1]
-        elif n == "0":
-            new = ""
         elif n in T9_KEYS:
             new = seq + n
         else:
@@ -1033,10 +1029,7 @@ class MenuMixin:
                                          + self._picker_hint())
             return
         cur = self._menu_items[self._menu_sel] if 0 <= self._menu_sel < len(self._menu_items) else None
-        if new:
-            self._picker_t9[key] = new
-        else:
-            self._picker_t9.pop(key, None)
+        self._picker_t9 = new
         # Se queda en la misma fila si sigue en la lista; si no, en la primera que coincide.
         sel = next((i for i, it in enumerate(shown) if it is cur), 0)
         base = self._picker_title_text.split(" · filtro: ")[0]
@@ -1106,7 +1099,7 @@ class MenuMixin:
         la lista si hay más de una, o al menú)."""
         self._menu_act_sel = self._menu_sel
         self._picker_stack = []
-        self._picker_t9 = {}
+        self._picker_t9 = ""
         if at_default:
             act = self.activities[ident]
             roots, default = await asyncio.to_thread(lambda: (act.roots(), act.folder()))

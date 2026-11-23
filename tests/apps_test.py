@@ -1434,7 +1434,7 @@ async def main() -> int:
     real_videos = ctl.activities["videos"]
     try:
         ctl.activities["videos"] = activities_mod.VideosActivity({"folders": [str(t9dir)]})
-        ctl._menu_open, ctl._picker_t9 = True, {}
+        ctl._menu_open, ctl._picker_t9, ctl._picker_stack = True, "", []
         await ctl._picker_show("videos", t9dir, 0)
         dirs = lambda: [i["name"] for i in ctl._menu_items if i["kind"] == "dir"]  # noqa: E731
         check("2–9 filtrar" in ctl.overlay.hint, f"la línea de abajo avisa: {ctl.overlay.hint}")
@@ -1450,19 +1450,27 @@ async def main() -> int:
         check(dirs() == ["Amor", "Bonito"], f"266 = «amo», «bon»: {dirs()}")
         await ctl.a_menu("pick:7")
         check(dirs() == ["Amor"], f"2667 = «amor»: {dirs()}")
-        await ctl.a_menu("left")
-        check(dirs() == ["Amor", "Bonito"] and ctl._menu_mode == "folders",
-              "◀ borra el último número (sin salir de la carpeta)")
-        await ctl._picker_show("videos", t9dir, 0)
-        check(dirs() == ["Amor", "Bonito"], "el filtro de la carpeta se mantiene al volver a mostrarla")
+        check("0 borra un número" in ctl.overlay.hint, f"con filtro, la línea de abajo avisa del 0: {ctl.overlay.hint}")
         await ctl.a_menu("pick:0")
-        check(len(dirs()) == 5 and "filtro" not in ctl.overlay.title, "0 saca el filtro")
+        check(dirs() == ["Amor", "Bonito"] and ctl._menu_mode == "folders", "0 borra el último número")
+        await ctl._picker_show("videos", t9dir, 0)
+        check(dirs() == ["Amor", "Bonito"], "al volver a mostrar la misma carpeta, el filtro sigue")
         await ctl.a_menu("pick:1")
-        check(len(dirs()) == 5, "el 1 no filtra")
+        check(dirs() == ["Amor", "Bonito"], "el 1 no filtra")
+        for _ in range(3):
+            await ctl.a_menu("pick:0")
+        check(len(dirs()) == 5 and "filtro" not in ctl.overlay.title and "0 borra" not in ctl.overlay.hint,
+              "borrando todos los números: sin filtro")
+        await ctl.a_menu("pick:9")
+        await ctl._picker_enter(next(i for i, it in enumerate(ctl._menu_items) if it["name"] == "zeta 2"))
+        check(ctl._picker_path == t9dir / "zeta 2" and not ctl._picker_t9, "al entrar a una subcarpeta, sin filtro")
+        await ctl.a_menu("left")
+        check(ctl._picker_path == t9dir and len(dirs()) == 5 and ctl._menu_items[ctl._menu_sel]["name"] == "zeta 2",
+              "◀ vuelve a la carpeta de arriba (no borra números), y el filtro se perdió al salir")
         check(t9_filter([{"kind": "empty", "name": "aaa"}], "2") == [], "la fila «vacía» no queda con un filtro")
     finally:
         ctl.activities["videos"] = real_videos
-        ctl._menu_open, ctl._menu_mode, ctl._picker_stack, ctl._picker_t9 = False, "activities", [], {}
+        ctl._menu_open, ctl._menu_mode, ctl._picker_stack, ctl._picker_t9 = False, "activities", [], ""
 
     print("Fotos: los modos del selector según lo que haya en la carpeta")
     if shutil.which("mpv"):
