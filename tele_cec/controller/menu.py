@@ -989,7 +989,7 @@ class MenuMixin:
         if self._picker_act == "videos" and any(it["kind"] == "file" for it in self._menu_items):
             hint += FAV_HINT
         if self._t9_active():
-            hint += " · 0 borra un número"
+            hint += " · 0 borra una letra"
         elif not self._t9_asking() and len(self._menu_items) > 1:
             hint += T9_HINT
         return hint
@@ -1008,7 +1008,7 @@ class MenuMixin:
 
     async def _t9_key(self, n: str) -> None:
         """Un número en las carpetas: 2–9 suman su letra al filtro (como escribir en un teléfono viejo, una vez por
-        letra: «266» encuentra «Amor», «Bonito»…); el 0 borra el último número. El 1 no hace nada
+        letra: «266» encuentra «Amor», «Bonito»…); el 0 borra la última letra. El 1 no hace nada
         (en Videos guarda en Favoritos, ver _picker_number_key)."""
         self._menu_restart_timer()
         if self._t9_asking() or not self._picker_all:
