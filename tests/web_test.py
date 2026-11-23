@@ -53,6 +53,9 @@ class FakeMusic:
     def running(self):
         return self.on
 
+    def pids(self, fresh=False):
+        return [1] if self.on else []
+
     async def command(self, line, timeout=10.0, wait=0.0):
         self.log.append(("cmd", line))
         if line == "like":
@@ -1177,6 +1180,22 @@ async def main() -> int:
         _, _, body = await http(port, "GET", "/api/tidal/library?what=tracks")
         r = json.loads(body)
         check(r.get("login") and "cuenta" in r["error"], f"sin la sesión de Tidal iniciada lo dice: {r}")
+        from tele_cec.web import tidal as tidal_web
+        real_age, tidal_web._age = tidal_web._age, lambda pids: 2.0   # High Tide recién abierto
+
+        async def entra():
+            await asyncio.sleep(1.5)
+            ctl.music.logged = True
+        try:
+            t0 = time.monotonic()
+            task = asyncio.create_task(entra())
+            _, _, body = await http(port, "GET", "/api/tidal/library?what=tracks")
+            await task
+            r = json.loads(body)
+            check("error" not in r and r["items"] and time.monotonic() - t0 >= 1.4,
+                  f"recién abierto (todavía entrando a la cuenta): espera y contesta la lista: {r}")
+        finally:
+            tidal_web._age = real_age
         ctl.music.logged = True
 
         print("El menú de actividades, como en la TV")

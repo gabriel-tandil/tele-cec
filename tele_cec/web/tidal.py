@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,18 @@ LIBRARIES = {"tracks", "recent", "playlists", "favplaylists", "mixes", "albums",
 LIST_KINDS = {"fav", "album", "playlist", "mix", "artist", "track"}
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")   # ids de Tidal: números o uuid
 OPEN_WAIT_S = 45.0                             # abrir High Tide y entrar a la cuenta
+LOGIN_WAIT_S = 45.0  # recién abierto, High Tide tarda unos segundos en entrar a la cuenta: hasta acá se espera
+
+
+def _age(pids: list[int]) -> float | None:
+    """Hace cuántos segundos arrancó el proceso más nuevo de la lista (None si no se sabe)."""
+    ages = []
+    for pid in pids:
+        try:
+            ages.append(time.time() - os.stat(f"/proc/{pid}").st_ctime)
+        except OSError:
+            continue
+    return min(ages) if ages else None
 
 
 def _int(value: Any, default: int = 0, lo: int = 0, hi: int = 100_000) -> int:
@@ -49,6 +62,8 @@ class TidalWeb:
         if m is None:
             return {"error": "Tidal no está configurado"}
         out = await m.data(line, timeout)
+        if out.get("error") == "login" and await self._wait_login():
+            out = await m.data(line, timeout)  # recién abierto: ya entró a la cuenta
         if out.get("error") == "login":
             out["error"] = "Tidal todavía no entró a la cuenta (mirá la TV)"
             out["login"] = True
@@ -56,6 +71,21 @@ class TidalWeb:
             out["closed"] = True
             out["error"] = "Tidal está cerrado"
         return out
+
+    async def _wait_login(self) -> bool:
+        """High Tide recién abierto (desde el celular o la TV) todavía no entró a la cuenta: espera a que entre, en
+        vez de contestar «mirá la TV» a la página, que pide la lista apenas lo abre. Si lleva un rato abierto y no
+        entró, es que de verdad falta iniciar sesión: no espera."""
+        m = self.music
+        age = _age(m.pids(fresh=True)) if m is not None else None
+        if age is None or age > LOGIN_WAIT_S:
+            return False
+        deadline = time.monotonic() + LOGIN_WAIT_S - age
+        while time.monotonic() < deadline and m.running():
+            await asyncio.sleep(1.0)
+            if "error" not in await m.data("ready", 5):
+                return True
+        return False
 
     async def _ensure_open(self) -> dict[str, Any] | None:
         """Abre Tidal si hace falta y espera a que conteste. None = listo; si no, el error para la página."""
