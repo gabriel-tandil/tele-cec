@@ -1424,6 +1424,46 @@ async def main() -> int:
     finally:
         fileinfo_mod._ffprobe = orig_probe
 
+    print("Carpetas: filtro T9 con los números")
+    from tele_cec.controller.menu import t9_digits, t9_filter
+    check(t9_digits("Ñandú 2") == "626382" and t9_digits("Seguir viendo: Año") == "266",
+          f"T9: sin tildes, ñ = n, números quedan, signos no: {t9_digits('Ñandú 2')}")
+    t9dir = tmp / "t9"
+    for n in ("Amor", "Bonito", "Casa", "Ñandú", "zeta 2"):
+        (t9dir / n).mkdir(parents=True)
+    real_videos = ctl.activities["videos"]
+    try:
+        ctl.activities["videos"] = activities_mod.VideosActivity({"folders": [str(t9dir)]})
+        ctl._menu_open, ctl._picker_t9 = True, {}
+        await ctl._picker_show("videos", t9dir, 0)
+        dirs = lambda: [i["name"] for i in ctl._menu_items if i["kind"] == "dir"]  # noqa: E731
+        check("2–9 filtrar" in ctl.overlay.hint, f"la línea de abajo avisa: {ctl.overlay.hint}")
+        await ctl.a_menu("pick:2")
+        check(sorted(dirs()) == ["Amor", "Bonito", "Casa", "zeta 2", "Ñandú"], f"2 (abc): {dirs()}")
+        await ctl.a_menu("pick:6")
+        check(dirs() == ["Amor", "Bonito", "Ñandú"], f"26 (a/b/c + m/n/o): {dirs()}")
+        check("filtro: abc mno" in ctl.overlay.title, f"el título muestra el filtro: {ctl.overlay.title}")
+        await ctl.a_menu("pick:9")
+        check(dirs() == ["Amor", "Bonito", "Ñandú"] and "Nada con" in ctl.overlay.hint,
+              f"un número sin resultados no se suma: {ctl.overlay.hint}")
+        await ctl.a_menu("pick:6")
+        check(dirs() == ["Amor", "Bonito"], f"266 = «amo», «bon»: {dirs()}")
+        await ctl.a_menu("pick:7")
+        check(dirs() == ["Amor"], f"2667 = «amor»: {dirs()}")
+        await ctl.a_menu("left")
+        check(dirs() == ["Amor", "Bonito"] and ctl._menu_mode == "folders",
+              "◀ borra el último número (sin salir de la carpeta)")
+        await ctl._picker_show("videos", t9dir, 0)
+        check(dirs() == ["Amor", "Bonito"], "el filtro de la carpeta se mantiene al volver a mostrarla")
+        await ctl.a_menu("pick:0")
+        check(len(dirs()) == 5 and "filtro" not in ctl.overlay.title, "0 saca el filtro")
+        await ctl.a_menu("pick:1")
+        check(len(dirs()) == 5, "el 1 no filtra")
+        check(t9_filter([{"kind": "empty", "name": "aaa"}], "2") == [], "la fila «vacía» no queda con un filtro")
+    finally:
+        ctl.activities["videos"] = real_videos
+        ctl._menu_open, ctl._menu_mode, ctl._picker_stack, ctl._picker_t9 = False, "activities", [], {}
+
     print("Fotos: los modos del selector según lo que haya en la carpeta")
     if shutil.which("mpv"):
         fdirs = {k: tmp / "fmodos" / k for k in ("vacia", "solo-video", "fotos")}

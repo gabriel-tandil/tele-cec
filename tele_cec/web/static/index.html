@@ -393,6 +393,9 @@ function setIcon(btn, name) {
   btn.dataset.icon = name;
   btn.querySelector("use").setAttribute("href", "#i-" + name);
 }
+function foldText(s) {  // como fold() del servidor: sin mayúsculas ni tildes
+  return s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+}
 function fmt(s) {
   if (!s || s < 0) return "0:00";
   s = Math.floor(s);
@@ -790,6 +793,7 @@ function folderPage(app, path, atDefault) {
       if (r.error) { body.replaceChildren(note(r.error)); return; }
       retitle(page, r.title);
       const rows = el("div", "rows");
+      const shown = [];  // [fila, texto para filtrar]
       r.items.forEach((f) => {
         const it = {name: f.fav ? f.name.replace(/^★ /, "") : f.name, sub: f.sub, enabled: f.enabled, glyph: f.kind === "dir" || f.kind === "empty" ? "folder" : "play"};
         rows.appendChild(row(it, () => {
@@ -815,8 +819,35 @@ function folderPage(app, path, atDefault) {
           const x = await post("/api/videos/favorite", {path: f.path});
           if (x && x.ok) render();
         }} : {badges: false}));
+        shown.push([rows.lastChild, f.kind === "empty" ? null : foldText(f.name.replace(/^Seguir viendo: /, ""))]);
       });
-      body.replaceChildren(rows);
+      if (r.items.length < 8) { body.replaceChildren(rows); return; }
+      // Filtrar la lista mientras se escribe (sin tildes ni mayúsculas); se mantiene al volver a esta carpeta.
+      const q = el("input");
+      q.type = "search";
+      q.placeholder = "Filtrar";
+      q.enterKeyHint = "done";
+      q.autocomplete = "off";
+      const none = note("Nada con ese nombre en esta carpeta");
+      const apply = () => {
+        page.filter = q.value;
+        const t = foldText(q.value.trim());
+        let any = false;
+        shown.forEach(([e, name]) => {
+          const ok = !t || (name !== null && name.includes(t));
+          e.style.display = ok ? "" : "none";
+          any = any || ok;
+        });
+        none.style.display = any ? "none" : "";
+      };
+      q.addEventListener("input", apply);
+      q.addEventListener("keydown", (e) => { if (e.key === "Enter") q.blur(); });
+      q.value = page.filter || "";
+      const bar = el("div", "bar");
+      bar.style.gridTemplateColumns = "minmax(0, 1fr)";
+      bar.appendChild(q);
+      body.replaceChildren(bar, rows, none);
+      apply();
     },
   };
 }

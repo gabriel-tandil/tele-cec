@@ -40,6 +40,8 @@ NOTES: dict[str, list[tuple[str, str]]] = {
         ("Menú › rojo ×2", "Quitar de «Seguir viendo» el video resaltado"),
         ("", "Sin abrirlo · en el celular: la ✕ de «Seguir viendo»"),
         ("Menú › 1", "★ Favorito el video resaltado (Carpetas › ★ Favoritos)"),
+        ("Menú › 2–9", "Filtrar la lista como en un teléfono (266 = «amo», «con»…)"),
+        ("", "◀ borra un número · 0 saca el filtro · en el celular: «Filtrar»"),
     ],
     "juegos": [
         ("Joystick", "Lo usa el juego (Start, Back = moneda…)"),
