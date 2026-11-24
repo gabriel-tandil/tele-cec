@@ -463,6 +463,7 @@ profile = ""                  # "" = ~/.config/firefox-navegador
 home = ""                     # "" = la página propia con los sitios
 search = "https://www.google.com/search?q={q}"
 scale = 1.5
+site_scale = {}               # { "192.168.0.8" = 1.1 }: esos sitios a otro tamaño (solo Firefox)
 ublock = true                 # copiar el uBlock Origin del Firefox de siempre
 extensions = []               # otros .xpi para copiar al perfil
 bookmarks = [                 # hasta que se guarde o se saque uno desde la TV
@@ -474,6 +475,15 @@ bookmarks = [                 # hasta que se guarde o se saque uno desde la TV
 **OK** hace un clic de verdad (como con un mouse) en un punto que caiga sobre el enlace: el centro, cada renglón si el enlace ocupa dos, o lo de adentro (el título) si algo le tapa el centro. Si aun así el clic no le llegó, le hace uno por script. Mantener apretada una flecha sigue moviendo el marco; mantener OK no abre dos veces.
 
 **Las flechas**, más en detalle: van al enlace o botón cuyo centro queda de ese lado; con ◀ ▶ primero lo que está en la misma fila, y otra fila solo si está del todo a ese lado y cerca (si no, no se mueve: antes, desde el «+» del buscador de Google, ◀ saltaba al pie de la página); con ▲ ▼ se saltea el enlace que va al mismo lugar que el actual (el título y la dirección de un mismo resultado). Si la página pone el foco sola en un campo (Google, al abrir), el marco aparece ahí y los números ya escriben.
+
+**Páginas tipo aplicación** (paneles web como el de aMule, el router o una NAS):
+- **Lo que no entra en la pantalla**: las pestañas de una barra que no entran a lo ancho y las columnas de la derecha de una tabla ancha también se alcanzan con las flechas, y al llegar se corre esa franja para que se vean.
+- **Las filas que se abren con un clic** (`tr.clickable`, `tr[onclick]`, `tr[data-href]`; se cambia con `rows`): ▶ desde la casilla de la fila va a su primera celda con texto, y **OK** la abre (por ejemplo, el detalle de una descarga).
+- **Ordenar**: los títulos de columna que ordenan (`th[aria-sort]`, `th.sortable`) se pueden elegir.
+- **Cuadros encima de la página** (confirmar, comentarios: `dialog`, `[role=dialog]`, `[aria-modal]`, `.modal-overlay`): mientras hay uno abierto, las flechas no salen de él. **Atrás** lo cierra: primero prueba con Escape, después con su botón de cerrar o cancelar, y si no tiene, con un clic en el fondo oscuro.
+- **Campos de números** (`type="number"`, `inputmode="numeric"`): al entrar a escribir pasan solos a **123**. En el campo de texto siguiente vuelve el modo que estaba.
+- **Un tamaño para cada sitio**: un panel armado para una pantalla grande puede no entrar al 150 %. Por ejemplo, en una TV de 1360×768 a la web de aMule le quedan unos 510 px de alto y la tabla de resultados queda sin lugar. `site_scale = { "192.168.0.8" = 1.1 }` pone ese sitio al 110 % y deja los demás en `scale`. La clave es el nombre o la IP tal como aparece en la dirección. Es el zoom por sitio de Firefox (el de Ctrl + y Ctrl −): tele-cec lo escribe en el perfil antes de abrir Firefox, así que un cambio se ve la próxima vez que se abre el Navegador. Si un sitio se saca de la lista, vuelve al tamaño de siempre.
+- **Listas desplegables**: **OK** pasa a la opción siguiente y el cambio se aplica enseguida, así que en una página de configuración conviene fijarse bien antes de apretar OK sobre una.
 
 **Google y el «tráfico inusual»**: Google puede contestar las búsquedas con su página «Nuestros sistemas detectaron tráfico inusual» y un «No soy un robot», porque Firefox avisa que está bajo control remoto (`navigator.webdriver`; en Netflix tele-cec lo oculta, en el Navegador no). Ese captcha está en un iframe, adonde el marco no llega: con el **modo mouse** (CC) se puede tildar. Si pasa seguido, `search = "https://duckduckgo.com/?q={q}"` busca en DuckDuckGo.
 

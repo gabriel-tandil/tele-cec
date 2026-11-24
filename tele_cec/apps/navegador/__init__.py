@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import shutil
+import sqlite3
 import time
 import urllib.parse
 from pathlib import Path
@@ -72,7 +73,9 @@ USER_PROFILES = ("~/.config/mozilla/firefox/*/extensions", "~/.mozilla/firefox/*
 # Enlaces y botones por los que se mueven las flechas, y lo que no (lo invisible lo filtra el script).
 FOCUSABLE = ('a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="tab"], '
              '[role="menuitem"], [role="option"], [role="checkbox"], [role="switch"], [tabindex]:not([tabindex="-1"]), '
-             '[onclick], video[controls]')
+             '[onclick], video[controls], th[aria-sort], th.sortable')
+# Filas de tabla que se abren con un clic (sin enlace adentro): se elige su primera celda con texto.
+ROWS = 'tr.clickable, tr[onclick], tr[data-href]'
 IGNORE = 'input[type="hidden"], [aria-hidden="true"] *, #tcn-go *'
 GO_HINT = "OK ir · Atrás cerrar · 2–9 letras · 0 espacio · 1 signos · rojo borrar · amarillo ABC/123"
 # Preferencias propias del Navegador (además de las de Netflix: ver webprofile.FIREFOX_PREFS).
@@ -100,10 +103,48 @@ NAV_PREFS: dict[str, Any] = {
 def build_nav_script(cfg: dict[str, Any], reduce_effects: bool) -> tuple[str, str]:
     src = NAV_JS.read_text(encoding="utf-8")
     js_cfg = {"focusable": str(cfg.get("focusable") or FOCUSABLE), "ignore": str(cfg.get("ignore") or IGNORE),
+              "rows": str(cfg.get("rows") or ROWS),
               "reduce_effects": reduce_effects, "go_hint": GO_HINT}
     cfg_json = json.dumps(js_cfg, ensure_ascii=False)
     version = hashlib.sha1((src + cfg_json).encode("utf-8")).hexdigest()[:12]
     return src.replace("__NAV_VERSION__", version).replace("__NAV_CONFIG__", cfg_json), version
+
+
+ZOOM_PREF = "browser.content.full-zoom"
+CONTENT_PREFS_SCHEMA = (
+    "CREATE TABLE groups (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+    "CREATE TABLE settings (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+    "CREATE TABLE prefs (id INTEGER PRIMARY KEY, groupID INTEGER REFERENCES groups(id), "
+    "settingID INTEGER NOT NULL REFERENCES settings(id), value BLOB, timestamp INTEGER NOT NULL DEFAULT 0)",
+    "CREATE INDEX groups_idx ON groups(name)",
+    "CREATE INDEX settings_idx ON settings(name)",
+    "CREATE INDEX prefs_idx ON prefs(timestamp, groupID, settingID)",
+)
+
+
+def write_site_zoom(db: Path, want: dict[str, float], drop: set[str]) -> None:
+    """El zoom por sitio de Firefox (content-prefs.sqlite): pone los de `want` y saca los de `drop`. Si el archivo no
+    existe (perfil nuevo), lo crea como lo crea Firefox (esquema 6)."""
+    new = not db.exists()
+    con = sqlite3.connect(db)
+    try:
+        if new:
+            for sql in CONTENT_PREFS_SCHEMA:
+                con.execute(sql)
+            con.execute("PRAGMA user_version = 6")
+        row = con.execute("SELECT id FROM settings WHERE name = ?", (ZOOM_PREF,)).fetchone()
+        sid = row[0] if row else con.execute("INSERT INTO settings(name) VALUES (?)", (ZOOM_PREF,)).lastrowid
+        for host in set(want) | drop:
+            g = con.execute("SELECT id FROM groups WHERE name = ?", (host,)).fetchone()
+            if g:
+                con.execute("DELETE FROM prefs WHERE groupID = ? AND settingID = ?", (g[0], sid))
+            if host in want:
+                gid = g[0] if g else con.execute("INSERT INTO groups(name) VALUES (?)", (host,)).lastrowid
+                con.execute("INSERT INTO prefs(groupID, settingID, value, timestamp) VALUES (?, ?, ?, ?)",
+                            (gid, sid, want[host], int(time.time() * 1000)))
+        con.commit()
+    finally:
+        con.close()
 
 
 def bookmarks_from(cfg: dict[str, Any]) -> list[dict[str, str]]:
@@ -410,6 +451,38 @@ a b{{display:flex;align-items:center;justify-content:center;background:#2a2a33;c
             except OSError as exc:
                 log.warning("Navegador: no pude copiar la extensión %s (%s)", p.name, exc)
 
+    def _site_zoom(self) -> None:
+        """[apps.navegador] site_scale = { "192.168.0.8" = 1.2 }: esos sitios a otro tamaño que `scale` (un panel web
+        armado para una pantalla grande, que al 150 % no entra). Es el zoom por sitio de Firefox (el de Ctrl + y Ctrl −),
+        que se guarda en content-prefs.sqlite del perfil: se escribe con Firefox cerrado, antes de abrirlo. Los que se
+        sacan de la lista vuelven al tamaño de siempre (se anota cuáles puso tele-cec)."""
+        if not self.firefox:
+            if self.cfg.get("site_scale"):
+                log.info("Navegador: site_scale solo anda con Firefox")
+            return
+        want: dict[str, float] = {}
+        for host, val in (self.cfg.get("site_scale") or {}).items():
+            try:
+                z = float(val) / (self.scale or 1.0)
+            except (TypeError, ValueError):
+                log.warning("Navegador: site_scale %s = %r no es un número", host, val)
+                continue
+            if 0.3 <= z <= 3.0:
+                want[str(host).strip().lower()] = round(z, 4)
+        mark = self.profile / "tele-cec-site-scale.json"
+        try:
+            ours = set(json.loads(mark.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            ours = set()
+        if not want and not ours:
+            return
+        try:
+            self.profile.mkdir(parents=True, exist_ok=True)
+            write_site_zoom(self.profile / "content-prefs.sqlite", want, ours - set(want))
+            mark.write_text(json.dumps(sorted(want)), encoding="utf-8")
+        except (OSError, sqlite3.Error) as exc:
+            log.warning("Navegador: no pude guardar el tamaño por sitio (%s)", exc)
+
     async def open(self, url: str | None = None) -> bool:
         """Abre el navegador en esa página (o en la de inicio). Si ya está abierto, solo navega."""
         self.fail_text = ""
@@ -425,6 +498,7 @@ a b{{display:flex;align-items:center;justify-content:center;background:#2a2a33;c
         await asyncio.to_thread(lambda: (t := favicons.ensure([b["url"] for b in self.bookmarks])) and t.join(6))
         await asyncio.to_thread(self.start_page)
         await asyncio.to_thread(self._copy_extensions)
+        await asyncio.to_thread(self._site_zoom)
         if not await self.browser.launch(url):
             self.fail_text = f"No pude abrir {NAMES[self.engine]}"
             return False

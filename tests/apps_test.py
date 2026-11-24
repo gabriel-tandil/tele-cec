@@ -1771,6 +1771,35 @@ async def main() -> int:
     finally:
         nav_mod.USER_PROFILES = real_profiles
 
+    # site_scale: el zoom por sitio de Firefox (content-prefs.sqlite), relativo a scale
+    import sqlite3
+
+    def zooms(prof):
+        con = sqlite3.connect(prof / "content-prefs.sqlite")
+        try:
+            return dict(con.execute("SELECT g.name, p.value FROM prefs p JOIN groups g ON g.id = p.groupID "
+                                    "JOIN settings s ON s.id = p.settingID WHERE s.name = ?", (nav_mod.ZOOM_PREF,)))
+        finally:
+            con.close()
+    wz = nav_mod.WebActivity({"profile": str(tmp / "nav-zoom"), "scale": 1.5,
+                              "site_scale": {"192.168.0.8": 1.2, "NAS.local": "1.5", "malo": "x"}}, {})
+    wz._site_zoom()
+    z = zooms(tmp / "nav-zoom")
+    check(z == {"192.168.0.8": 0.8, "nas.local": 1.0}, f"site_scale: crea content-prefs.sqlite con el zoom de cada sitio (1.2 / 1.5 = 0.8): {z}")
+    wz.cfg["site_scale"] = {"nas.local": 1.0}
+    wz._site_zoom()
+    z = zooms(tmp / "nav-zoom")
+    check(z == {"nas.local": round(1.0 / 1.5, 4)}, f"cambiarlo lo actualiza, y el que se saca de la lista vuelve al de siempre: {z}")
+    con = sqlite3.connect(tmp / "nav-zoom" / "content-prefs.sqlite")
+    con.execute("INSERT INTO groups(name) VALUES ('otro.com')")
+    con.execute("INSERT INTO prefs(groupID, settingID, value) VALUES ((SELECT id FROM groups WHERE name = 'otro.com'), "
+                "(SELECT id FROM settings WHERE name = ?), 1.3)", (nav_mod.ZOOM_PREF,))
+    con.commit()
+    con.close()
+    wz.cfg["site_scale"] = {}
+    wz._site_zoom()
+    check(zooms(tmp / "nav-zoom") == {"otro.com": 1.3}, "sin site_scale saca solo los que puso tele-cec (no los de otro)")
+
     class FakeNavPage:
         """La página con nav.js simulada: anota los comandos y se comporta como un campo de texto."""
 
@@ -1798,8 +1827,9 @@ async def main() -> int:
                     return {"on": False}
             if name == "activate":
                 if self.text_next:
+                    numeric = self.text_next == "numeric"
                     self.ctx, self.text_next = "text", False
-                    return {"text": True, "label": "buscar"}
+                    return {"text": True, "numeric": numeric, "label": "tamaño" if numeric else "buscar"}
                 return {"x": 10, "y": 20, "label": "Link"}
             if name == "type":
                 self.value = (self.value[:-1] if args[1] else self.value) + args[0]
@@ -1926,6 +1956,16 @@ async def main() -> int:
     out = await press("SELECT", "EXIT")
     check(out[-3:] == ["web:submit", "web:key:Enter", "web:ctx"] or "web:key:Enter" in out, f"OK escribiendo = Enter: {out}")
     check(await ctl.context() == "navegador" and "web:back" in out, "Atrás sale del campo")
+    wf.fake.text_next, wf.fake.value = "numeric", ""
+    out = await press("SELECT", "NUMBER2", "NUMBER5")
+    check("ov:toast:" + ctl_web.NUMERIC_HINT in out and wf.t9.mode == "123" and wf.fake.value == "25",
+          f"un campo de números: pasa solo a 123 y los números escriben números: «{wf.fake.value}» {out}")
+    await press("EXIT")
+    wf.fake.text_next, wf.fake.value = True, ""
+    out = await press("SELECT", "NUMBER2")
+    check(wf.t9.mode == "abc" and wf.fake.value == "a" and "ov:toast:" + ctl_web.TEXT_HINT in out,
+          f"y en el siguiente campo de texto vuelve a abc: «{wf.fake.value}» {out}")
+    await press("EXIT")
     out = await press("NUMBER0", "NUMBER3", "NUMBER3", "SELECT")
     check("web:go:" in out and not wf.fake.gobox and out[-1] == "web:navigate:https://www.google.com/search?q=e",
           f"0 abre «Ir a», se escribe con los números y OK busca (o abre la dirección): {out}")

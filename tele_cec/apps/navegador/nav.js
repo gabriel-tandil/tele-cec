@@ -29,7 +29,7 @@
   hideCursor();
   const C = __NAV_CONFIG__;
 
-  const S = { cur: null, lastRect: null, mouse: null, armed: null, raf: 0, ringKey: '', toastTimer: 0, hintTimer: 0, tickTimer: 0, followUntil: 0, listeners: [] };
+  const S = { cur: null, opener: null, lastRect: null, mouse: null, armed: null, raf: 0, ringKey: '', toastTimer: 0, hintTimer: 0, tickTimer: 0, followUntil: 0, listeners: [] };
   function on(target, type, fn, opts) { target.addEventListener(type, fn, opts); S.listeners.push([target, type, fn, opts]); }
 
   // ------------------------------------------------------------ utilidades
@@ -66,7 +66,7 @@
     if (r.width < 4 || r.height < 4) return false;
     if (opts.near !== false && (r.bottom < -vh() * 1.5 || r.top > vh() * 2.5)) return false;
     const visW = Math.min(r.right, vw()) - Math.max(r.left, 0);
-    if (visW < Math.min(r.width, vw()) * 0.6) return false;
+    if (visW < Math.min(r.width, vw()) * 0.6 && !hScroller(el)) return false;
     if (opts.inView) {
       const visH = Math.min(r.bottom, vh()) - Math.max(r.top, 0);
       if (visH < Math.min(r.height, vh()) * 0.5) return false;
@@ -76,10 +76,82 @@
     return cssVisible(el);
   }
 
+  // Una franja con desplazamiento lateral que contiene al elemento y se ve (las pestañas de arriba que no entran, las
+  // columnas de la derecha de una tabla ancha): lo que está corrido afuera también se puede elegir, y al elegirlo se
+  // corre la franja (scrollIntoView en setCur).
+  function hScroller(el) {
+    for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+      if (p.scrollWidth <= p.clientWidth + 4) continue;
+      if (!/(auto|scroll|overlay)/.test(getComputedStyle(p).overflowX)) continue;
+      const pr = p.getBoundingClientRect();
+      if (Math.min(pr.right, vw()) - Math.max(pr.left, 0) < 40) return null;
+      return p;
+    }
+    return null;
+  }
+
+  // ¿Lo tapa el borde de algún contenedor con desplazamiento (una tabla con su propia barra, una franja)?
+  function clipped(el) {
+    const r = el.getBoundingClientRect();
+    for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      if (!/(auto|scroll|overlay)/.test(cs.overflowX + cs.overflowY)) continue;
+      const pr = p.getBoundingClientRect();
+      if (r.left < pr.left - 2 || r.right > pr.right + 2 || r.top < pr.top - 2 || r.bottom > pr.bottom + 2) return true;
+    }
+    return false;
+  }
+
+  // Un cuadro encima de la página (confirmar, comentarios…): las flechas se quedan adentro y Atrás lo cierra.
+  const MODAL_SEL = 'dialog[open], [aria-modal="true"], [role="dialog"], [role="alertdialog"], .modal-overlay, .modal-backdrop';
+  // Un [role=dialog] sin aria-modal cuenta solo si es grande (un chat chico en una esquina no atrapa las flechas), y un
+  // <dialog> solo si es modal (showModal).
+  function isModal(m) {
+    if (closest(m, '#tcn-go') || !cssVisible(m)) return false;
+    const r = m.getBoundingClientRect();
+    if (r.width < 40 || r.height < 20) return false;
+    if (m.tagName === 'DIALOG') { try { return m.matches(':modal'); } catch (e) { return true; } }
+    if (m.getAttribute('aria-modal') === 'true' || matches(m, '.modal-overlay, .modal-backdrop') || overlayOf(m)) return true;
+    const area = Math.max(0, Math.min(r.right, vw()) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, vh()) - Math.max(r.top, 0));
+    return area >= vw() * vh() * 0.2;
+  }
+  // La capa fija que tapa toda la pantalla alrededor de un cuadro (el fondo oscuro): Atrás hace clic ahí si el cuadro
+  // no tiene cómo cerrarse.
+  function overlayOf(m) {
+    for (let p = m.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+      if (getComputedStyle(p).position !== 'fixed') continue;
+      const r = p.getBoundingClientRect();
+      if (r.width >= vw() * 0.9 && r.height >= vh() * 0.9) return p;
+    }
+    return null;
+  }
+  function modal() {
+    const list = $$(MODAL_SEL).filter(isModal);
+    for (let i = list.length - 1; i >= 0; i--) {
+      if ($$(C.focusable, list[i]).some((e) => usable(e, { near: false }))) return overlayOf(list[i]) || list[i];
+    }
+    return null;
+  }
+  const scope = () => modal() || document;
+
+  // Filas que se abren con un clic (el detalle de una descarga): se elige su primera celda con texto, la que no tiene
+  // adentro nada que se pueda elegir (la casilla de la fila sigue siendo aparte).
+  function rowCells(root) {
+    const out = [];
+    for (const tr of $$(C.rows, root)) {
+      for (const td of tr.children) {
+        if (!/^T[DH]$/.test(td.tagName) || $$(C.focusable, td).length || !(td.innerText || '').trim()) continue;
+        if (usable(td)) out.push(td);
+        break;
+      }
+    }
+    return out;
+  }
+
   // Candidatos a foco: solo las «hojas» (si un enlace tiene adentro un botón, se usa el de adentro).
   function candidates(root, opts) {
     root = root || document;
-    const all = $$(C.focusable, root).filter((el) => !matches(el, C.ignore) && usable(el, opts));
+    const all = $$(C.focusable, root).filter((el) => !matches(el, C.ignore) && usable(el, opts)).concat(rowCells(root));
     const set = new Set(all);
     const parents = new Set();
     for (const el of all) {
@@ -237,20 +309,21 @@
     S.cur = el || null;
     if (!el) { hideRing(); return; }
     el.classList.add('tcn-focused');
+    if (scroll !== false && clipped(el)) { try { el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' }); } catch (e) { /* nada */ } }
     if (scroll !== false) scrollToShow(el);
     S.lastRect = R(el);
     showRing();
   }
 
   function initial(cands) {
-    const list = (cands || candidates(document)).filter((e) => usable(e, { inView: true }));
+    const list = (cands || candidates(scope())).filter((e) => usable(e, { inView: true }));
     list.sort((a, b) => { const ra = R(a); const rb = R(b); return (Math.round(ra.t / 40) - Math.round(rb.t / 40)) || (ra.l - rb.l); });
     // Mejor empezar por el contenido que por el menú de arriba: el primero que no esté pegado al borde superior.
     return list.find((e) => R(e).t > vh() * 0.08) || list[0] || null;
   }
 
   function recover() {
-    const cands = candidates(document);
+    const cands = candidates(scope());
     if (S.lastRect && cands.length) {
       const L = S.lastRect; let best = null; let bd = Infinity;
       for (const c of cands) {
@@ -325,8 +398,13 @@
       if (!rec.el || !rec.near) { setCur(rec.el); return { focused: !!rec.el, label: textOf(rec.el) }; }
       setCur(rec.el, false);
     }
+    const sc = scope();
+    if (sc !== document && !sc.contains(S.cur)) {  // se abrió un cuadro encima: empezar adentro
+      S.opener = S.cur; S.lastRect = null; setCur(recover().el); return { focused: !!S.cur, label: textOf(S.cur) };
+    }
+    if (clipped(S.cur)) { try { S.cur.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' }); } catch (e) { /* nada */ } }
     const from = R(S.cur);
-    let best = pick(from, candidates(document), dir);
+    let best = pick(from, candidates(sc), dir);
     if (best) { setCur(best); return { moved: true, label: textOf(best) }; }
     // Nada en esa dirección a la vista: se corre la página y se vuelve a buscar.
     const vertical = dir === 'up' || dir === 'down';
@@ -335,7 +413,7 @@
     if (vertical && window.scrollY !== before) {
       const moved = window.scrollY - before;
       const from2 = { l: from.l, r: from.r, cx: from.cx, t: from.t - moved, b: from.b - moved, cy: from.cy - moved };
-      best = pick(from2, candidates(document), dir);
+      best = pick(from2, candidates(sc), dir);
       if (best) { setCur(best); return { moved: true, scrolled: true, label: textOf(best) }; }
       S.lastRect = null;
       const rec = recover();
@@ -389,6 +467,8 @@
     return { hit: false, fallback: true };
   }
 
+  const isNumeric = (el) => !!el && (el.type === 'number' || el.type === 'tel' || /^(numeric|decimal|tel)$/.test(el.inputMode || ''));
+
   function activate() {
     current();
     if (!S.cur) { const rec = recover(); setCur(rec.el); return { focused: !!rec.el, label: textOf(rec.el) }; }
@@ -397,7 +477,7 @@
       try { el.focus(); } catch (e) { /* nada */ }
       const len = (el.value || '').length;
       try { if (typeof el.setSelectionRange === 'function') el.setSelectionRange(len, len); } catch (e) { /* nada */ }
-      return { text: true, label: textOf(el) || el.placeholder || '' };
+      return { text: true, numeric: isNumeric(el), label: textOf(el) || el.placeholder || '' };
     }
     if (matches(el, 'select')) {  // la lista desplegable no se puede abrir por script: pasar a la opción siguiente
       el.selectedIndex = (el.selectedIndex + 1) % Math.max(1, el.options.length);
@@ -412,11 +492,39 @@
     if (a && isGoBox(a)) { closeGo(); return { done: 'go_closed' }; }
     if (a && a !== document.body && matches(a, TEXT_SEL)) { a.blur(); return { done: 'blur' }; }
     if (document.fullscreenElement) { try { document.exitFullscreen(); } catch (e) { /* nada */ } return { done: 'fullscreen' }; }
+    const m = modal();
+    if (m) { closeModal(m); return { done: 'modal' }; }
     // ¿Hay a dónde volver? navigation.canGoBack lo sabe (history.length cuenta también las de adelante).
     const nav = window.navigation;
     const can = nav && typeof nav.canGoBack === 'boolean' ? nav.canGoBack : history.length > 1;
     if (can) { history.back(); return { done: 'history' }; }
     return { done: 'none' };
+  }
+
+  // Primero Escape (como en una compu); si el cuadro sigue, su botón de cerrar o cancelar; si no tiene, un clic en el
+  // fondo oscuro (muchos cierran así).
+  const CLOSE_RE = /^(×|✕|✖|x)$|close|cancel|dismiss|cerrar|cancelar|^no$/i;
+  function closeModal(m) {
+    const t = document.activeElement && document.activeElement !== document.body ? document.activeElement : document;
+    for (const type of ['keydown', 'keyup']) {
+      try { t.dispatchEvent(new KeyboardEvent(type, { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true })); } catch (e) { /* nada */ }
+    }
+    setTimeout(() => {
+      if (m.isConnected && cssVisible(m)) {
+        const btn = $$('button, [role="button"], a[href]', m).find((b) => usable(b, { near: false }) &&
+          CLOSE_RE.test((b.getAttribute('aria-label') || b.getAttribute('title') || b.innerText || '').trim()));
+        if (btn) btn.click();
+        else if (m.getBoundingClientRect().width >= vw() * 0.9) m.click();
+      }
+      setTimeout(afterModal, 100);
+    }, 150);
+  }
+
+  // Cerrado el cuadro, el marco vuelve a lo que lo abrió (o se queda donde estaba, si nunca entró al cuadro).
+  function afterModal() {
+    const back = [S.cur, S.opener].find((e) => e && e.isConnected && !closest(e, MODAL_SEL) && usable(e, { near: false }));
+    S.opener = null;
+    setCur(back || null);
   }
 
   // ------------------------------------------------------------ escribir
@@ -517,7 +625,7 @@
   }
 
   function dump() {
-    return { url: location.href, title: document.title, focused: textOf(S.cur), candidates: candidates(document).length, ctx: editable() ? 'text' : 'page', mouse: S.mouse };
+    return { url: location.href, title: document.title, focused: textOf(S.cur), candidates: candidates(scope()).length, ctx: editable() ? 'text' : 'page', mouse: S.mouse };
   }
 
   // ------------------------------------------------------------ modo mouse
@@ -621,7 +729,7 @@
     if (what === 'where') {  // para el clic: el punto, y si ahí hay un campo de texto
       if (!S.mouse) return { on: false };
       const hit = document.elementFromPoint(S.mouse.x, S.mouse.y);
-      return { on: true, x: Math.round(S.mouse.x), y: Math.round(S.mouse.y), text: !!(hit && closest(hit, TEXT_SEL)), label: S.mouse.label };
+      return { on: true, x: Math.round(S.mouse.x), y: Math.round(S.mouse.y), text: !!(hit && closest(hit, TEXT_SEL)), numeric: isNumeric(hit && closest(hit, TEXT_SEL)), label: S.mouse.label };
     }
     return { error: `mouse: ${what}?` };
   }

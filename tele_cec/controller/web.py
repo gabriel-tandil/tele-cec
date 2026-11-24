@@ -14,6 +14,7 @@ from ..apps.netflix.cdp import CDPClosed, CDPError
 log = logging.getLogger("tele")
 
 TEXT_HINT = "Escribí con los números · OK aceptar · Atrás salir del campo"
+NUMERIC_HINT = "Campo de números: los números escriben números · OK aceptar · Atrás salir del campo"
 MOUSE_HINT = "Modo mouse · las flechas mueven la flecha (seguido: más rápido) · OK = clic · CC = salir"
 MOUSE_OFF_HINT = "Modo mouse apagado · las flechas van de enlace en enlace"
 
@@ -75,6 +76,17 @@ class WebMixin:
         except CDPError as exc:
             log.warning("Navegador: web:%s: %s", arg, exc)
 
+    async def _web_text_field(self, w: activities_mod.WebActivity, numeric: bool) -> None:
+        """Se entró a escribir en un campo. Uno de números (un tamaño, una cantidad) pasa a 123; al volver a uno de
+        texto, vuelve el modo que había."""
+        w.t9.reset()
+        prev = getattr(w, "t9_prev_mode", None)
+        if numeric and w.t9.mode != "123":
+            w.t9_prev_mode, w.t9.mode = w.t9.mode, "123"
+        elif not numeric and prev:
+            w.t9.mode, w.t9_prev_mode = prev, None
+        await self.toast(NUMERIC_HINT if numeric else TEXT_HINT, 2500)
+
     async def _web_cmd(self, w: activities_mod.WebActivity, cmd: str, rest: str) -> None:
         if w.mouse:
             # Modo mouse, también escribiendo: las flechas siempre mueven la flecha; OK hace clic (escribiendo, si
@@ -98,8 +110,7 @@ class WebMixin:
                 await w.click(r["x"], r["y"])
                 await w.click_landed()
             if r.get("text"):
-                w.t9.reset()
-                await self.toast(TEXT_HINT, 2500)
+                await self._web_text_field(w, bool(r.get("numeric")))
             if r.get("label"):
                 log.info("Navegador: %s «%s»", "escribir en" if r.get("text") else "abro", r["label"])
         elif cmd == "back":
@@ -202,8 +213,7 @@ class WebMixin:
         elif sub == "click":
             r = await w.mouse_click()
             if r.get("text"):
-                w.t9.reset()
-                await self.toast(TEXT_HINT, 2500)
+                await self._web_text_field(w, bool(r.get("numeric")))
             log.info("Navegador: clic en %s,%s%s", r.get("x"), r.get("y"), f" «{r['label']}»" if r.get("label") else "")
         else:
             log.warning("web:mouse:%s desconocida (up, down, left, right, click, on, off)", sub)
